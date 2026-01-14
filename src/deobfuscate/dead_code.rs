@@ -44,7 +44,7 @@ fn should_remove_token_sequence(
 }
 
 fn is_string_array_declaration(
-    tokens: &[Token],
+    _tokens: &[Token],
     pos: usize,
     string_arrays: &[StringArrayInfo],
 ) -> Result<bool> {
@@ -57,7 +57,7 @@ fn is_string_array_declaration(
 }
 
 fn is_decoder_function_declaration(
-    tokens: &[Token],
+    _tokens: &[Token],
     pos: usize,
     decoders: &[DecoderInfo],
 ) -> Result<bool> {
