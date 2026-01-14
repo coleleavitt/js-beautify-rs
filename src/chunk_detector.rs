@@ -242,8 +242,8 @@ impl ChunkDetector {
                 trace_chunk!("✓ found 'return' at position {}", pos);
                 pos
             }
-            Some(pos) => {
-                trace_chunk!("token[{}] is not 'return': '{}'", pos, tokens[pos].text);
+            Some(_pos) => {
+                trace_chunk!("token[{}] is not 'return': '{}'", _pos, tokens[_pos].text);
                 return false;
             }
             None => {
@@ -262,11 +262,11 @@ impl ChunkDetector {
                 trace_chunk!("✓ found '(' at position {}", pos);
                 pos
             }
-            Some(pos) => {
+            Some(_pos) => {
                 trace_chunk!(
                     "expected '(' at position {}, found '{}'",
-                    pos,
-                    tokens[pos].text
+                    _pos,
+                    tokens[_pos].text
                 );
                 return false;
             }
@@ -286,11 +286,11 @@ impl ChunkDetector {
                 trace_chunk!("✓ found '{{' at position {}", pos);
                 pos
             }
-            Some(pos) => {
+            Some(_pos) => {
                 trace_chunk!(
                     "expected '{{' at position {}, found '{}'",
-                    pos,
-                    tokens[pos].text
+                    _pos,
+                    tokens[_pos].text
                 );
                 return false;
             }
@@ -362,14 +362,14 @@ impl ChunkDetector {
         );
 
         if name_map.len() < hash_map.len() {
-            let diff = hash_map.len().checked_sub(name_map.len()).ok_or_else(|| {
+            let _diff = hash_map.len().checked_sub(name_map.len()).ok_or_else(|| {
                 ChunkDetectorError::BoundaryDetectionFailed {
                     reason: "size difference calculation overflow".to_string(),
                 }
             })?;
             trace_chunk!(
                 "⚠ {} unnamed chunks detected (hash entries without names)",
-                diff
+                _diff
             );
         } else {
             trace_chunk!("✓ all chunks have names");
