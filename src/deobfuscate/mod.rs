@@ -28,6 +28,11 @@ impl DeobfuscateContext {
 
     pub fn deobfuscate(&self, tokens: &mut Vec<Token>) -> Result<()> {
         inline_strings::inline_decoded_strings(tokens, &self.string_arrays, &self.decoders)?;
+
+        let cleaned_tokens =
+            dead_code::remove_dead_code(tokens, &self.string_arrays, &self.decoders)?;
+        *tokens = cleaned_tokens;
+
         Ok(())
     }
 
