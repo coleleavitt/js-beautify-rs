@@ -1,5 +1,6 @@
 pub mod decoder;
 pub mod inline_strings;
+pub mod rotation;
 pub mod string_array;
 
 use crate::Result;
@@ -31,6 +32,11 @@ impl DeobfuscateContext {
 
     fn find_string_arrays(&mut self, tokens: &[Token]) -> Result<()> {
         self.string_arrays = string_array::find_string_arrays(tokens)?;
+
+        for array in &mut self.string_arrays {
+            rotation::detect_and_apply_rotation(tokens, array)?;
+        }
+
         Ok(())
     }
 
