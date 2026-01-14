@@ -148,6 +148,59 @@ fn try_simplify_atob(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>,
     Ok(None)
 }
 
+fn try_extract_comma_sequence(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, usize)>> {
+    if tokens[pos].token_type != TokenType::StartExpr {
+        return Ok(None);
+    }
+
+    let start = pos;
+    let mut depth = 0;
+    let mut comma_positions = Vec::new();
+    let mut i = pos;
+    let mut end_pos = None;
+
+    while i < tokens.len() {
+        match tokens[i].token_type {
+            TokenType::StartExpr | TokenType::StartArray | TokenType::StartBlock => {
+                depth += 1;
+            }
+            TokenType::EndExpr | TokenType::EndArray | TokenType::EndBlock => {
+                depth -= 1;
+                if depth == 0 {
+                    end_pos = Some(i);
+                    break;
+                }
+            }
+            TokenType::Comma if depth == 1 => {
+                comma_positions.push(i);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if comma_positions.is_empty() || end_pos.is_none() {
+        return Ok(None);
+    }
+
+    let end_pos = end_pos.unwrap();
+
+    let last_segment_start = if let Some(&last_comma) = comma_positions.last() {
+        last_comma + 1
+    } else {
+        start + 1
+    };
+
+    let mut result = Vec::new();
+    for j in last_segment_start..end_pos {
+        result.push(tokens[j].clone());
+    }
+
+    let total_consumed = end_pos - start + 1;
+
+    Ok(Some((result, total_consumed)))
+}
+
 fn try_simplify_advanced_boolean(
     tokens: &[Token],
     pos: usize,
@@ -281,6 +334,10 @@ fn try_simplify_at(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, u
     }
 
     if let Some(simplified) = try_simplify_void(tokens, pos)? {
+        return Ok(Some(simplified));
+    }
+
+    if let Some(simplified) = try_extract_comma_sequence(tokens, pos)? {
         return Ok(Some(simplified));
     }
 
@@ -636,6 +693,115 @@ mod tests {
         assert!(
             !output.contains("0o110"),
             "Should not contain octal notation, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_comma_sequence_extraction() {
+        let code = "var x = (a(), b(), c());";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        eprintln!("\n=== Original Tokens ===");
+        for (i, token) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+        eprintln!("=== End Original ===\n");
+
+        let result = simplify_expressions(&tokens).unwrap();
+
+        eprintln!("\n=== Simplified Tokens ===");
+        for (i, token) in result.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+        eprintln!("=== End Simplified ===\n");
+
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("Output: {}", output);
+
+        assert!(
+            output.contains("c()"),
+            "Should contain last expression c(), got: {}",
+            output
+        );
+        assert!(
+            !output.contains("a()"),
+            "Should not contain first expression a(), got: {}",
+            output
+        );
+        assert!(
+            !output.contains("b()"),
+            "Should not contain middle expression b(), got: {}",
+            output
+        );
+
+        let open_parens = output.matches('(').count();
+        let close_parens = output.matches(')').count();
+        eprintln!(
+            "Open parens: {}, Close parens: {}",
+            open_parens, close_parens
+        );
+
+        assert_eq!(
+            open_parens, 1,
+            "Should have only 1 open paren (from c()), got: {}",
+            output
+        );
+        assert_eq!(
+            close_parens, 1,
+            "Should have only 1 close paren (from c()), got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_comma_sequence_simple() {
+        let code = "var x = (1, 2, 3);";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        let result = simplify_expressions(&tokens).unwrap();
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+
+        eprintln!("Simple comma sequence output: {}", output);
+
+        assert!(
+            output.contains("3"),
+            "Should contain last value 3, got: {}",
+            output
+        );
+        assert!(
+            !output.contains("1,"),
+            "Should not contain first value with comma, got: {}",
+            output
+        );
+        assert!(
+            !output.contains("2,"),
+            "Should not contain middle value with comma, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_comma_sequence_nested() {
+        let code = "var x = (f(1, 2), g(3, 4));";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        let result = simplify_expressions(&tokens).unwrap();
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+
+        eprintln!("Nested comma sequence output: {}", output);
+
+        assert!(
+            output.contains("g(3,4)") || output.contains("g(3, 4)"),
+            "Should contain last expression g(3,4), got: {}",
+            output
+        );
+        assert!(
+            !output.contains("f("),
+            "Should not contain first expression f(), got: {}",
             output
         );
     }
