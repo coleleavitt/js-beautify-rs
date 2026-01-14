@@ -1,5 +1,5 @@
-use crate::token::{Token, TokenType};
 use crate::Result;
+use crate::token::{Token, TokenType};
 
 pub struct Tokenizer<'a> {
     input: &'a str,
