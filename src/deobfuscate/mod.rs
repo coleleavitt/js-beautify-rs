@@ -14,6 +14,7 @@ pub mod operator_proxy;
 pub mod rotation;
 pub mod simplify;
 pub mod string_array;
+pub mod try_catch;
 pub mod unicode_mangling;
 pub mod void_replacer;
 
@@ -86,6 +87,9 @@ impl DeobfuscateContext {
 
         let props_converted = dynamic_property::convert_dynamic_properties(tokens)?;
         *tokens = props_converted;
+
+        let try_catch_removed = try_catch::remove_empty_try_catch(tokens)?;
+        *tokens = try_catch_removed;
 
         let sparse_consolidated = object_sparsing::consolidate_sparse_objects(tokens)?;
         *tokens = sparse_consolidated;
