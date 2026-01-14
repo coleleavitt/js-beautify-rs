@@ -6,6 +6,8 @@ pub struct Tokenizer<'a> {
     pos: usize,
     line: usize,
     column: usize,
+    newlines_before_current: usize,
+    last_token_type: TokenType,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -15,6 +17,8 @@ impl<'a> Tokenizer<'a> {
             pos: 0,
             line: 1,
             column: 0,
+            newlines_before_current: 0,
+            last_token_type: TokenType::Start,
         }
     }
 
@@ -29,15 +33,17 @@ impl<'a> Tokenizer<'a> {
             }
 
             if let Some(token) = self.next_token()? {
+                self.last_token_type = token.token_type;
                 tokens.push(token);
             }
         }
 
-        tokens.push(Token::with_position(
+        tokens.push(Token::with_newlines(
             TokenType::Eof,
             "",
             self.line,
             self.column,
+            0,
         ));
 
         Ok(tokens)
@@ -69,11 +75,12 @@ impl<'a> Tokenizer<'a> {
                 if self.peek_char() == Some('>') {
                     self.advance();
                     self.advance();
-                    return Ok(Some(Token::with_position(
+                    return Ok(Some(Token::with_newlines(
                         TokenType::Operator,
                         "=>",
                         self.line,
                         start_column,
+                        self.newlines_before_current,
                     )));
                 }
                 if self.peek_char() == Some('=') {
@@ -81,19 +88,21 @@ impl<'a> Tokenizer<'a> {
                     if self.peek_char() == Some('=') {
                         self.advance();
                         self.advance();
-                        return Ok(Some(Token::with_position(
+                        return Ok(Some(Token::with_newlines(
                             TokenType::Operator,
                             "===",
                             self.line,
                             start_column,
+                            self.newlines_before_current,
                         )));
                     }
                     self.advance();
-                    return Ok(Some(Token::with_position(
+                    return Ok(Some(Token::with_newlines(
                         TokenType::Operator,
                         "==",
                         self.line,
                         start_column,
+                        self.newlines_before_current,
                     )));
                 }
                 TokenType::Equals
@@ -106,6 +115,8 @@ impl<'a> Tokenizer<'a> {
                     return self.read_line_comment();
                 } else if self.peek_char() == Some('*') {
                     return self.read_block_comment();
+                } else if self.should_be_regex() {
+                    return self.read_regex();
                 } else {
                     return self.read_operator(ch, start_column);
                 }
@@ -127,11 +138,12 @@ impl<'a> Tokenizer<'a> {
 
         self.advance();
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             token_type,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -174,11 +186,12 @@ impl<'a> Tokenizer<'a> {
             _ => &self.input[start_pos..self.pos],
         };
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::Operator,
             operator_text,
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -211,11 +224,12 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::Number,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -240,11 +254,12 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::TemplateLiteral,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -268,11 +283,12 @@ impl<'a> Tokenizer<'a> {
             TokenType::Word
         };
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             token_type,
             text,
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -297,11 +313,12 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::String,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -313,11 +330,12 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::Comment,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
@@ -336,21 +354,24 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        Ok(Some(Token::with_position(
+        Ok(Some(Token::with_newlines(
             TokenType::BlockComment,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
+            self.newlines_before_current,
         )))
     }
 
     fn skip_whitespace(&mut self) {
+        self.newlines_before_current = 0;
         while self.pos < self.input.len() {
             let ch = self.current_char();
             if ch.is_whitespace() {
                 if ch == '\n' {
                     self.line += 1;
                     self.column = 0;
+                    self.newlines_before_current += 1;
                 }
                 self.advance();
             } else {
@@ -420,6 +441,73 @@ impl<'a> Tokenizer<'a> {
                 | "from"
                 | "as"
         )
+    }
+
+    fn should_be_regex(&self) -> bool {
+        matches!(
+            self.last_token_type,
+            TokenType::Equals
+                | TokenType::StartExpr
+                | TokenType::StartBlock
+                | TokenType::StartArray
+                | TokenType::Comma
+                | TokenType::Colon
+                | TokenType::Semicolon
+                | TokenType::Operator
+                | TokenType::QuestionMark
+                | TokenType::Reserved
+        )
+    }
+
+    fn read_regex(&mut self) -> Result<Option<Token>> {
+        let start_pos = self.pos;
+        let start_column = self.column;
+        self.advance();
+
+        let mut in_char_class = false;
+
+        while self.pos < self.input.len() {
+            let ch = self.current_char();
+
+            if ch == '\\' {
+                self.advance();
+                if self.pos < self.input.len() {
+                    self.advance();
+                }
+                continue;
+            }
+
+            if ch == '[' && !in_char_class {
+                in_char_class = true;
+            } else if ch == ']' && in_char_class {
+                in_char_class = false;
+            } else if ch == '/' && !in_char_class {
+                self.advance();
+                while self.pos < self.input.len() {
+                    let flag = self.current_char();
+                    if flag.is_alphabetic() {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                break;
+            } else if ch == '\n' {
+                return Err(crate::BeautifyError::TokenizationFailed(
+                    "Unterminated regex literal".to_string(),
+                ));
+            }
+
+            self.advance();
+        }
+
+        Ok(Some(Token::with_newlines(
+            TokenType::String,
+            &self.input[start_pos..self.pos],
+            self.line,
+            start_column,
+            self.newlines_before_current,
+        )))
     }
 }
 
