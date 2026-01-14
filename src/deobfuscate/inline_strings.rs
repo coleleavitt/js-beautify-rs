@@ -25,17 +25,17 @@ fn inline_decoder_calls(
 ) -> Result<()> {
     let array_info = string_arrays
         .iter()
-        .find(|a| a.variable_name == decoder.array_ref)
+        .find(|a| a.variable_name == decoder.array_name)
         .ok_or_else(|| {
             crate::BeautifyError::BeautificationFailed(format!(
                 "String array {} not found",
-                decoder.array_ref
+                decoder.array_name
             ))
         })?;
 
     let mut i = 0;
     while i < tokens.len() {
-        if is_decoder_call(tokens, i, &decoder.function_name) {
+        if is_decoder_call(tokens, i, &decoder.name) {
             if let Some(index) = extract_call_index(tokens, i) {
                 if let Some(decoded_string) = get_decoded_string(array_info, decoder, index) {
                     replace_decoder_call(tokens, i, decoded_string);
@@ -79,10 +79,8 @@ fn get_decoded_string(
     decoder: &DecoderInfo,
     mut index: usize,
 ) -> Option<String> {
-    if decoder.has_offset {
-        if let Some(offset) = decoder.offset_value {
-            index = (index as i32 - offset) as usize;
-        }
+    if decoder.offset != 0 {
+        index = (index as i32 - decoder.offset) as usize;
     }
 
     if index < array_info.strings.len() {

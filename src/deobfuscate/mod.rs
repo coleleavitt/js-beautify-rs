@@ -1,3 +1,4 @@
+pub mod dead_code;
 pub mod decoder;
 pub mod inline_strings;
 pub mod rotation;
@@ -57,12 +58,11 @@ pub struct StringArrayInfo {
 
 #[derive(Debug, Clone)]
 pub struct DecoderInfo {
-    pub function_name: String,
+    pub name: String,
+    pub array_name: String,
     pub start_index: usize,
     pub end_index: usize,
-    pub array_ref: String,
-    pub has_offset: bool,
-    pub offset_value: Option<i32>,
+    pub offset: i32,
 }
 
 impl Default for DeobfuscateContext {

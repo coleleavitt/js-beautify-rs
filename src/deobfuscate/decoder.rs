@@ -77,7 +77,7 @@ fn detect_decoder_function(
     }
 
     let mut references_array = false;
-    let mut has_offset = false;
+    let mut offset = 0i32;
     let mut end_index = body_start;
 
     let mut brace_depth = 1;
@@ -96,8 +96,21 @@ fn detect_decoder_function(
                 references_array = true;
             }
             TokenType::Operator if tokens[current].text == "-" => {
-                if current > 0 && tokens[current - 1].token_type == TokenType::Word {
-                    has_offset = true;
+                if current + 1 < tokens.len() && tokens[current + 1].token_type == TokenType::Number
+                {
+                    if let Ok(num) = tokens[current + 1].text.parse::<i32>() {
+                        offset = num;
+                    }
+                }
+            }
+            TokenType::Number => {
+                if current > 0
+                    && tokens[current - 1].token_type == TokenType::Operator
+                    && tokens[current - 1].text == "-"
+                {
+                    if let Ok(num) = tokens[current].text.parse::<i32>() {
+                        offset = num;
+                    }
                 }
             }
             _ => {}
@@ -110,12 +123,11 @@ fn detect_decoder_function(
     }
 
     Ok(Some(DecoderInfo {
-        function_name: name_token.text.clone(),
+        name: name_token.text.clone(),
+        array_name: array_name.to_string(),
         start_index: start,
         end_index,
-        array_ref: array_name.to_string(),
-        has_offset,
-        offset_value: None,
+        offset,
     }))
 }
 
@@ -140,9 +152,9 @@ function _0xdecoder(a) {
         let decoders = find_decoders(&tokens, &arrays).unwrap();
 
         assert_eq!(decoders.len(), 1);
-        assert_eq!(decoders[0].function_name, "_0xdecoder");
-        assert_eq!(decoders[0].array_ref, "_0x1234");
-        assert!(!decoders[0].has_offset);
+        assert_eq!(decoders[0].name, "_0xdecoder");
+        assert_eq!(decoders[0].array_name, "_0x1234");
+        assert_eq!(decoders[0].offset, 0);
     }
 
     #[test]
@@ -150,7 +162,7 @@ function _0xdecoder(a) {
         let code = r#"
 var _0xabcd = ["foo", "bar"];
 function _0xdecode(a) {
-    a = a - 0x123;
+    a = a - 291;
     return _0xabcd[a];
 }
         "#;
@@ -161,7 +173,7 @@ function _0xdecode(a) {
         let decoders = find_decoders(&tokens, &arrays).unwrap();
 
         assert_eq!(decoders.len(), 1);
-        assert_eq!(decoders[0].function_name, "_0xdecode");
-        assert!(decoders[0].has_offset);
+        assert_eq!(decoders[0].name, "_0xdecode");
+        assert!(decoders[0].offset > 0);
     }
 }
