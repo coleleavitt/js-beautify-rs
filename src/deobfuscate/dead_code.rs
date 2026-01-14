@@ -186,7 +186,12 @@ fn is_rotation_iife(
                     break;
                 }
             }
-            TokenType::Word if tokens[i].text == "push" || tokens[i].text == "shift" => {
+            TokenType::Word
+                if matches!(
+                    tokens[i].text.as_str(),
+                    "push" | "shift" | "unshift" | "pop" | "splice"
+                ) =>
+            {
                 has_push_shift = true;
             }
             _ => {}

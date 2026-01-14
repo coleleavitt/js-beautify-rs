@@ -16,6 +16,8 @@ pub struct Options {
     pub asset_size_threshold: usize,
     pub deobfuscate: bool,
     pub max_line_length: usize,
+    pub generate_source_map: bool,
+    pub source_map_file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +45,8 @@ impl Default for Options {
             asset_size_threshold: 10_000,
             deobfuscate: false,
             max_line_length: 120,
+            generate_source_map: false,
+            source_map_file_name: None,
         }
     }
 }
