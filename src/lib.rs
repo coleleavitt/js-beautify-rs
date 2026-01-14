@@ -16,6 +16,7 @@ pub mod beautifier;
 pub mod deobfuscate;
 pub mod options;
 pub mod output;
+pub mod sourcemap;
 pub mod token;
 pub mod tokenizer;
 

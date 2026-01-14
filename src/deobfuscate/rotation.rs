@@ -59,7 +59,7 @@ fn analyze_rotation_iife(
     array_name: &str,
 ) -> Result<Option<usize>> {
     let mut i = start;
-    let mut has_push_shift = false;
+    let mut has_rotation_ops = false;
     let mut rotation_count = None;
     let mut iife_end = None;
 
@@ -74,8 +74,13 @@ fn analyze_rotation_iife(
                     break;
                 }
             }
-            TokenType::Word if tokens[i].text == "push" || tokens[i].text == "shift" => {
-                has_push_shift = true;
+            TokenType::Word
+                if matches!(
+                    tokens[i].text.as_str(),
+                    "push" | "shift" | "unshift" | "pop" | "splice"
+                ) =>
+            {
+                has_rotation_ops = true;
             }
             TokenType::Number => {
                 if let Ok(num) = tokens[i].text.parse::<usize>() {
@@ -96,7 +101,7 @@ fn analyze_rotation_iife(
             if tokens[j].token_type == TokenType::StartExpr {
                 for k in j + 1..std::cmp::min(j + 5, tokens.len()) {
                     if tokens[k].token_type == TokenType::Word && tokens[k].text == array_name {
-                        if has_push_shift && rotation_count.is_some() {
+                        if has_rotation_ops && rotation_count.is_some() {
                             return Ok(rotation_count);
                         }
                     }

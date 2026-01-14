@@ -122,9 +122,9 @@ fn find_while_switch_loop(
     let mut i = start;
 
     while i < tokens.len() && i < start + 100 {
-        if is_while_true_start(tokens, i) {
-            if let Some(switch_pos) = find_switch_in_while(tokens, i)? {
-                if let Some(end) = find_while_end(tokens, i)? {
+        if is_while_true_start(tokens, i) || is_for_infinite_start(tokens, i) {
+            if let Some(switch_pos) = find_switch_in_loop(tokens, i)? {
+                if let Some(end) = find_loop_end(tokens, i)? {
                     return Ok(Some((switch_pos, end)));
                 }
             }
@@ -147,11 +147,24 @@ fn is_while_true_start(tokens: &[Token], pos: usize) -> bool {
         && tokens[pos + 3].token_type == TokenType::EndExpr
 }
 
-fn find_switch_in_while(tokens: &[Token], while_pos: usize) -> Result<Option<usize>> {
-    let mut i = while_pos;
+fn is_for_infinite_start(tokens: &[Token], pos: usize) -> bool {
+    if pos + 7 >= tokens.len() {
+        return false;
+    }
+
+    tokens[pos].token_type == TokenType::Reserved
+        && tokens[pos].text == "for"
+        && tokens[pos + 1].token_type == TokenType::StartExpr
+        && tokens[pos + 2].token_type == TokenType::Semicolon
+        && tokens[pos + 3].token_type == TokenType::Semicolon
+        && tokens[pos + 4].token_type == TokenType::EndExpr
+}
+
+fn find_switch_in_loop(tokens: &[Token], loop_pos: usize) -> Result<Option<usize>> {
+    let mut i = loop_pos;
     let mut depth = 0;
 
-    while i < tokens.len() && i < while_pos + 50 {
+    while i < tokens.len() && i < loop_pos + 50 {
         match tokens[i].token_type {
             TokenType::StartBlock => depth += 1,
             TokenType::EndBlock => {
@@ -171,8 +184,8 @@ fn find_switch_in_while(tokens: &[Token], while_pos: usize) -> Result<Option<usi
     Ok(None)
 }
 
-fn find_while_end(tokens: &[Token], while_pos: usize) -> Result<Option<usize>> {
-    let mut i = while_pos;
+fn find_loop_end(tokens: &[Token], loop_pos: usize) -> Result<Option<usize>> {
+    let mut i = loop_pos;
     let mut depth = 0;
 
     while i < tokens.len() {
