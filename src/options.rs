@@ -15,6 +15,7 @@ pub struct Options {
     pub extract_large_assets: bool,
     pub asset_size_threshold: usize,
     pub deobfuscate: bool,
+    pub max_line_length: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +42,7 @@ impl Default for Options {
             extract_large_assets: true,
             asset_size_threshold: 10_000,
             deobfuscate: false,
+            max_line_length: 120,
         }
     }
 }

@@ -44,28 +44,58 @@ fn should_remove_token_sequence(
 }
 
 fn is_string_array_declaration(
-    _tokens: &[Token],
+    tokens: &[Token],
     pos: usize,
     string_arrays: &[StringArrayInfo],
 ) -> Result<bool> {
+    if pos + 3 >= tokens.len() {
+        return Ok(false);
+    }
+
+    if tokens[pos].token_type != TokenType::Reserved || tokens[pos].text != "var" {
+        return Ok(false);
+    }
+
+    if tokens[pos + 1].token_type != TokenType::Word {
+        return Ok(false);
+    }
+
+    let var_name = &tokens[pos + 1].text;
+
     for array in string_arrays {
-        if pos >= array.start_index && pos <= array.end_index {
+        if var_name == &array.variable_name {
             return Ok(true);
         }
     }
+
     Ok(false)
 }
 
 fn is_decoder_function_declaration(
-    _tokens: &[Token],
+    tokens: &[Token],
     pos: usize,
     decoders: &[DecoderInfo],
 ) -> Result<bool> {
+    if pos + 2 >= tokens.len() {
+        return Ok(false);
+    }
+
+    if tokens[pos].token_type != TokenType::Reserved || tokens[pos].text != "function" {
+        return Ok(false);
+    }
+
+    if tokens[pos + 1].token_type != TokenType::Word {
+        return Ok(false);
+    }
+
+    let func_name = &tokens[pos + 1].text;
+
     for decoder in decoders {
-        if pos >= decoder.start_index && pos <= decoder.end_index {
+        if func_name == &decoder.name {
             return Ok(true);
         }
     }
+
     Ok(false)
 }
 

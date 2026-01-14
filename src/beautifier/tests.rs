@@ -67,7 +67,7 @@ fn test_small_asset_not_extracted() {
 
 #[test]
 fn test_nested_blocks_indentation() {
-    let code = "function test() { if (true) { return 42; } }";
+    let code = "function test() { if (x) { return 42; } }";
     let options = Options::default();
     let result = beautify(code, &options).unwrap();
 

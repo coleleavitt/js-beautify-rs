@@ -360,16 +360,20 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn current_char(&self) -> char {
-        self.input.chars().nth(self.pos).unwrap_or('\0')
+        self.input[self.pos..].chars().next().unwrap_or('\0')
     }
 
     fn peek_char(&self) -> Option<char> {
-        self.input.chars().nth(self.pos + 1)
+        let mut chars = self.input[self.pos..].chars();
+        chars.next();
+        chars.next()
     }
 
     fn advance(&mut self) {
-        self.pos += 1;
-        self.column += 1;
+        if let Some(ch) = self.input[self.pos..].chars().next() {
+            self.pos += ch.len_utf8();
+            self.column += 1;
+        }
     }
 
     fn is_reserved_word(word: &str) -> bool {
@@ -455,5 +459,24 @@ mod tests {
 
         assert_eq!(tokens[0].token_type, TokenType::Operator);
         assert_eq!(tokens[2].token_type, TokenType::Operator);
+    }
+
+    #[test]
+    fn test_tokenize_multibyte_utf8() {
+        let code = r#"var emoji = "🎉"; var chinese = "你好"; var fancy = "World";"#;
+        let mut tokenizer = Tokenizer::new(code);
+        let result = tokenizer.tokenize();
+
+        assert!(
+            result.is_ok(),
+            "Should handle multi-byte UTF-8 characters without panicking"
+        );
+        let tokens = result.unwrap();
+
+        assert_eq!(tokens[0].token_type, TokenType::Reserved);
+        assert_eq!(tokens[0].text, "var");
+        assert_eq!(tokens[2].token_type, TokenType::Equals);
+        assert_eq!(tokens[3].token_type, TokenType::String);
+        assert!(tokens[3].text.contains("🎉"));
     }
 }
