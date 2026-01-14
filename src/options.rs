@@ -22,6 +22,9 @@ pub struct Options {
     pub split_chunks: bool,
     pub chunk_dir: PathBuf,
     pub chunk_map_output: Option<PathBuf>,
+    pub extract_modules: bool,
+    pub module_dir: PathBuf,
+    pub dependency_graph: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +57,9 @@ impl Default for Options {
             split_chunks: false,
             chunk_dir: PathBuf::from("./chunks"),
             chunk_map_output: None,
+            extract_modules: false,
+            module_dir: PathBuf::from("./modules"),
+            dependency_graph: None,
         }
     }
 }

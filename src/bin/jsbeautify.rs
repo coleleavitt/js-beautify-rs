@@ -1,3 +1,5 @@
+use js_beautify_rs::tokenizer::Tokenizer;
+use js_beautify_rs::webpack_module_extractor::ModuleExtractor;
 use js_beautify_rs::{Options, beautify};
 use std::env;
 use std::fs;
@@ -30,6 +32,33 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let options = parse_options(&args[1..])?;
 
+    if options.extract_modules {
+        eprintln!("[WEBPACK] Extracting modules...");
+        let mut tokenizer = Tokenizer::new(&code);
+        let tokens = tokenizer.tokenize()?;
+        let mut extractor = ModuleExtractor::new();
+        extractor.extract_modules(&tokens)?;
+        extractor.extract_dependencies(&tokens)?;
+
+        eprintln!("[WEBPACK] Found {} modules", extractor.module_count());
+
+        extractor.write_modules(&tokens, &options.module_dir)?;
+        eprintln!(
+            "[WEBPACK] Modules written to {}",
+            options.module_dir.display()
+        );
+
+        if let Some(graph_path) = &options.dependency_graph {
+            extractor.generate_dependency_graph(graph_path)?;
+            eprintln!(
+                "[WEBPACK] Dependency graph written to {}",
+                graph_path.display()
+            );
+        }
+
+        return Ok(());
+    }
+
     let beautified = beautify(&code, &options)?;
 
     if let Some(output_path) = get_output_path(&args) {
@@ -52,6 +81,9 @@ fn print_usage(program: &str) {
     eprintln!("  --split-chunks               Split webpack chunks into separate files");
     eprintln!("  --chunk-dir <dir>            Directory for chunk output (default: ./chunks)");
     eprintln!("  --chunk-map <file>           Write chunk metadata to JSON file");
+    eprintln!("  --extract-modules            Extract webpack modules to separate files");
+    eprintln!("  --module-dir <dir>           Directory for module output (default: ./modules)");
+    eprintln!("  --dependency-graph <file>    Generate dependency graph (DOT format)");
     eprintln!("  --source-maps                Generate source maps");
 }
 
@@ -83,6 +115,26 @@ fn parse_options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>>
                 }
                 i = i.checked_add(1).ok_or("index overflow")?;
                 options.chunk_map_output = Some(PathBuf::from(&args[i]));
+                i = i.checked_add(1).ok_or("index overflow")?;
+            }
+            "--extract-modules" => {
+                options.extract_modules = true;
+                i = i.checked_add(1).ok_or("index overflow")?;
+            }
+            "--module-dir" => {
+                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
+                    return Err("--module-dir requires a value".into());
+                }
+                i = i.checked_add(1).ok_or("index overflow")?;
+                options.module_dir = PathBuf::from(&args[i]);
+                i = i.checked_add(1).ok_or("index overflow")?;
+            }
+            "--dependency-graph" => {
+                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
+                    return Err("--dependency-graph requires a value".into());
+                }
+                i = i.checked_add(1).ok_or("index overflow")?;
+                options.dependency_graph = Some(PathBuf::from(&args[i]));
                 i = i.checked_add(1).ok_or("index overflow")?;
             }
             "--source-maps" => {
