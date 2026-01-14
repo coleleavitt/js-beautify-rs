@@ -120,7 +120,14 @@ impl<'a> Handlers for Beautifier<'a> {
     }
 
     fn handle_string(&mut self, token: &Token) -> Result<()> {
-        if self.should_extract_large_asset(&token.text) {
+        let last = &self.current_flags().last_token;
+        let last_word = &self.current_flags().last_word;
+
+        let in_eval = last.token_type == TokenType::Word && last.text == "eval";
+        let in_function_constructor =
+            last.token_type == TokenType::StartExpr && last_word == "Function";
+
+        if self.should_extract_large_asset(&token.text) && !in_eval && !in_function_constructor {
             let placeholder = format!("__WEBPACK_LARGE_ASSET_{}_extracted__", self.current_index);
             self.output.add_token(&placeholder);
         } else {
