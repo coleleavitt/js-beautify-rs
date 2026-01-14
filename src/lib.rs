@@ -13,12 +13,14 @@
 //! ```
 
 pub mod beautifier;
+pub mod deobfuscate;
 pub mod options;
 pub mod output;
 pub mod token;
 pub mod tokenizer;
 
 pub use beautifier::beautify;
+pub use deobfuscate::DeobfuscateContext;
 pub use options::Options;
 pub use token::{Token, TokenType};
 

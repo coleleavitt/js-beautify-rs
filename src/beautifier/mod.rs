@@ -1,8 +1,8 @@
+use crate::Result;
 use crate::options::Options;
 use crate::output::Output;
 use crate::token::Token;
 use crate::tokenizer::Tokenizer;
-use crate::Result;
 
 mod flags;
 mod handlers;
