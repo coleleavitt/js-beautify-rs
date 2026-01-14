@@ -1,8 +1,8 @@
 use super::helpers::Helpers;
 use super::webpack::WebpackDetector;
 use super::{Beautifier, Mode};
-use crate::Result;
 use crate::token::{Token, TokenType};
+use crate::Result;
 
 pub(super) trait Handlers {
     fn handle_token(&mut self, token: &Token) -> Result<()>;
