@@ -18,6 +18,7 @@ pub mod chunk_splitter;
 pub mod deobfuscate;
 pub mod options;
 pub mod output;
+pub mod oxc_opts;
 pub mod sourcemap;
 pub mod token;
 pub mod tokenizer;
@@ -28,6 +29,7 @@ pub use chunk_detector::{ChunkDetector, ChunkMetadata};
 pub use chunk_splitter::{ChunkManifest, ChunkSplitter};
 pub use deobfuscate::DeobfuscateContext;
 pub use options::Options;
+pub use oxc_opts::OxcOptimizer;
 pub use token::{Token, TokenType};
 
 #[derive(Debug, thiserror::Error)]

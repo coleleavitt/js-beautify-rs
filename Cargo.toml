@@ -10,3 +10,15 @@ thiserror = "2.0.17"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rustc-hash = "2"
+
+# Oxc dependencies (local paths)
+oxc_allocator = { path = "../../forks/oxc/crates/oxc_allocator" }
+oxc_ast = { path = "../../forks/oxc/crates/oxc_ast" }
+oxc_parser = { path = "../../forks/oxc/crates/oxc_parser" }
+oxc_semantic = { path = "../../forks/oxc/crates/oxc_semantic" }
+oxc_span = { path = "../../forks/oxc/crates/oxc_span" }
+oxc_syntax = { path = "../../forks/oxc/crates/oxc_syntax" }
+oxc_traverse = { path = "../../forks/oxc/crates/oxc_traverse" }
+oxc_codegen = { path = "../../forks/oxc/crates/oxc_codegen" }
+oxc_cfg = { path = "../../forks/oxc/crates/oxc_cfg" }
