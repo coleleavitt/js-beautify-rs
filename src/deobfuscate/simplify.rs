@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::token::{Token, TokenType};
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 fn decode_hex_escape(s: &str) -> String {
     let mut result = String::new();
@@ -122,6 +123,31 @@ fn try_simplify_string_concat(tokens: &[Token], pos: usize) -> Result<Option<(Ve
     Ok(None)
 }
 
+fn try_simplify_atob(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, usize)>> {
+    // Pattern: atob("base64string")
+    if pos + 5 >= tokens.len() {
+        return Ok(None);
+    }
+
+    if tokens[pos].token_type == TokenType::Word
+        && tokens[pos].text == "atob"
+        && tokens[pos + 1].token_type == TokenType::StartExpr
+        && tokens[pos + 2].token_type == TokenType::String
+        && tokens[pos + 3].token_type == TokenType::EndExpr
+    {
+        let base64_str = tokens[pos + 2].text.trim_matches('"').trim_matches('\'');
+
+        if let Ok(decoded_bytes) = STANDARD.decode(base64_str) {
+            if let Ok(decoded_str) = String::from_utf8(decoded_bytes) {
+                let result_token = Token::new(TokenType::String, format!("\"{}\"", decoded_str));
+                return Ok(Some((vec![result_token], 4)));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 fn try_simplify_advanced_boolean(
     tokens: &[Token],
     pos: usize,
@@ -231,6 +257,10 @@ fn try_simplify_at(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, u
     }
 
     if let Some(simplified) = try_simplify_string_concat(tokens, pos)? {
+        return Ok(Some(simplified));
+    }
+
+    if let Some(simplified) = try_simplify_atob(tokens, pos)? {
         return Ok(Some(simplified));
     }
 
@@ -467,6 +497,32 @@ mod tests {
         assert!(
             output.contains("Hello"),
             "Should combine string concatenation"
+        );
+    }
+
+    #[test]
+    fn test_atob_base64() {
+        let code = r#"var x = atob("SGVsbG8=");"#;
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        let result = simplify_expressions(&tokens).unwrap();
+
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+        assert!(
+            output.contains("Hello"),
+            "Should decode base64 atob(), got: {}",
+            output
+        );
+        assert!(
+            !output.contains("atob"),
+            "Should not contain atob call, got: {}",
+            output
+        );
+        assert!(
+            !output.contains("SGVsbG8="),
+            "Should not contain base64 string, got: {}",
+            output
         );
     }
 
