@@ -15,6 +15,7 @@ pub mod inline_strings;
 pub mod object_dispatcher;
 pub mod object_sparsing;
 pub mod operator_proxy;
+pub mod oxc_optimize;
 pub mod rotation;
 pub mod simplify;
 pub mod strength_reduction;
@@ -126,6 +127,9 @@ impl DeobfuscateContext {
 
         let void_replaced = void_replacer::replace_void_zero(tokens)?;
         *tokens = void_replaced;
+
+        let oxc_optimized = oxc_optimize::apply_oxc_optimizations(tokens)?;
+        *tokens = oxc_optimized;
 
         Ok(())
     }
