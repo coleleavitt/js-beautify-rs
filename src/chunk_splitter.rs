@@ -206,7 +206,7 @@ impl ChunkSplitter {
         &self,
         tokens: &[Token],
         path: &Path,
-        chunk: &ChunkMetadata,
+        _chunk: &ChunkMetadata,
     ) -> Result<(), ChunkSplitterError> {
         assert!(!tokens.is_empty(), "tokens must not be empty");
         trace_split!("writing chunk file: {}", path.display());
@@ -266,14 +266,14 @@ impl ChunkSplitter {
             }
         })?;
 
-        let json_len = json.len();
+        let _json_len = json.len();
 
         fs::write(path, &json).map_err(|source| ChunkSplitterError::ChunkMapWriteFailed {
             path: path.to_path_buf(),
             source,
         })?;
 
-        trace_split!("✓ wrote chunk map ({} bytes)", json_len);
+        trace_split!("✓ wrote chunk map ({} bytes)", _json_len);
         Ok(())
     }
 
