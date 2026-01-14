@@ -283,6 +283,75 @@ fn try_simplify_number(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token
     Ok(None)
 }
 
+fn try_remove_anti_debug(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, usize)>> {
+    if tokens[pos].token_type == TokenType::Reserved && tokens[pos].text == "debugger" {
+        if pos + 1 < tokens.len() && tokens[pos + 1].token_type == TokenType::Semicolon {
+            return Ok(Some((vec![], 2)));
+        }
+        return Ok(Some((vec![], 1)));
+    }
+
+    if pos + 5 >= tokens.len() {
+        return Ok(None);
+    }
+
+    if tokens[pos].token_type == TokenType::Word
+        && tokens[pos].text == "console"
+        && tokens[pos + 1].token_type == TokenType::Dot
+        && tokens[pos + 2].token_type == TokenType::Word
+        && tokens[pos + 3].token_type == TokenType::Equals
+    {
+        let method = &tokens[pos + 2].text;
+        if matches!(
+            method.as_str(),
+            "log" | "warn" | "error" | "debug" | "info" | "trace"
+        ) {
+            let mut depth = 0;
+            let mut i = pos + 4;
+            let mut found_function = false;
+
+            while i < tokens.len() {
+                match tokens[i].token_type {
+                    TokenType::Reserved if tokens[i].text == "function" => {
+                        found_function = true;
+                    }
+                    TokenType::StartExpr | TokenType::StartBlock => {
+                        depth += 1;
+                    }
+                    TokenType::EndExpr | TokenType::EndBlock => {
+                        depth -= 1;
+
+                        if found_function
+                            && depth == 0
+                            && tokens[i].token_type == TokenType::EndBlock
+                        {
+                            if i + 1 < tokens.len()
+                                && tokens[i + 1].token_type == TokenType::Semicolon
+                            {
+                                let skip_count = i - pos + 2;
+                                debug_assert!(skip_count > 0, "Should skip at least 1 token");
+                                return Ok(Some((vec![], skip_count)));
+                            }
+                            let skip_count = i - pos + 1;
+                            debug_assert!(skip_count > 0, "Should skip at least 1 token");
+                            return Ok(Some((vec![], skip_count)));
+                        }
+                    }
+                    TokenType::Semicolon if depth == 0 && !found_function => {
+                        let skip_count = i - pos + 1;
+                        debug_assert!(skip_count > 0, "Should skip at least 1 token");
+                        return Ok(Some((vec![], skip_count)));
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 pub fn simplify_expressions(tokens: &[Token]) -> Result<Vec<Token>> {
     let mut result = Vec::new();
     let mut i = 0;
@@ -334,6 +403,10 @@ fn try_simplify_at(tokens: &[Token], pos: usize) -> Result<Option<(Vec<Token>, u
     }
 
     if let Some(simplified) = try_simplify_void(tokens, pos)? {
+        return Ok(Some(simplified));
+    }
+
+    if let Some(simplified) = try_remove_anti_debug(tokens, pos)? {
         return Ok(Some(simplified));
     }
 
@@ -802,6 +875,94 @@ mod tests {
         assert!(
             !output.contains("f("),
             "Should not contain first expression f(), got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_remove_debugger_statement() {
+        let code = "var x = 1; debugger; var y = 2;";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        eprintln!("\n=== Original Tokens (debugger) ===");
+        for (i, token) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+
+        let result = simplify_expressions(&tokens).unwrap();
+
+        eprintln!("\n=== Simplified Tokens (debugger) ===");
+        for (i, token) in result.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("Output: {}", output);
+
+        assert!(
+            !output.contains("debugger"),
+            "Should remove debugger statement, got: {}",
+            output
+        );
+        assert!(output.contains("x"), "Should keep var x, got: {}", output);
+        assert!(output.contains("y"), "Should keep var y, got: {}", output);
+    }
+
+    #[test]
+    fn test_remove_console_hijacking() {
+        let code = "console.log = function() {}; var x = 1;";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        eprintln!("\n=== Original Tokens (console hijack) ===");
+        for (i, token) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+
+        let result = simplify_expressions(&tokens).unwrap();
+
+        eprintln!("\n=== Simplified Tokens (console hijack) ===");
+        for (i, token) in result.iter().enumerate() {
+            eprintln!("Token {}: {:?} = '{}'", i, token.token_type, token.text);
+        }
+
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("Output: {}", output);
+
+        assert!(
+            !output.contains("console.log"),
+            "Should remove console hijacking, got: {}",
+            output
+        );
+        assert!(output.contains("x"), "Should keep var x, got: {}", output);
+    }
+
+    #[test]
+    fn test_remove_multiple_console_methods() {
+        let code =
+            "console.warn = function() {}; console.error = function() {}; var result = true;";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        let result = simplify_expressions(&tokens).unwrap();
+        let output: String = result.iter().map(|t| t.text.as_str()).collect();
+
+        eprintln!("Multi-console output: {}", output);
+
+        assert!(
+            !output.contains("console.warn"),
+            "Should remove console.warn, got: {}",
+            output
+        );
+        assert!(
+            !output.contains("console.error"),
+            "Should remove console.error, got: {}",
+            output
+        );
+        assert!(
+            output.contains("result"),
+            "Should keep var result, got: {}",
             output
         );
     }
