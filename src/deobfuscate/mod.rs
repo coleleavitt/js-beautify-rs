@@ -1,5 +1,6 @@
 pub mod control_flow;
 pub mod dead_code;
+pub mod dead_code_removal;
 pub mod decoder;
 pub mod inline_strings;
 pub mod rotation;
@@ -42,6 +43,9 @@ impl DeobfuscateContext {
         let cleaned_tokens =
             dead_code::remove_dead_code(tokens, &self.string_arrays, &self.decoders)?;
         *tokens = cleaned_tokens;
+
+        let dead_removed_tokens = dead_code_removal::remove_dead_code_conditionals(tokens)?;
+        *tokens = dead_removed_tokens;
 
         Ok(())
     }
