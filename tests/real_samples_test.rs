@@ -187,3 +187,70 @@ console.log(getItem(0));
         "Should not detect normal functions as decoders"
     );
 }
+
+#[test]
+fn test_real_bundle_sample() {
+    let code = fs::read_to_string("tests/fixtures/obfuscated/real_bundle_sample.js")
+        .expect("Failed to read fixture");
+
+    let mut options = Options::default();
+    options.deobfuscate = true;
+
+    let result = beautify(&code, &options).unwrap();
+
+    println!("\n=== Real Bundle Sample Result ===");
+    println!("{}", result);
+    println!("=== End Result ===\n");
+
+    assert!(
+        result.contains("true"),
+        "Should convert !0 to true, got: {}",
+        result
+    );
+    assert!(
+        result.contains("false"),
+        "Should convert !1 to false, got: {}",
+        result
+    );
+    assert!(
+        result.contains("undefined"),
+        "Should convert void 0 to undefined, got: {}",
+        result
+    );
+    assert!(
+        result.contains("72"),
+        "Should convert 0x48 to 72, got: {}",
+        result
+    );
+    assert!(
+        result.contains("3"),
+        "Should extract last value from comma sequence, got: {}",
+        result
+    );
+
+    assert!(
+        !result.contains("!0"),
+        "Should not contain !0, got: {}",
+        result
+    );
+    assert!(
+        !result.contains("!1"),
+        "Should not contain !1, got: {}",
+        result
+    );
+    assert!(
+        !result.contains("void 0"),
+        "Should not contain void 0, got: {}",
+        result
+    );
+    assert!(
+        !result.contains("0x48"),
+        "Should not contain hex notation, got: {}",
+        result
+    );
+    assert!(
+        !result.contains("(1, 2, 3)") && !result.contains("(1,2,3)"),
+        "Should not contain full comma sequence, got: {}",
+        result
+    );
+}
