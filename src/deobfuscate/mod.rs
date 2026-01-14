@@ -5,6 +5,7 @@ pub mod control_flow;
 pub mod dead_code;
 pub mod dead_code_removal;
 pub mod decoder;
+pub mod function_inline;
 pub mod inline_strings;
 pub mod object_dispatcher;
 pub mod object_sparsing;
@@ -77,6 +78,10 @@ impl DeobfuscateContext {
         let operator_inlined =
             operator_proxy::inline_operator_proxies(tokens, &self.operator_proxies)?;
         *tokens = operator_inlined;
+
+        let inlinable_funcs = function_inline::detect_inlinable_functions(tokens)?;
+        let func_inlined = function_inline::inline_single_use_functions(tokens, &inlinable_funcs)?;
+        *tokens = func_inlined;
 
         let sparse_consolidated = object_sparsing::consolidate_sparse_objects(tokens)?;
         *tokens = sparse_consolidated;

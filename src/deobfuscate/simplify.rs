@@ -153,6 +153,22 @@ fn try_extract_comma_sequence(tokens: &[Token], pos: usize) -> Result<Option<(Ve
         return Ok(None);
     }
 
+    if pos > 0 {
+        let prev_token = &tokens[pos - 1];
+
+        if prev_token.token_type == TokenType::Word {
+            return Ok(None);
+        }
+
+        if prev_token.token_type == TokenType::Reserved && prev_token.text == "function" {
+            return Ok(None);
+        }
+
+        if prev_token.token_type == TokenType::EndExpr {
+            return Ok(None);
+        }
+    }
+
     let start = pos;
     let mut depth = 0;
     let mut comma_positions = Vec::new();
