@@ -3,6 +3,7 @@ pub mod dead_code;
 pub mod decoder;
 pub mod inline_strings;
 pub mod rotation;
+pub mod simplify;
 pub mod string_array;
 
 use crate::Result;
@@ -34,6 +35,9 @@ impl DeobfuscateContext {
         inline_strings::inline_decoded_strings(tokens, &self.string_arrays, &self.decoders)?;
 
         self.unflatten_control_flow(tokens)?;
+
+        let simplified_tokens = simplify::simplify_expressions(tokens)?;
+        *tokens = simplified_tokens;
 
         let cleaned_tokens =
             dead_code::remove_dead_code(tokens, &self.string_arrays, &self.decoders)?;

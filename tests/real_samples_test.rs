@@ -2,6 +2,42 @@ use js_beautify_rs::{DeobfuscateContext, Options, beautify, tokenizer::Tokenizer
 use std::fs;
 
 #[test]
+fn test_simplify_expressions_fixture() {
+    let code = fs::read_to_string("tests/fixtures/obfuscated/simplify_expressions.js")
+        .expect("Failed to read fixture");
+
+    let mut options = Options::default();
+    options.deobfuscate = true;
+
+    let result = beautify(&code, &options).unwrap();
+
+    println!("Simplified expressions:\n{}", result);
+
+    assert!(
+        result.contains(".property"),
+        "Should convert bracket to dot notation"
+    );
+    assert!(
+        result.contains(".method"),
+        "Should convert bracket to dot notation"
+    );
+    assert!(result.contains("true"), "Should convert !0 to true");
+    assert!(result.contains("false"), "Should convert !1 to false");
+    assert!(
+        result.contains("undefined"),
+        "Should convert void 0 to undefined"
+    );
+
+    assert!(
+        !result.contains("[\"property\"]"),
+        "Should not contain bracket notation"
+    );
+    assert!(!result.contains("!0"), "Should not contain !0");
+    assert!(!result.contains("!1"), "Should not contain !1");
+    assert!(!result.contains("void 0"), "Should not contain void 0");
+}
+
+#[test]
 fn test_control_flow_switch_fixture() {
     let code = fs::read_to_string("tests/fixtures/obfuscated/control_flow_switch.js")
         .expect("Failed to read fixture");
