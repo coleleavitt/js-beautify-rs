@@ -3,6 +3,7 @@ pub mod dead_code;
 pub mod dead_code_removal;
 pub mod decoder;
 pub mod inline_strings;
+pub mod object_dispatcher;
 pub mod rotation;
 pub mod simplify;
 pub mod string_array;
@@ -14,6 +15,7 @@ pub struct DeobfuscateContext {
     pub string_arrays: Vec<StringArrayInfo>,
     pub decoders: Vec<DecoderInfo>,
     pub control_flows: Vec<control_flow::ControlFlowInfo>,
+    pub dispatchers: Vec<object_dispatcher::DispatcherInfo>,
 }
 
 impl DeobfuscateContext {
@@ -22,6 +24,7 @@ impl DeobfuscateContext {
             string_arrays: Vec::new(),
             decoders: Vec::new(),
             control_flows: Vec::new(),
+            dispatchers: Vec::new(),
         }
     }
 
@@ -29,6 +32,7 @@ impl DeobfuscateContext {
         self.find_string_arrays(tokens)?;
         self.find_decoders(tokens)?;
         self.find_control_flows(tokens)?;
+        self.find_dispatchers(tokens)?;
         Ok(())
     }
 
@@ -46,6 +50,10 @@ impl DeobfuscateContext {
 
         let dead_removed_tokens = dead_code_removal::remove_dead_code_conditionals(tokens)?;
         *tokens = dead_removed_tokens;
+
+        let dispatcher_inlined =
+            object_dispatcher::inline_dispatcher_calls(tokens, &self.dispatchers)?;
+        *tokens = dispatcher_inlined;
 
         Ok(())
     }
@@ -81,6 +89,11 @@ impl DeobfuscateContext {
 
     fn find_control_flows(&mut self, tokens: &[Token]) -> Result<()> {
         self.control_flows = control_flow::detect_control_flow_flattening(tokens)?;
+        Ok(())
+    }
+
+    fn find_dispatchers(&mut self, tokens: &[Token]) -> Result<()> {
+        self.dispatchers = object_dispatcher::detect_object_dispatchers(tokens)?;
         Ok(())
     }
 }
