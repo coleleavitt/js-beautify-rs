@@ -1,11 +1,14 @@
+pub mod array_unpack;
 pub mod boolean_literals;
 pub mod call_proxy;
 pub mod constant_folding;
 pub mod control_flow;
 pub mod dead_code;
 pub mod dead_code_removal;
+pub mod dead_var_elimination;
 pub mod decoder;
 pub mod dynamic_property;
+pub mod expression_simplify;
 pub mod function_inline;
 pub mod inline_strings;
 pub mod object_dispatcher;
@@ -63,6 +66,15 @@ impl DeobfuscateContext {
 
         let folded_tokens = constant_folding::fold_constants(tokens)?;
         *tokens = folded_tokens;
+
+        let expr_simplified = expression_simplify::simplify_expressions(tokens)?;
+        *tokens = expr_simplified;
+
+        let array_unpacked = array_unpack::unpack_array_access(tokens)?;
+        *tokens = array_unpacked;
+
+        let dead_vars_removed = dead_var_elimination::eliminate_dead_variables(tokens)?;
+        *tokens = dead_vars_removed;
 
         let cleaned_tokens =
             dead_code::remove_dead_code(tokens, &self.string_arrays, &self.decoders)?;
