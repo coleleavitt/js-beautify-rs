@@ -2,6 +2,10 @@ use super::StringArrayInfo;
 use crate::Result;
 use crate::token::{Token, TokenType};
 
+fn is_obfuscated_name(name: &str) -> bool {
+    name.starts_with("_0x") || name.starts_with("_0X")
+}
+
 pub fn find_string_arrays(tokens: &[Token]) -> Result<Vec<StringArrayInfo>> {
     let mut arrays = Vec::new();
     let mut i = 0;
@@ -30,6 +34,10 @@ fn detect_string_array(tokens: &[Token], start: usize) -> Result<Option<StringAr
 
     let name_token = &tokens[start + 1];
     if name_token.token_type != TokenType::Word {
+        return Ok(None);
+    }
+
+    if !is_obfuscated_name(&name_token.text) {
         return Ok(None);
     }
 
