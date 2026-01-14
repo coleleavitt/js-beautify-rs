@@ -47,6 +47,17 @@ impl SourceMap {
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json);
         Ok(format!("data:application/json;base64,{}", encoded))
     }
+
+    pub fn for_chunk(chunk_name: &str, chunk_filename: &str, line_count: usize) -> Self {
+        let mut map = Self::new(chunk_name);
+        map.file = Some(chunk_filename.to_string());
+
+        for line in 1..=line_count {
+            map.add_simple_mapping(line, line);
+        }
+
+        map
+    }
 }
 
 const VLQ_BASE: i64 = 32;
@@ -105,5 +116,16 @@ mod tests {
         let json = map.to_json().unwrap();
         assert!(json.contains("\"version\":3"));
         assert!(json.contains("input.js"));
+    }
+
+    #[test]
+    fn test_for_chunk() {
+        let map = SourceMap::for_chunk("LoginView", "LoginView.chunk.363842.js", 10);
+
+        assert_eq!(map.version, 3);
+        assert_eq!(map.sources.len(), 1);
+        assert_eq!(map.sources[0], "LoginView");
+        assert_eq!(map.file, Some("LoginView.chunk.363842.js".to_string()));
+        assert!(!map.mappings.is_empty());
     }
 }

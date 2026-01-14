@@ -1,8 +1,10 @@
-use crate::Result;
+use crate::chunk_detector::ChunkDetector;
+use crate::chunk_splitter::ChunkSplitter;
 use crate::options::Options;
 use crate::output::Output;
 use crate::token::Token;
 use crate::tokenizer::Tokenizer;
+use crate::{BeautifyError, Result};
 
 mod asi;
 mod flags;
@@ -106,6 +108,88 @@ pub fn beautify(code: &str, options: &Options) -> Result<String> {
         let mut ctx = crate::deobfuscate::DeobfuscateContext::new();
         ctx.analyze(&tokens)?;
         ctx.deobfuscate(&mut tokens)?;
+    }
+
+    if options.split_chunks {
+        eprintln!("[BEAUTIFY] Chunk splitting enabled, detecting chunks...");
+
+        let mut detector = ChunkDetector::new();
+        match detector.detect_chunks(&tokens) {
+            Ok(()) => {
+                eprintln!("[BEAUTIFY] ✓ Detected {} chunks", detector.chunk_count());
+
+                if detector.chunk_count() > 0 {
+                    if detector.has_boundaries() {
+                        let splitter = ChunkSplitter::new(detector);
+
+                        eprintln!(
+                            "[BEAUTIFY] Splitting chunks to: {}",
+                            options.chunk_dir.display()
+                        );
+
+                        let manifest = splitter.split_and_write(&tokens, options)?;
+
+                        eprintln!(
+                            "[BEAUTIFY] ✓ Successfully wrote {} chunk files",
+                            manifest.total_chunks
+                        );
+
+                        if let Some(ref map_path) = options.chunk_map_output {
+                            eprintln!("[BEAUTIFY] ✓ Chunk map written to: {}", map_path.display());
+                        }
+
+                        return Ok(format!(
+                            "// Chunks written to: {}\n// Total chunks: {}\n",
+                            options.chunk_dir.display(),
+                            manifest.total_chunks
+                        ));
+                    } else {
+                        eprintln!("[BEAUTIFY] ⚠ Chunks detected but no embedded code found");
+                        eprintln!(
+                            "[BEAUTIFY]   This appears to be a code-split bundle (chunks are already separate files)"
+                        );
+                        eprintln!(
+                            "[BEAUTIFY]   Chunk metadata extracted: {} chunks",
+                            detector.chunk_count()
+                        );
+
+                        if let Some(ref map_path) = options.chunk_map_output {
+                            use crate::chunk_splitter::ChunkManifest;
+                            use std::fs;
+
+                            let manifest = ChunkManifest::from_detector(&detector);
+                            let json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+                                BeautifyError::BeautificationFailed(format!(
+                                    "failed to serialize manifest: {}",
+                                    e
+                                ))
+                            })?;
+                            fs::write(map_path, json).map_err(|e| {
+                                BeautifyError::BeautificationFailed(format!(
+                                    "failed to write manifest: {}",
+                                    e
+                                ))
+                            })?;
+
+                            eprintln!(
+                                "[BEAUTIFY] ✓ Chunk metadata written to: {}",
+                                map_path.display()
+                            );
+                        }
+
+                        eprintln!("[BEAUTIFY] Proceeding with normal beautification");
+                    }
+                } else {
+                    eprintln!(
+                        "[BEAUTIFY] ⚠ No chunks detected, proceeding with normal beautification"
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("[BEAUTIFY] ⚠ Chunk detection failed: {}", e);
+                eprintln!("[BEAUTIFY] Falling back to normal beautification");
+            }
+        }
     }
 
     let mut beautifier = Beautifier::new(tokens, options);

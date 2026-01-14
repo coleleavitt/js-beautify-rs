@@ -13,6 +13,8 @@
 //! ```
 
 pub mod beautifier;
+pub mod chunk_detector;
+pub mod chunk_splitter;
 pub mod deobfuscate;
 pub mod options;
 pub mod output;
@@ -21,6 +23,8 @@ pub mod token;
 pub mod tokenizer;
 
 pub use beautifier::beautify;
+pub use chunk_detector::{ChunkDetector, ChunkMetadata};
+pub use chunk_splitter::{ChunkManifest, ChunkSplitter};
 pub use deobfuscate::DeobfuscateContext;
 pub use options::Options;
 pub use token::{Token, TokenType};
@@ -39,6 +43,12 @@ pub enum BeautifyError {
 
     #[error("invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("chunk detection failed: {0}")]
+    ChunkDetectionFailed(#[from] chunk_detector::ChunkDetectorError),
+
+    #[error("chunk splitting failed: {0}")]
+    ChunkSplittingFailed(#[from] chunk_splitter::ChunkSplitterError),
 }
 
 pub type Result<T> = std::result::Result<T, BeautifyError>;

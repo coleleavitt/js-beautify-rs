@@ -1,4 +1,5 @@
 use std::default::Default;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -18,6 +19,9 @@ pub struct Options {
     pub max_line_length: usize,
     pub generate_source_map: bool,
     pub source_map_file_name: Option<String>,
+    pub split_chunks: bool,
+    pub chunk_dir: PathBuf,
+    pub chunk_map_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +51,9 @@ impl Default for Options {
             max_line_length: 120,
             generate_source_map: false,
             source_map_file_name: None,
+            split_chunks: false,
+            chunk_dir: PathBuf::from("./chunks"),
+            chunk_map_output: None,
         }
     }
 }
