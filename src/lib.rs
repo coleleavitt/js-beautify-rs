@@ -26,8 +26,12 @@ pub use token::{Token, TokenType};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BeautifyError {
-    #[error("tokenization failed: {0}")]
-    TokenizationFailed(String),
+    #[error("tokenization failed at line {line}, column {column}: {message}")]
+    TokenizationFailed {
+        message: String,
+        line: usize,
+        column: usize,
+    },
 
     #[error("beautification failed: {0}")]
     BeautificationFailed(String),
