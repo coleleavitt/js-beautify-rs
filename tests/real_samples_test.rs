@@ -1,5 +1,63 @@
-use js_beautify_rs::{DeobfuscateContext, tokenizer::Tokenizer};
+use js_beautify_rs::{DeobfuscateContext, Options, beautify, tokenizer::Tokenizer};
 use std::fs;
+
+#[test]
+fn test_control_flow_switch_fixture() {
+    let code = fs::read_to_string("tests/fixtures/obfuscated/control_flow_switch.js")
+        .expect("Failed to read fixture");
+
+    let mut tokenizer = Tokenizer::new(&code);
+    let mut tokens = tokenizer.tokenize().unwrap();
+
+    let mut ctx = DeobfuscateContext::new();
+    ctx.analyze(&tokens).unwrap();
+
+    assert_eq!(
+        ctx.control_flows.len(),
+        1,
+        "Should find 1 control flow pattern"
+    );
+    assert_eq!(
+        ctx.control_flows[0].sequence.len(),
+        5,
+        "Should have 5 steps"
+    );
+    assert_eq!(ctx.control_flows[0].cases.len(), 5, "Should have 5 cases");
+
+    ctx.deobfuscate(&mut tokens).unwrap();
+
+    let output: String = tokens.iter().map(|t| t.text.as_str()).collect();
+
+    assert!(output.contains("step 1"), "Should contain step 1");
+    assert!(output.contains("step 5"), "Should contain step 5");
+
+    let step1_pos = output.find("step 1").unwrap();
+    let step2_pos = output.find("step 2").unwrap();
+    let step3_pos = output.find("step 3").unwrap();
+    let step4_pos = output.find("step 4").unwrap();
+    let step5_pos = output.find("step 5").unwrap();
+
+    assert!(step1_pos < step2_pos, "Step 1 should come before step 2");
+    assert!(step2_pos < step3_pos, "Step 2 should come before step 3");
+    assert!(step3_pos < step4_pos, "Step 3 should come before step 4");
+    assert!(step4_pos < step5_pos, "Step 4 should come before step 5");
+}
+
+#[test]
+fn test_control_flow_with_beautify() {
+    let code = fs::read_to_string("tests/fixtures/obfuscated/control_flow_switch.js")
+        .expect("Failed to read fixture");
+
+    let mut options = Options::default();
+    options.deobfuscate = true;
+
+    let result = beautify(&code, &options).unwrap();
+
+    println!("Control flow deobfuscated:\n{}", result);
+
+    assert!(result.contains("step 1"));
+    assert!(result.contains("step 5"));
+}
 
 #[test]
 fn test_simple_string_array_fixture() {
