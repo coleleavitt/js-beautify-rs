@@ -28,6 +28,27 @@ impl Output {
         self.newline_count = 0;
     }
 
+    pub fn add_template_literal(&mut self, text: &str) {
+        let mut lines_iter = text.split('\n');
+
+        if let Some(first_line) = lines_iter.next() {
+            if self.at_line_start && !first_line.is_empty() && !first_line.trim().is_empty() {
+                self.current_line.push_str(&self.get_indent());
+                self.at_line_start = false;
+            }
+            self.current_line.push_str(first_line);
+        }
+
+        for line in lines_iter {
+            self.lines.push(self.current_line.clone());
+            self.current_line.clear();
+            self.current_line.push_str(line);
+            self.at_line_start = false;
+        }
+
+        self.newline_count = 0;
+    }
+
     pub fn add_space(&mut self) {
         if !self.current_line.is_empty() && !self.current_line.ends_with(' ') {
             self.current_line.push(' ');

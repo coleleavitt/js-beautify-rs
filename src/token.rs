@@ -78,6 +78,23 @@ impl Token {
         }
     }
 
+    pub fn with_newlines(
+        token_type: TokenType,
+        text: impl Into<String>,
+        line: usize,
+        column: usize,
+        newlines_before: usize,
+    ) -> Self {
+        Self {
+            token_type,
+            text: text.into(),
+            line,
+            column,
+            whitespace_before: String::new(),
+            newlines_before,
+        }
+    }
+
     pub fn is_reserved_keyword(&self, keyword: &str) -> bool {
         self.token_type == TokenType::Reserved && self.text == keyword
     }

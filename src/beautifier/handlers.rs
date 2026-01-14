@@ -22,6 +22,7 @@ pub(super) trait Handlers {
     fn handle_dot(&mut self, token: &Token) -> Result<()>;
     fn handle_comment(&mut self, token: &Token) -> Result<()>;
     fn handle_block_comment(&mut self, token: &Token) -> Result<()>;
+    fn handle_template_literal(&mut self, token: &Token) -> Result<()>;
     fn handle_unknown(&mut self, token: &Token) -> Result<()>;
 }
 
@@ -52,6 +53,7 @@ impl<'a> Handlers for Beautifier<'a> {
             TokenType::Dot => self.handle_dot(token),
             TokenType::Comment => self.handle_comment(token),
             TokenType::BlockComment => self.handle_block_comment(token),
+            TokenType::TemplateLiteral => self.handle_template_literal(token),
             _ => self.handle_unknown(token),
         }
     }
@@ -240,6 +242,14 @@ impl<'a> Handlers for Beautifier<'a> {
         self.output.add_newline();
         self.output.add_token(&token.text);
         self.output.add_newline();
+        Ok(())
+    }
+
+    fn handle_template_literal(&mut self, token: &Token) -> Result<()> {
+        if self.should_add_space_before_string() {
+            self.output.add_space();
+        }
+        self.output.add_template_literal(&token.text);
         Ok(())
     }
 

@@ -12,20 +12,22 @@ pub fn replace_boolean_literals(tokens: &[Token]) -> Result<Vec<Token>> {
             && tokens[i + 1].token_type == TokenType::Number
         {
             if tokens[i + 1].text == "0" {
-                result.push(Token::with_position(
+                result.push(Token::with_newlines(
                     TokenType::Reserved,
                     "true",
                     tokens[i].line,
                     tokens[i].column,
+                    tokens[i].newlines_before,
                 ));
                 i += 2;
                 continue;
             } else if tokens[i + 1].text == "1" {
-                result.push(Token::with_position(
+                result.push(Token::with_newlines(
                     TokenType::Reserved,
                     "false",
                     tokens[i].line,
                     tokens[i].column,
+                    tokens[i].newlines_before,
                 ));
                 i += 2;
                 continue;

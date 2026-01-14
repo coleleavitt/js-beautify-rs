@@ -4,6 +4,7 @@ use crate::output::Output;
 use crate::token::Token;
 use crate::tokenizer::Tokenizer;
 
+mod asi;
 mod flags;
 mod handlers;
 mod helpers;
@@ -68,6 +69,15 @@ impl<'a> Beautifier<'a> {
 
             if token.token_type == crate::token::TokenType::Eof {
                 break;
+            }
+
+            let prev_token = &self.current_flags().last_token;
+            if asi::needs_asi(prev_token, &token) {
+                self.output.add_token(";");
+                self.output.add_newline();
+            } else if asi::needs_asi_for_postfix(prev_token, &token) {
+                self.output.add_token(";");
+                self.output.add_newline();
             }
 
             self.handle_token(&token)?;
