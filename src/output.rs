@@ -4,6 +4,7 @@ pub struct Output {
     indent_level: usize,
     indent_string: String,
     newline_count: usize,
+    at_line_start: bool,
 }
 
 impl Output {
@@ -14,18 +15,30 @@ impl Output {
             indent_level: 0,
             indent_string,
             newline_count: 0,
+            at_line_start: true,
         }
     }
 
     pub fn add_token(&mut self, text: &str) {
+        if self.at_line_start && !text.is_empty() && !text.trim().is_empty() {
+            self.current_line.push_str(&self.get_indent());
+            self.at_line_start = false;
+        }
         self.current_line.push_str(text);
         self.newline_count = 0;
     }
 
+    pub fn add_space(&mut self) {
+        if !self.current_line.is_empty() && !self.current_line.ends_with(' ') {
+            self.current_line.push(' ');
+        }
+    }
+
     pub fn add_newline(&mut self) {
-        if !self.current_line.is_empty() {
+        if !self.current_line.is_empty() || self.newline_count == 0 {
             self.lines.push(self.current_line.clone());
             self.current_line.clear();
+            self.at_line_start = true;
         }
         self.newline_count += 1;
     }

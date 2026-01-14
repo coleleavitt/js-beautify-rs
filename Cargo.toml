@@ -1,9 +1,9 @@
 [package]
 name = "js-beautify-rs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 regex = "1"
 lazy_static = "1.4"
-thiserror = "1"
+thiserror = "2.0.17"

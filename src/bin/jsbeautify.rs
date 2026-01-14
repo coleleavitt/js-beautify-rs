@@ -2,7 +2,6 @@ use js_beautify_rs::{Options, beautify};
 use std::env;
 use std::fs;
 use std::io::{self, Read};
-use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
