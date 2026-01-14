@@ -21,6 +21,7 @@ pub mod output;
 pub mod sourcemap;
 pub mod token;
 pub mod tokenizer;
+pub mod webpack_module_extractor;
 
 pub use beautifier::beautify;
 pub use chunk_detector::{ChunkDetector, ChunkMetadata};

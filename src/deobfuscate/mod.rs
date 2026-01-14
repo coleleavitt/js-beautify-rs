@@ -1,3 +1,4 @@
+pub mod algebraic_simplify;
 pub mod array_unpack;
 pub mod boolean_literals;
 pub mod call_proxy;
@@ -16,6 +17,7 @@ pub mod object_sparsing;
 pub mod operator_proxy;
 pub mod rotation;
 pub mod simplify;
+pub mod strength_reduction;
 pub mod string_array;
 pub mod ternary;
 pub mod try_catch;
@@ -69,6 +71,12 @@ impl DeobfuscateContext {
 
         let expr_simplified = expression_simplify::simplify_expressions(tokens)?;
         *tokens = expr_simplified;
+
+        let strength_reduced = strength_reduction::apply_strength_reduction(tokens)?;
+        *tokens = strength_reduced;
+
+        let algebra_simplified = algebraic_simplify::simplify_algebraic(tokens)?;
+        *tokens = algebra_simplified;
 
         let array_unpacked = array_unpack::unpack_array_access(tokens)?;
         *tokens = array_unpacked;
