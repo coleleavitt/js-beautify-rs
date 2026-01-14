@@ -493,9 +493,11 @@ impl<'a> Tokenizer<'a> {
                 }
                 break;
             } else if ch == '\n' {
-                return Err(crate::BeautifyError::TokenizationFailed(
-                    "Unterminated regex literal".to_string(),
-                ));
+                return Err(crate::BeautifyError::TokenizationFailed {
+                    message: "Unterminated regex literal".to_string(),
+                    line: self.line,
+                    column: self.column,
+                });
             }
 
             self.advance();
