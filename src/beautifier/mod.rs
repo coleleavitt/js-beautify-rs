@@ -90,7 +90,13 @@ impl<'a> Beautifier<'a> {
 
 pub fn beautify(code: &str, options: &Options) -> Result<String> {
     let mut tokenizer = Tokenizer::new(code);
-    let tokens = tokenizer.tokenize()?;
+    let mut tokens = tokenizer.tokenize()?;
+
+    if options.deobfuscate {
+        let mut ctx = crate::deobfuscate::DeobfuscateContext::new();
+        ctx.analyze(&tokens)?;
+        ctx.deobfuscate(&mut tokens)?;
+    }
 
     let mut beautifier = Beautifier::new(tokens, options);
     beautifier.beautify_tokens()

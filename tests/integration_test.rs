@@ -1,6 +1,61 @@
 use js_beautify_rs::{DeobfuscateContext, Options, beautify};
 
 #[test]
+fn test_beautify_with_deobfuscation_enabled() {
+    let obfuscated_code = r#"
+var _0x1234 = ["hello", "world"];
+function _0xdec(a) {
+    return _0x1234[a];
+}
+console.log(_0xdec(0));
+    "#;
+
+    let mut options = Options::default();
+    options.deobfuscate = true;
+
+    let result = beautify(obfuscated_code, &options);
+    assert!(result.is_ok());
+
+    let beautified = result.unwrap();
+
+    assert!(
+        beautified.contains("hello") || beautified.contains("world"),
+        "Should contain inlined strings"
+    );
+
+    println!("Beautified with deobfuscation:\n{}", beautified);
+}
+
+#[test]
+fn test_beautify_without_deobfuscation() {
+    let obfuscated_code = r#"
+var _0x1234 = ["hello", "world"];
+function _0xdec(a) {
+    return _0x1234[a];
+}
+console.log(_0xdec(0));
+    "#;
+
+    let options = Options::default();
+
+    let result = beautify(obfuscated_code, &options);
+    assert!(result.is_ok());
+
+    let beautified = result.unwrap();
+
+    assert!(
+        beautified.contains("_0x1234"),
+        "Should preserve obfuscated code when deobfuscation disabled"
+    );
+    assert!(
+        beautified.contains("_0xdec"),
+        "Should preserve obfuscated function names"
+    );
+
+    println!("Beautified without deobfuscation:\n{}", beautified);
+}
+
+#[test]
 fn test_full_deobfuscation_pipeline() {
     let obfuscated_code = r#"
 var _0x1234 = ["hello", "world", "test"];
