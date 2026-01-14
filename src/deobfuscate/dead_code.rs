@@ -7,11 +7,13 @@ pub fn remove_dead_code(
     string_arrays: &[StringArrayInfo],
     decoders: &[DecoderInfo],
 ) -> Result<Vec<Token>> {
+    let usage_counts = count_decoder_usage(tokens, decoders)?;
+
     let mut result = Vec::new();
     let mut i = 0;
 
     while i < tokens.len() {
-        if should_remove_token_sequence(tokens, i, string_arrays, decoders)? {
+        if should_remove_token_sequence(tokens, i, string_arrays, decoders, &usage_counts)? {
             i = skip_declaration(tokens, i)?;
         } else {
             result.push(tokens[i].clone());
@@ -22,17 +24,60 @@ pub fn remove_dead_code(
     Ok(result)
 }
 
+fn count_decoder_usage(
+    tokens: &[Token],
+    decoders: &[DecoderInfo],
+) -> Result<std::collections::HashMap<String, usize>> {
+    use std::collections::HashMap;
+
+    let mut usage_counts = HashMap::new();
+
+    for decoder in decoders {
+        usage_counts.insert(decoder.name.clone(), 0);
+    }
+
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i].token_type == TokenType::Word {
+            let name = &tokens[i].text;
+            if let Some(count) = usage_counts.get_mut(name) {
+                let in_definition = is_in_decoder_definition(tokens, i, decoders)?;
+                if !in_definition {
+                    *count += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    Ok(usage_counts)
+}
+
+fn is_in_decoder_definition(
+    _tokens: &[Token],
+    pos: usize,
+    decoders: &[DecoderInfo],
+) -> Result<bool> {
+    for decoder in decoders {
+        if pos >= decoder.start_index && pos <= decoder.end_index {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn should_remove_token_sequence(
     tokens: &[Token],
     pos: usize,
     string_arrays: &[StringArrayInfo],
     decoders: &[DecoderInfo],
+    usage_counts: &std::collections::HashMap<String, usize>,
 ) -> Result<bool> {
     if is_string_array_declaration(tokens, pos, string_arrays)? {
         return Ok(true);
     }
 
-    if is_decoder_function_declaration(tokens, pos, decoders)? {
+    if is_decoder_function_declaration(tokens, pos, decoders, usage_counts)? {
         return Ok(true);
     }
 
@@ -75,6 +120,7 @@ fn is_decoder_function_declaration(
     tokens: &[Token],
     pos: usize,
     decoders: &[DecoderInfo],
+    usage_counts: &std::collections::HashMap<String, usize>,
 ) -> Result<bool> {
     if pos + 2 >= tokens.len() {
         return Ok(false);
@@ -92,7 +138,8 @@ fn is_decoder_function_declaration(
 
     for decoder in decoders {
         if func_name == &decoder.name {
-            return Ok(true);
+            let usage_count = usage_counts.get(&decoder.name).copied().unwrap_or(0);
+            return Ok(usage_count == 0);
         }
     }
 
