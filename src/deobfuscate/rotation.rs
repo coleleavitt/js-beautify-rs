@@ -23,8 +23,14 @@ fn detect_rotation_iife(
     array_name: &str,
 ) -> Result<Option<usize>> {
     let mut i = start_search;
+    let search_limit = start_search + 200;
 
-    while i < tokens.len() && i < start_search + 50 {
+    debug_assert!(
+        search_limit > start_search,
+        "Search limit must be greater than start"
+    );
+
+    while i < tokens.len() && i < search_limit {
         if is_iife_start(tokens, i) {
             if let Some(count) = analyze_rotation_iife(tokens, i, array_name)? {
                 return Ok(Some(count));

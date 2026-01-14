@@ -7,7 +7,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <input_file> [-o <output_file>]", args[0]);
+        eprintln!(
+            "Usage: {} <input_file> [-o <output_file>] [--deobfuscate]",
+            args[0]
+        );
         eprintln!("   or: cat file.js | {} > output.js", args[0]);
         std::process::exit(1);
     }
@@ -21,7 +24,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::read_to_string(input_path)?
     };
 
-    let options = Options::default();
+    let mut options = Options::default();
+    options.deobfuscate = true;
+
     let beautified = beautify(&code, &options)?;
 
     if args.len() > 3 && args[2] == "-o" {

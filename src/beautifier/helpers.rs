@@ -26,6 +26,10 @@ impl<'a> Helpers for Beautifier<'a> {
     fn should_add_space_before_word(&self, token: &Token) -> bool {
         let last = &self.current_flags().last_token;
 
+        if last.token_type == TokenType::Dot {
+            return false;
+        }
+
         if last.token_type == TokenType::Reserved
             || last.token_type == TokenType::Word
             || last.token_type == TokenType::EndExpr

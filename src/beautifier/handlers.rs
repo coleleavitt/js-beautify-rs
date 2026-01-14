@@ -138,10 +138,31 @@ impl<'a> Handlers for Beautifier<'a> {
     }
 
     fn handle_operator(&mut self, token: &Token) -> Result<()> {
+        let last_type = self.current_flags().last_token.token_type;
+        let last_text = &self.current_flags().last_token.text;
+
+        let is_unary = matches!(token.text.as_str(), "!" | "~" | "+" | "-")
+            && !matches!(
+                last_type,
+                TokenType::Number | TokenType::Word | TokenType::EndExpr | TokenType::EndArray
+            );
+
+        let prev_was_unary =
+            last_type == TokenType::Operator && matches!(last_text.as_str(), "!" | "~" | "+" | "-");
+
         if token.text == "=>" {
             self.output.add_space();
             self.output.add_token(&token.text);
             self.output.add_space();
+        } else if is_unary || prev_was_unary {
+            if !prev_was_unary
+                && last_type != TokenType::StartExpr
+                && last_type != TokenType::Comma
+                && last_type != TokenType::Equals
+            {
+                self.output.add_space();
+            }
+            self.output.add_token(&token.text);
         } else {
             self.output.add_space();
             self.output.add_token(&token.text);
@@ -162,15 +183,44 @@ impl<'a> Handlers for Beautifier<'a> {
     }
 
     fn handle_colon(&mut self, _token: &Token) -> Result<()> {
-        self.output.add_token(":");
-        self.output.add_space();
+        let in_ternary = self.current_flags().ternary_depth > 0;
+
+        if in_ternary {
+            self.current_flags_mut().ternary_depth -= 1;
+
+            if self
+                .output
+                .line_exceeds_length(self.options.max_line_length)
+            {
+                self.output.add_newline();
+                self.output.add_token(":");
+                self.output.add_space();
+            } else {
+                self.output.add_token(":");
+                self.output.add_space();
+            }
+        } else {
+            self.output.add_token(":");
+            self.output.add_space();
+        }
         Ok(())
     }
 
     fn handle_question_mark(&mut self, _token: &Token) -> Result<()> {
-        self.output.add_space();
-        self.output.add_token("?");
-        self.output.add_space();
+        self.current_flags_mut().ternary_depth += 1;
+
+        if self
+            .output
+            .line_exceeds_length(self.options.max_line_length)
+        {
+            self.output.add_newline();
+            self.output.add_token("?");
+            self.output.add_space();
+        } else {
+            self.output.add_space();
+            self.output.add_token("?");
+            self.output.add_space();
+        }
         Ok(())
     }
 

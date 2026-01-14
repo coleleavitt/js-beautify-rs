@@ -57,6 +57,14 @@ impl Output {
         self.indent_string.repeat(self.indent_level)
     }
 
+    pub fn current_line_length(&self) -> usize {
+        self.current_line.len()
+    }
+
+    pub fn line_exceeds_length(&self, max_length: usize) -> bool {
+        self.current_line.len() > max_length
+    }
+
     pub fn to_string(&self) -> String {
         let mut result = self.lines.join("\n");
         if !self.current_line.is_empty() {

@@ -117,5 +117,12 @@ var x = _0xdecode(292);
     let has_foo_or_bar = tokens
         .iter()
         .any(|t| t.text.contains("foo") || t.text.contains("bar"));
-    assert!(has_foo_or_bar, "Should have inlined string");
+
+    let token_text: String = tokens.iter().map(|t| t.text.as_str()).collect();
+
+    assert!(
+        has_foo_or_bar,
+        "Should have inlined string, got tokens: {}",
+        token_text
+    );
 }

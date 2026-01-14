@@ -1,12 +1,19 @@
+pub mod boolean_literals;
+pub mod call_proxy;
+pub mod constant_folding;
 pub mod control_flow;
 pub mod dead_code;
 pub mod dead_code_removal;
 pub mod decoder;
 pub mod inline_strings;
 pub mod object_dispatcher;
+pub mod object_sparsing;
+pub mod operator_proxy;
 pub mod rotation;
 pub mod simplify;
 pub mod string_array;
+pub mod unicode_mangling;
+pub mod void_replacer;
 
 use crate::Result;
 use crate::token::Token;
@@ -16,6 +23,8 @@ pub struct DeobfuscateContext {
     pub decoders: Vec<DecoderInfo>,
     pub control_flows: Vec<control_flow::ControlFlowInfo>,
     pub dispatchers: Vec<object_dispatcher::DispatcherInfo>,
+    pub call_proxies: Vec<call_proxy::ProxyInfo>,
+    pub operator_proxies: Vec<operator_proxy::OperatorProxyInfo>,
 }
 
 impl DeobfuscateContext {
@@ -25,6 +34,8 @@ impl DeobfuscateContext {
             decoders: Vec::new(),
             control_flows: Vec::new(),
             dispatchers: Vec::new(),
+            call_proxies: Vec::new(),
+            operator_proxies: Vec::new(),
         }
     }
 
@@ -33,6 +44,8 @@ impl DeobfuscateContext {
         self.find_decoders(tokens)?;
         self.find_control_flows(tokens)?;
         self.find_dispatchers(tokens)?;
+        self.find_call_proxies(tokens)?;
+        self.find_operator_proxies(tokens)?;
         Ok(())
     }
 
@@ -44,6 +57,9 @@ impl DeobfuscateContext {
         let simplified_tokens = simplify::simplify_expressions(tokens)?;
         *tokens = simplified_tokens;
 
+        let folded_tokens = constant_folding::fold_constants(tokens)?;
+        *tokens = folded_tokens;
+
         let cleaned_tokens =
             dead_code::remove_dead_code(tokens, &self.string_arrays, &self.decoders)?;
         *tokens = cleaned_tokens;
@@ -54,6 +70,25 @@ impl DeobfuscateContext {
         let dispatcher_inlined =
             object_dispatcher::inline_dispatcher_calls(tokens, &self.dispatchers)?;
         *tokens = dispatcher_inlined;
+
+        let proxy_inlined = call_proxy::inline_call_proxies(tokens, &self.call_proxies)?;
+        *tokens = proxy_inlined;
+
+        let operator_inlined =
+            operator_proxy::inline_operator_proxies(tokens, &self.operator_proxies)?;
+        *tokens = operator_inlined;
+
+        let sparse_consolidated = object_sparsing::consolidate_sparse_objects(tokens)?;
+        *tokens = sparse_consolidated;
+
+        let unicode_normalized = unicode_mangling::normalize_unicode(tokens)?;
+        *tokens = unicode_normalized;
+
+        let boolean_replaced = boolean_literals::replace_boolean_literals(tokens)?;
+        *tokens = boolean_replaced;
+
+        let void_replaced = void_replacer::replace_void_zero(tokens)?;
+        *tokens = void_replaced;
 
         Ok(())
     }
@@ -94,6 +129,16 @@ impl DeobfuscateContext {
 
     fn find_dispatchers(&mut self, tokens: &[Token]) -> Result<()> {
         self.dispatchers = object_dispatcher::detect_object_dispatchers(tokens)?;
+        Ok(())
+    }
+
+    fn find_call_proxies(&mut self, tokens: &[Token]) -> Result<()> {
+        self.call_proxies = call_proxy::detect_call_proxies(tokens)?;
+        Ok(())
+    }
+
+    fn find_operator_proxies(&mut self, tokens: &[Token]) -> Result<()> {
+        self.operator_proxies = operator_proxy::detect_operator_proxies(tokens)?;
         Ok(())
     }
 }
