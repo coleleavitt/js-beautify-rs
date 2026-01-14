@@ -1,5 +1,5 @@
+use crate::Result;
 use crate::token::{Token, TokenType};
-use crate::{BeautifyError, Result};
 
 pub struct Tokenizer<'a> {
     input: &'a str,
@@ -53,21 +53,74 @@ impl<'a> Tokenizer<'a> {
             ')' => TokenType::EndExpr,
             '{' => TokenType::StartBlock,
             '}' => TokenType::EndBlock,
+            '[' => TokenType::StartArray,
+            ']' => TokenType::EndArray,
             ';' => TokenType::Semicolon,
             ',' => TokenType::Comma,
-            '.' => TokenType::Dot,
-            '=' => TokenType::Equals,
-            _ if ch.is_alphabetic() || ch == '_' || ch == '$' => {
-                return self.read_word();
+            '.' => {
+                if self.peek_char().map_or(false, |c| c.is_ascii_digit()) {
+                    return self.read_number();
+                }
+                TokenType::Dot
             }
-            _ if ch == '"' || ch == '\'' => {
+            ':' => TokenType::Colon,
+            '?' => TokenType::QuestionMark,
+            '=' => {
+                if self.peek_char() == Some('>') {
+                    self.advance();
+                    self.advance();
+                    return Ok(Some(Token::with_position(
+                        TokenType::Operator,
+                        "=>",
+                        self.line,
+                        start_column,
+                    )));
+                }
+                if self.peek_char() == Some('=') {
+                    self.advance();
+                    if self.peek_char() == Some('=') {
+                        self.advance();
+                        self.advance();
+                        return Ok(Some(Token::with_position(
+                            TokenType::Operator,
+                            "===",
+                            self.line,
+                            start_column,
+                        )));
+                    }
+                    self.advance();
+                    return Ok(Some(Token::with_position(
+                        TokenType::Operator,
+                        "==",
+                        self.line,
+                        start_column,
+                    )));
+                }
+                TokenType::Equals
+            }
+            '+' | '-' | '*' | '%' | '&' | '|' | '^' | '~' | '<' | '>' | '!' => {
+                return self.read_operator(ch, start_column);
+            }
+            '/' => {
+                if self.peek_char() == Some('/') {
+                    return self.read_line_comment();
+                } else if self.peek_char() == Some('*') {
+                    return self.read_block_comment();
+                } else {
+                    return self.read_operator(ch, start_column);
+                }
+            }
+            '"' | '\'' => {
                 return self.read_string(ch);
             }
-            _ if ch == '/' && self.peek_char() == Some('/') => {
-                return self.read_line_comment();
+            '`' => {
+                return self.read_template_literal();
             }
-            _ if ch == '/' && self.peek_char() == Some('*') => {
-                return self.read_block_comment();
+            _ if ch.is_ascii_digit() => {
+                return self.read_number();
+            }
+            _ if ch.is_alphabetic() || ch == '_' || ch == '$' => {
+                return self.read_word();
             }
             _ => TokenType::Unknown,
         };
@@ -76,6 +129,119 @@ impl<'a> Tokenizer<'a> {
 
         Ok(Some(Token::with_position(
             token_type,
+            &self.input[start_pos..self.pos],
+            self.line,
+            start_column,
+        )))
+    }
+
+    fn read_operator(&mut self, first_char: char, start_column: usize) -> Result<Option<Token>> {
+        let start_pos = self.pos;
+        self.advance();
+
+        let second = self.current_char();
+        let operator_text = match (first_char, second) {
+            ('+', '+') | ('-', '-') => {
+                self.advance();
+                &self.input[start_pos..self.pos]
+            }
+            ('+', '=') | ('-', '=') | ('*', '=') | ('/', '=') | ('%', '=') => {
+                self.advance();
+                &self.input[start_pos..self.pos]
+            }
+            ('&', '&') | ('|', '|') => {
+                self.advance();
+                &self.input[start_pos..self.pos]
+            }
+            ('<', '<') | ('>', '>') => {
+                self.advance();
+                if self.current_char() == '>' && first_char == '>' {
+                    self.advance();
+                }
+                &self.input[start_pos..self.pos]
+            }
+            ('<', '=') | ('>', '=') | ('!', '=') => {
+                self.advance();
+                if self.current_char() == '=' {
+                    self.advance();
+                }
+                &self.input[start_pos..self.pos]
+            }
+            ('=', '>') => {
+                self.advance();
+                &self.input[start_pos..self.pos]
+            }
+            _ => &self.input[start_pos..self.pos],
+        };
+
+        Ok(Some(Token::with_position(
+            TokenType::Operator,
+            operator_text,
+            self.line,
+            start_column,
+        )))
+    }
+
+    fn read_number(&mut self) -> Result<Option<Token>> {
+        let start_pos = self.pos;
+        let start_column = self.column;
+
+        if self.current_char() == '.' {
+            self.advance();
+        }
+
+        while self.pos < self.input.len() && self.current_char().is_ascii_digit() {
+            self.advance();
+        }
+
+        if self.current_char() == '.' && self.peek_char().map_or(false, |c| c.is_ascii_digit()) {
+            self.advance();
+            while self.pos < self.input.len() && self.current_char().is_ascii_digit() {
+                self.advance();
+            }
+        }
+
+        if matches!(self.current_char(), 'e' | 'E') {
+            self.advance();
+            if matches!(self.current_char(), '+' | '-') {
+                self.advance();
+            }
+            while self.pos < self.input.len() && self.current_char().is_ascii_digit() {
+                self.advance();
+            }
+        }
+
+        Ok(Some(Token::with_position(
+            TokenType::Number,
+            &self.input[start_pos..self.pos],
+            self.line,
+            start_column,
+        )))
+    }
+
+    fn read_template_literal(&mut self) -> Result<Option<Token>> {
+        let start_pos = self.pos;
+        let start_column = self.column;
+        self.advance();
+
+        while self.pos < self.input.len() {
+            let ch = self.current_char();
+            if ch == '`' {
+                self.advance();
+                break;
+            }
+            if ch == '\\' {
+                self.advance();
+                if self.pos < self.input.len() {
+                    self.advance();
+                }
+            } else {
+                self.advance();
+            }
+        }
+
+        Ok(Some(Token::with_position(
+            TokenType::TemplateLiteral,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
@@ -246,6 +412,9 @@ impl<'a> Tokenizer<'a> {
                 | "yield"
                 | "async"
                 | "await"
+                | "of"
+                | "from"
+                | "as"
         )
     }
 }
@@ -264,5 +433,27 @@ mod tests {
         assert_eq!(tokens[0].text, "function");
         assert_eq!(tokens[1].token_type, TokenType::Word);
         assert_eq!(tokens[1].text, "test");
+    }
+
+    #[test]
+    fn test_tokenize_numbers() {
+        let code = "42 3.14 .5 1e10";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].token_type, TokenType::Number);
+        assert_eq!(tokens[0].text, "42");
+        assert_eq!(tokens[1].token_type, TokenType::Number);
+        assert_eq!(tokens[1].text, "3.14");
+    }
+
+    #[test]
+    fn test_tokenize_operators() {
+        let code = "+ - * / === !== => ++ --";
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].token_type, TokenType::Operator);
+        assert_eq!(tokens[2].token_type, TokenType::Operator);
     }
 }

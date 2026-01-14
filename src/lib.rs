@@ -12,25 +12,24 @@
 //! let beautified = beautify(code, &options).expect("beautification failed");
 //! ```
 
+pub mod beautifier;
+pub mod options;
+pub mod output;
 pub mod token;
 pub mod tokenizer;
-pub mod beautifier;
-pub mod output;
-pub mod options;
 
 pub use beautifier::beautify;
 pub use options::Options;
 pub use token::{Token, TokenType};
 
-/// Error types for beautification
 #[derive(Debug, thiserror::Error)]
 pub enum BeautifyError {
     #[error("tokenization failed: {0}")]
     TokenizationFailed(String),
-    
+
     #[error("beautification failed: {0}")]
     BeautificationFailed(String),
-    
+
     #[error("invalid input: {0}")]
     InvalidInput(String),
 }
@@ -46,7 +45,7 @@ mod tests {
         let code = "function test(){return 42;}";
         let options = Options::default();
         let result = beautify(code, &options).expect("beautification failed");
-        
+
         assert!(result.contains("function test()"));
         assert!(result.contains("return 42;"));
     }
