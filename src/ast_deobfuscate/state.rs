@@ -59,6 +59,7 @@ pub struct DecoderInfo {
     pub array_name: String,
     pub offset: i32,
     pub offset_operation: OffsetOperation,
+    pub decoder_type: DecoderType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,4 +67,12 @@ pub enum OffsetOperation {
     None,
     Subtract,
     Add,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DecoderType {
+    Simple,
+    Base64,
+    Xor { key: Vec<u8> },
+    Rc4 { key: Vec<u8> },
 }
