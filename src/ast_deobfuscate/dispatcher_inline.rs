@@ -61,7 +61,7 @@ impl DispatcherInliner {
             if let ObjectPropertyKind::ObjectProperty(obj_prop) = prop {
                 let key = match &obj_prop.key {
                     PropertyKey::StringLiteral(s) => s.value.as_str().to_string(),
-                    PropertyKey::Identifier(id) => id.name.as_str().to_string(),
+                    PropertyKey::StaticIdentifier(id) => id.name.as_str().to_string(),
                     _ => continue,
                 };
 
@@ -107,15 +107,38 @@ impl DispatcherInliner {
     }
 
     fn extract_arrow_return(arrow: &ArrowFunctionExpression) -> Option<ReturnValue> {
-        if arrow.expression && arrow.body.statements.len() == 1 {
-            if let Statement::ExpressionStatement(expr_stmt) = &arrow.body.statements[0] {
-                return Self::extract_literal_value(&expr_stmt.expression);
+        // Case 1: Expression body: x => value (single expression in function body)
+        if arrow.expression {
+            // When expression is true, body contains a single ExpressionStatement
+            if arrow.body.statements.len() == 1 {
+                if let Statement::ExpressionStatement(expr_stmt) = &arrow.body.statements[0] {
+                    return Self::extract_literal_value(&expr_stmt.expression);
+                }
             }
+            return None;
         }
 
+        // Case 2: Block body with single return statement
         if arrow.body.statements.len() == 1 {
             if let Statement::ReturnStatement(ret) = &arrow.body.statements[0] {
                 return ret.argument.as_ref().and_then(Self::extract_literal_value);
+            }
+        }
+
+        // Case 3: Block body with expression statement (last statement)
+        // x => { statements; value }
+        if arrow.body.statements.len() >= 1 {
+            if let Statement::ExpressionStatement(expr_stmt) =
+                &arrow.body.statements[arrow.body.statements.len() - 1]
+            {
+                // Check that all previous statements are not returns (so value is the "implicit return")
+                let all_non_return = arrow.body.statements[..arrow.body.statements.len() - 1]
+                    .iter()
+                    .all(|s| !matches!(s, Statement::ReturnStatement(_)));
+
+                if all_non_return {
+                    return Self::extract_literal_value(&expr_stmt.expression);
+                }
             }
         }
 
@@ -202,6 +225,24 @@ impl DispatcherInliner {
         call: &CallExpression<'a>,
         ctx: &mut Ctx<'a>,
     ) -> Option<Expression<'a>> {
+        // Try computed member expression first: d["key"]()
+        if let Some(result) = self.try_inline_computed_member(call, ctx) {
+            return Some(result);
+        }
+
+        // Try static member expression: d.key()
+        if let Some(result) = self.try_inline_static_member(call, ctx) {
+            return Some(result);
+        }
+
+        None
+    }
+
+    fn try_inline_computed_member<'a>(
+        &self,
+        call: &CallExpression<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<Expression<'a>> {
         let member = match &call.callee {
             Expression::ComputedMemberExpression(m) => m,
             _ => return None,
@@ -214,6 +255,7 @@ impl DispatcherInliner {
 
         let dispatcher = self.detected_dispatchers.get(obj_name)?;
 
+        // Support string literal keys: d["key"]()
         let key = match &member.expression {
             Expression::StringLiteral(lit) => lit.value.as_str(),
             _ => return None,
@@ -223,7 +265,39 @@ impl DispatcherInliner {
         let return_value = func_info.return_value.as_ref()?;
 
         eprintln!(
-            "[AST] Inlining: {}[\"{}\"]()\u{2192} {:?}",
+            "[AST] Inlining computed: {}[\"{}\"]() → {:?}",
+            obj_name, key, return_value
+        );
+
+        Some(Self::create_expression_from_return_value(return_value, ctx))
+    }
+
+    fn try_inline_static_member<'a>(
+        &self,
+        call: &CallExpression<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<Expression<'a>> {
+        let member = match &call.callee {
+            Expression::StaticMemberExpression(m) => m,
+            _ => return None,
+        };
+
+        // Object must be an identifier: d.key()
+        let obj_name = match &member.object {
+            Expression::Identifier(ident) => ident.name.as_str(),
+            _ => return None,
+        };
+
+        let dispatcher = self.detected_dispatchers.get(obj_name)?;
+
+        // Property must be an identifier: d.key (not d["key"])
+        let key = member.property.name.as_str();
+
+        let func_info = dispatcher.functions.get(key)?;
+        let return_value = func_info.return_value.as_ref()?;
+
+        eprintln!(
+            "[AST] Inlining static: {}.{}() → {:?}",
             obj_name, key, return_value
         );
 
@@ -352,5 +426,169 @@ mod tests {
             "Should not inline functions with parameters"
         );
         assert!(output.contains("d[\"a\"]"));
+    }
+
+    #[test]
+    fn test_inline_dot_notation() {
+        let code = r#"
+            var d = { a: function() { return 42; } };
+            var x = d.a();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(
+            inliner.has_changed(),
+            "Should have inlined dot notation call"
+        );
+        assert!(output.contains("42"), "Should contain inlined value 42");
+        assert!(
+            !output.contains("d.a()"),
+            "Should not contain original call"
+        );
+    }
+
+    #[test]
+    fn test_inline_mixed_notation() {
+        let code = r#"
+            var d = {
+                "strKey": function() { return "hello"; },
+                numKey: function() { return 123; }
+            };
+            var a = d["strKey"]();
+            var b = d.numKey();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(inliner.has_changed(), "Should have inlined calls");
+        assert!(output.contains("\"hello\""), "Should inline string");
+        assert!(output.contains("123"), "Should inline number");
+    }
+
+    #[test]
+    fn test_inline_arrow_expression_body() {
+        let code = r#"
+            var d = { a: () => 42, b: x => x * 2 };
+            var x = d.a();
+            var y = d.b(5);
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(inliner.has_changed(), "Should have inlined arrow function");
+        assert!(output.contains("42"), "Should inline arrow expression");
+        assert!(
+            !output.contains("d.a()"),
+            "Should not contain original call"
+        );
+    }
+
+    #[test]
+    fn test_inline_arrow_with_block_last_expr() {
+        let code = r#"
+            var d = {
+                a: () => { var x = 1; var y = 2; 42 },
+                b: () => { 1; 2; "test" }
+            };
+            var x = d.a();
+            var y = d.b();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(
+            inliner.has_changed(),
+            "Should have inlined arrow with block body"
+        );
+        assert!(output.contains("42"), "Should inline last expression");
+        assert!(output.contains("\"test\""), "Should inline second function");
+    }
+
+    #[test]
+    fn test_no_inline_arrow_with_side_effects() {
+        let code = r#"
+            var d = { a: () => console.log("side effect") };
+            var x = d.a();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        // Should not inline because console.log is not a literal
+        assert!(
+            !inliner.has_changed() || !output.contains("42"),
+            "Should not inline if last expression is not a literal"
+        );
+    }
+
+    #[test]
+    fn test_inline_identifier_return() {
+        let code = r#"
+            var result = 999;
+            var d = { a: function() { return result; } };
+            var x = d["a"]();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(
+            inliner.has_changed(),
+            "Should have inlined identifier return"
+        );
+        assert!(
+            output.contains("result"),
+            "Should keep identifier reference"
+        );
+    }
+
+    #[test]
+    fn test_inline_boolean_and_null() {
+        let code = r#"
+            var d = {
+                "true": function() { return true; },
+                "false": function() { return false; },
+                "null": function() { return null; }
+            };
+            var a = d["true"]();
+            var b = d["false"]();
+            var c = d["null"]();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        assert!(inliner.has_changed());
+        assert!(output.contains("true"), "Should inline true");
+        assert!(output.contains("false"), "Should inline false");
+        assert!(output.contains("null"), "Should inline null");
+    }
+
+    #[test]
+    fn test_complex_dispatcher() {
+        let code = r#"
+            var handlers = {
+                "login": function() { return "logged_in"; },
+                "logout": function() { return "logged_out"; },
+                "getUser": () => ({ name: "John", age: 30 }),
+                admin: function() { return { role: "admin" }; }
+            };
+            var status = handlers["login"]();
+            var user = handlers.getUser();
+            var role = handlers.admin();
+        "#;
+
+        let (output, inliner) = run_dispatcher_inliner(code);
+        eprintln!("Output: {}", output);
+
+        // Simple function inlining should work
+        assert!(inliner.has_changed());
+        assert!(output.contains("\"logged_in\""), "Should inline login");
+        assert!(output.contains("\"logged_out\""), "Should inline logout");
     }
 }
