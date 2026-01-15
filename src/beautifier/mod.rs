@@ -1,117 +1,41 @@
+use crate::ast_deobfuscate::AstDeobfuscator;
 use crate::chunk_detector::ChunkDetector;
 use crate::chunk_splitter::ChunkSplitter;
 use crate::options::Options;
-use crate::output::Output;
-use crate::token::Token;
 use crate::tokenizer::Tokenizer;
 use crate::{BeautifyError, Result};
 
-mod asi;
-mod flags;
-mod handlers;
-mod helpers;
-mod webpack;
+use oxc_allocator::Allocator;
+use oxc_codegen::Codegen;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 
-pub use flags::{Flags, Mode};
-use handlers::Handlers;
+fn oxc_beautify(code: &str) -> Result<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::mjs();
+    let parse_result = Parser::new(&allocator, code, source_type).parse();
 
-pub struct Beautifier<'a> {
-    tokens: Vec<Token>,
-    current_index: usize,
-    output: Output,
-    options: &'a Options,
-    flag_stack: Vec<Flags>,
-    last_last_text: String,
-}
-
-impl<'a> Beautifier<'a> {
-    fn new(tokens: Vec<Token>, options: &'a Options) -> Self {
-        let indent_str = if options.indent_with_tabs {
-            "\t".to_string()
-        } else {
-            options.indent_char.repeat(options.indent_size)
-        };
-
-        let initial_flags = Flags::new(Mode::BlockStatement, 0);
-
-        Self {
-            tokens,
-            current_index: 0,
-            output: Output::new(indent_str),
-            options,
-            flag_stack: vec![initial_flags],
-            last_last_text: String::new(),
-        }
+    if !parse_result.errors.is_empty() {
+        return Err(BeautifyError::BeautificationFailed(format!(
+            "Parse failed: {:?}",
+            parse_result.errors.first()
+        )));
     }
 
-    pub(crate) fn current_flags(&self) -> &Flags {
-        self.flag_stack.last().unwrap()
-    }
-
-    pub(crate) fn current_flags_mut(&mut self) -> &mut Flags {
-        self.flag_stack.last_mut().unwrap()
-    }
-
-    pub(crate) fn push_mode(&mut self, mode: Mode) {
-        let indent_level = self.current_flags().indentation_level + 1;
-        self.flag_stack.push(Flags::new(mode, indent_level));
-        self.output.add_indent();
-    }
-
-    pub(crate) fn pop_mode(&mut self) {
-        if self.flag_stack.len() > 1 {
-            self.flag_stack.pop();
-            self.output.remove_indent();
-        }
-    }
-
-    fn beautify_tokens(&mut self) -> Result<String> {
-        while self.current_index < self.tokens.len() {
-            let token = self.tokens[self.current_index].clone();
-
-            if token.token_type == crate::token::TokenType::Eof {
-                break;
-            }
-
-            let prev_token = &self.current_flags().last_token;
-            if asi::needs_asi(prev_token, &token) {
-                self.output.add_token(";");
-                self.output.add_newline();
-            } else if asi::needs_asi_for_postfix(prev_token, &token) {
-                self.output.add_token(";");
-                self.output.add_newline();
-            }
-
-            self.handle_token(&token)?;
-
-            self.last_last_text = self.current_flags().last_token.text.clone();
-            self.current_flags_mut().last_token = token.clone();
-
-            if token.token_type == crate::token::TokenType::Reserved
-                || token.token_type == crate::token::TokenType::Word
-            {
-                self.current_flags_mut().last_word = token.text.clone();
-            }
-
-            self.current_index += 1;
-        }
-
-        Ok(self.output.to_string())
-    }
+    Ok(Codegen::new().build(&parse_result.program).code)
 }
 
 pub fn beautify(code: &str, options: &Options) -> Result<String> {
-    let mut tokenizer = Tokenizer::new(code);
-    let mut tokens = tokenizer.tokenize()?;
-
     if options.deobfuscate {
-        let mut ctx = crate::deobfuscate::DeobfuscateContext::new();
-        ctx.analyze(&tokens)?;
-        ctx.deobfuscate(&mut tokens)?;
+        let mut deobfuscator = AstDeobfuscator::new();
+        return deobfuscator.deobfuscate(code);
     }
 
     if options.split_chunks {
         eprintln!("[BEAUTIFY] Chunk splitting enabled, detecting chunks...");
+
+        let mut tokenizer = Tokenizer::new(code);
+        let tokens = tokenizer.tokenize()?;
 
         let mut detector = ChunkDetector::new();
         match detector.detect_chunks(&tokens) {
@@ -177,23 +101,22 @@ pub fn beautify(code: &str, options: &Options) -> Result<String> {
                             );
                         }
 
-                        eprintln!("[BEAUTIFY] Proceeding with normal beautification");
+                        eprintln!("[BEAUTIFY] Proceeding with Oxc beautification");
                     }
                 } else {
                     eprintln!(
-                        "[BEAUTIFY] ⚠ No chunks detected, proceeding with normal beautification"
+                        "[BEAUTIFY] ⚠ No chunks detected, proceeding with Oxc beautification"
                     );
                 }
             }
             Err(e) => {
                 eprintln!("[BEAUTIFY] ⚠ Chunk detection failed: {}", e);
-                eprintln!("[BEAUTIFY] Falling back to normal beautification");
+                eprintln!("[BEAUTIFY] Falling back to Oxc beautification");
             }
         }
     }
 
-    let mut beautifier = Beautifier::new(tokens, options);
-    beautifier.beautify_tokens()
+    oxc_beautify(code)
 }
 
 #[cfg(test)]

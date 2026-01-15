@@ -12,22 +12,22 @@
 //! let beautified = beautify(code, &options).expect("beautification failed");
 //! ```
 
+pub mod ast_deobfuscate;
 pub mod beautifier;
-pub mod chunk_detector;
-pub mod chunk_splitter;
-pub mod deobfuscate;
-pub mod options;
-pub mod output;
 pub mod oxc_opts;
 pub mod sourcemap;
 pub mod token;
 pub mod tokenizer;
 pub mod webpack_module_extractor;
 
+mod chunk_detector;
+mod chunk_splitter;
+mod options;
+
+pub use ast_deobfuscate::AstDeobfuscator;
 pub use beautifier::beautify;
 pub use chunk_detector::{ChunkDetector, ChunkMetadata};
 pub use chunk_splitter::{ChunkManifest, ChunkSplitter};
-pub use deobfuscate::DeobfuscateContext;
 pub use options::Options;
 pub use oxc_opts::OxcOptimizer;
 pub use token::{Token, TokenType};
