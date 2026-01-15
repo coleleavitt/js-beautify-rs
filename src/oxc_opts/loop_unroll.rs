@@ -57,7 +57,7 @@ impl LoopUnroller {
 
         let loop_var_name = match &decl.id {
             BindingPattern::BindingIdentifier(ident) => ident.name.as_str().to_string(),
-            _ => return  None,
+            _ => return None,
         };
 
         let init_value = match &decl.init {

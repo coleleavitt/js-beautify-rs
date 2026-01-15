@@ -1,0 +1,211 @@
+use oxc_ast::ast::*;
+use oxc_traverse::{Traverse, TraverseCtx};
+
+use crate::ast_deobfuscate::state::DeobfuscateState;
+
+pub type Ctx<'a> = TraverseCtx<'a, DeobfuscateState>;
+
+pub struct ArrayUnpacker {
+    changed: bool,
+}
+
+impl ArrayUnpacker {
+    pub fn new() -> Self {
+        Self { changed: false }
+    }
+
+    pub fn has_changed(&self) -> bool {
+        self.changed
+    }
+
+    fn try_unpack<'a>(
+        &mut self,
+        member: &MemberExpression<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<Expression<'a>> {
+        let MemberExpression::ComputedMemberExpression(computed) = member else {
+            return None;
+        };
+
+        let Expression::ArrayExpression(array) = &computed.object else {
+            return None;
+        };
+
+        let Expression::NumericLiteral(index_lit) = &computed.expression else {
+            return None;
+        };
+
+        let index = index_lit.value as usize;
+
+        if index >= array.elements.len() {
+            return None;
+        }
+
+        let element = &array.elements[index];
+
+        if element.is_elision() || element.is_spread() {
+            return None;
+        }
+
+        let expr = element.to_expression();
+
+        eprintln!("[AST] Unpacking array access at index {}", index);
+        self.changed = true;
+
+        Some(Self::clone_expression(expr, ctx))
+    }
+
+    fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
+        use oxc_span::SPAN;
+        use oxc_syntax::number::NumberBase;
+
+        match expr {
+            Expression::Identifier(id) => {
+                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                    span: SPAN,
+                    name: ctx.ast.atom(id.name.as_str()),
+                    reference_id: Default::default(),
+                }))
+            }
+            Expression::NumericLiteral(num) => {
+                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                    span: SPAN,
+                    value: num.value,
+                    raw: num.raw.map(|r| ctx.ast.atom(r.as_str())),
+                    base: NumberBase::Decimal,
+                }))
+            }
+            Expression::StringLiteral(s) => {
+                Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                    span: SPAN,
+                    value: ctx.ast.atom(s.value.as_str()),
+                    raw: None,
+                    lone_surrogates: false,
+                }))
+            }
+            Expression::BooleanLiteral(b) => {
+                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                    span: SPAN,
+                    value: b.value,
+                }))
+            }
+            Expression::NullLiteral(_) => {
+                Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))
+            }
+            _ => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                span: SPAN,
+                name: ctx.ast.atom("_expr"),
+                reference_id: Default::default(),
+            })),
+        }
+    }
+}
+
+impl Default for ArrayUnpacker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> Traverse<'a, DeobfuscateState> for ArrayUnpacker {
+    fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
+        if let Expression::ComputedMemberExpression(member) = expr {
+            let member_expr =
+                MemberExpression::ComputedMemberExpression(ctx.ast.alloc(std::mem::replace(
+                    member.as_mut(),
+                    ComputedMemberExpression {
+                        span: oxc_span::SPAN,
+                        object: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                            span: oxc_span::SPAN,
+                        })),
+                        expression: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                            span: oxc_span::SPAN,
+                        })),
+                        optional: false,
+                    },
+                )));
+            if let Some(unpacked) = self.try_unpack(&member_expr, ctx) {
+                *expr = unpacked;
+            } else {
+                if let MemberExpression::ComputedMemberExpression(original) = member_expr {
+                    **member = original.unbox();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast_deobfuscate::DeobfuscateState;
+    use oxc_allocator::Allocator;
+    use oxc_codegen::Codegen;
+    use oxc_parser::Parser;
+    use oxc_semantic::SemanticBuilder;
+    use oxc_span::SourceType;
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
+
+    fn run_array_unpack(code: &str) -> String {
+        let allocator = Allocator::default();
+        let source_type = SourceType::mjs();
+        let ret = Parser::new(&allocator, code, source_type).parse();
+        let mut program = ret.program;
+
+        let mut unpacker = ArrayUnpacker::new();
+        let state = DeobfuscateState::new();
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
+
+        traverse_mut_with_ctx(&mut unpacker, &mut program, &mut ctx);
+
+        Codegen::new().build(&program).code
+    }
+
+    #[test]
+    fn test_unpack_array_first_element() {
+        let output = run_array_unpack("var x = [\"a\", \"b\"][0];");
+        eprintln!("Output: {}", output);
+        assert!(
+            output.contains("\"a\"") && !output.contains("[\"a\""),
+            "Should unpack to first element, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_unpack_array_second_element() {
+        let output = run_array_unpack("var x = [1, 2, 3][1];");
+        eprintln!("Output: {}", output);
+        assert!(
+            output.contains("= 2") || output.contains("=2"),
+            "Should unpack to second element, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_unpack_array_identifier() {
+        let output = run_array_unpack("var x = [foo, bar][0];");
+        eprintln!("Output: {}", output);
+        assert!(
+            output.contains("= foo") || output.contains("=foo"),
+            "Should unpack to identifier, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_preserve_out_of_bounds() {
+        let output = run_array_unpack("var x = [1, 2][5];");
+        eprintln!("Output: {}", output);
+        assert!(
+            output.contains("[1, 2][5]") || output.contains("[1,2][5]"),
+            "Should preserve out of bounds access, got: {}",
+            output
+        );
+    }
+}

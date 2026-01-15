@@ -3,7 +3,7 @@ use crate::Result;
 use crate::token::{Token, TokenType};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[cfg(debug_assertions)]
 macro_rules! trace_webpack {
@@ -322,7 +322,7 @@ impl ModuleExtractor {
         graph.push_str("  rankdir=LR;\n");
         graph.push_str("  node [shape=box];\n\n");
 
-        for (id, module) in &self.modules {
+        for (id, _module) in &self.modules {
             graph.push_str(&format!("  module_{} [label=\"Module {}\"];\n", id, id));
         }
 
