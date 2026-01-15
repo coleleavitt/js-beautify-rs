@@ -195,6 +195,78 @@ impl AlgebraicSimplifier {
         None
     }
 
+    fn try_simplify_logical_and<'a>(
+        &mut self,
+        logical: &LogicalExpression<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<Expression<'a>> {
+        if logical.operator != LogicalOperator::And {
+            return None;
+        }
+
+        if Self::is_true(&logical.left) {
+            eprintln!("[AST] Simplifying true && x to x");
+            self.changed = true;
+            return Some(Self::clone_expression(&logical.right, ctx));
+        }
+
+        if Self::is_false(&logical.left) {
+            eprintln!("[AST] Simplifying false && x to false");
+            self.changed = true;
+            return Some(Self::make_boolean(false, ctx));
+        }
+
+        if Self::is_true(&logical.right) {
+            eprintln!("[AST] Simplifying x && true to x");
+            self.changed = true;
+            return Some(Self::clone_expression(&logical.left, ctx));
+        }
+
+        if Self::is_false(&logical.right) {
+            eprintln!("[AST] Simplifying x && false to false");
+            self.changed = true;
+            return Some(Self::make_boolean(false, ctx));
+        }
+
+        None
+    }
+
+    fn try_simplify_logical_or<'a>(
+        &mut self,
+        logical: &LogicalExpression<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<Expression<'a>> {
+        if logical.operator != LogicalOperator::Or {
+            return None;
+        }
+
+        if Self::is_true(&logical.left) {
+            eprintln!("[AST] Simplifying true || x to true");
+            self.changed = true;
+            return Some(Self::make_boolean(true, ctx));
+        }
+
+        if Self::is_false(&logical.left) {
+            eprintln!("[AST] Simplifying false || x to x");
+            self.changed = true;
+            return Some(Self::clone_expression(&logical.right, ctx));
+        }
+
+        if Self::is_true(&logical.right) {
+            eprintln!("[AST] Simplifying x || true to true");
+            self.changed = true;
+            return Some(Self::make_boolean(true, ctx));
+        }
+
+        if Self::is_false(&logical.right) {
+            eprintln!("[AST] Simplifying x || false to x");
+            self.changed = true;
+            return Some(Self::clone_expression(&logical.left, ctx));
+        }
+
+        None
+    }
+
     fn is_zero(expr: &Expression<'_>) -> bool {
         if let Expression::NumericLiteral(num) = expr {
             num.value == 0.0
@@ -209,6 +281,14 @@ impl AlgebraicSimplifier {
         } else {
             false
         }
+    }
+
+    fn is_true(expr: &Expression<'_>) -> bool {
+        matches!(expr, Expression::BooleanLiteral(b) if b.value)
+    }
+
+    fn is_false(expr: &Expression<'_>) -> bool {
+        matches!(expr, Expression::BooleanLiteral(b) if !b.value)
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
@@ -258,6 +338,13 @@ impl AlgebraicSimplifier {
             base: NumberBase::Decimal,
         }))
     }
+
+    fn make_boolean<'a>(val: bool, ctx: &mut Ctx<'a>) -> Expression<'a> {
+        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+            span: SPAN,
+            value: val,
+        }))
+    }
 }
 
 impl Default for AlgebraicSimplifier {
@@ -278,6 +365,9 @@ impl<'a> Traverse<'a, DeobfuscateState> for AlgebraicSimplifier {
                 .or_else(|| self.try_simplify_add_zero(binary, ctx))
                 .or_else(|| self.try_simplify_multiply_one(binary, ctx))
                 .or_else(|| self.try_simplify_divide_one(binary, ctx)),
+            Expression::LogicalExpression(logical) => self
+                .try_simplify_logical_and(logical, ctx)
+                .or_else(|| self.try_simplify_logical_or(logical, ctx)),
             _ => None,
         };
 
