@@ -14,6 +14,12 @@ use rustc_hash::FxHashMap;
 
 use crate::ast_deobfuscate::state::{DecoderInfo, DecoderType, DeobfuscateState, OffsetOperation};
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use rc4::{
+    Key, KeyInit, Rc4, StreamCipher,
+    consts::{U8, U16, U32},
+};
+
 pub type Ctx<'a> = TraverseCtx<'a, DeobfuscateState>;
 
 pub struct DecoderInliner {
@@ -190,39 +196,78 @@ impl DecoderInliner {
         if let Expression::CallExpression(call) = expr {
             if let Expression::Identifier(func_id) = &call.callee {
                 let func_name = func_id.name.as_str();
+                eprintln!(
+                    "[AST]         detect_decoder_call: func_name = {}",
+                    func_name
+                );
 
                 if func_name == "atob" {
+                    eprintln!("[AST]         Detected atob (base64)");
                     return Some(DecoderType::Base64);
                 }
 
                 if func_name.contains("xor") || func_name.contains("XOR") {
+                    eprintln!("[AST]         Function contains 'xor', trying to extract key");
                     if let Some(key) = self.extract_xor_key(call) {
+                        eprintln!("[AST]         Extracted XOR key: {:?}", key);
                         return Some(DecoderType::Xor { key });
+                    } else {
+                        eprintln!("[AST]         Failed to extract XOR key");
                     }
                 }
 
                 if func_name.contains("rc4") || func_name.contains("RC4") {
+                    eprintln!("[AST]         Function contains 'rc4', trying to extract key");
                     if let Some(key) = self.extract_rc4_key(call) {
+                        eprintln!("[AST]         Extracted RC4 key: {:?}", key);
                         return Some(DecoderType::Rc4 { key });
+                    } else {
+                        eprintln!("[AST]         Failed to extract RC4 key");
                     }
                 }
+
+                eprintln!(
+                    "[AST]         No decoder pattern matched for function: {}",
+                    func_name
+                );
+            } else {
+                eprintln!("[AST]         Callee is not an identifier");
             }
+        } else {
+            eprintln!("[AST]         Expression is not a call expression");
         }
         None
     }
 
     fn extract_xor_key(&self, call: &CallExpression<'_>) -> Option<Vec<u8>> {
+        eprintln!(
+            "[AST]           extract_xor_key: args len = {}",
+            call.arguments.len()
+        );
         if call.arguments.len() >= 2 {
             if let Some(arg) = call.arguments.get(1) {
+                eprintln!("[AST]           Got second argument");
                 if let Some(expr) = arg.as_expression() {
+                    eprintln!("[AST]           Argument is expression");
                     if let Expression::StringLiteral(lit) = expr {
-                        return Some(lit.value.as_bytes().to_vec());
+                        let key = lit.value.as_bytes().to_vec();
+                        eprintln!("[AST]           String literal key: {:?}", key);
+                        return Some(key);
                     }
                     if let Expression::NumericLiteral(lit) = expr {
-                        return Some(vec![lit.value as u8]);
+                        let key = vec![lit.value as u8];
+                        eprintln!("[AST]           Numeric literal key: {:?}", key);
+                        return Some(key);
                     }
+                    eprintln!("[AST]           Argument is not string or numeric literal");
+                } else {
+                    eprintln!("[AST]           Argument is not expression");
                 }
+            } else {
+                eprintln!("[AST]           No second argument");
             }
+        } else {
+            eprintln!("[AST]           Not enough arguments (need at least 2)");
         }
         None
     }
@@ -238,6 +283,98 @@ impl DecoderInliner {
             }
         }
         None
+    }
+
+    fn apply_decoder(&self, value: &str, decoder_type: &DecoderType) -> Option<String> {
+        eprintln!(
+            "[AST]   apply_decoder called with value: {:?}, type: {:?}",
+            value, decoder_type
+        );
+        let result = match decoder_type {
+            DecoderType::Simple => Some(value.to_string()),
+            DecoderType::Base64 => self.decode_base64(value),
+            DecoderType::Xor { key } => self.decode_xor(value, key),
+            DecoderType::Rc4 { key } => self.decode_rc4(value, key),
+        };
+        eprintln!("[AST]   apply_decoder result: {:?}", result);
+        result
+    }
+
+    fn decode_base64(&self, value: &str) -> Option<String> {
+        eprintln!("[AST]     decode_base64 input: {:?}", value);
+        let result = BASE64_STANDARD
+            .decode(value.as_bytes())
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+        eprintln!("[AST]     decode_base64 output: {:?}", result);
+        result
+    }
+
+    fn decode_xor(&self, value: &str, key: &[u8]) -> Option<String> {
+        eprintln!("[AST]     decode_xor input: {:?}, key: {:?}", value, key);
+        if key.is_empty() {
+            eprintln!("[AST]     decode_xor: empty key, returning None");
+            return None;
+        }
+
+        let bytes = value.as_bytes();
+        let decoded: Vec<u8> = bytes
+            .iter()
+            .enumerate()
+            .map(|(i, &byte)| byte ^ key[i % key.len()])
+            .collect();
+
+        let result = String::from_utf8(decoded).ok();
+        eprintln!("[AST]     decode_xor output: {:?}", result);
+        result
+    }
+
+    fn decode_rc4(&self, value: &str, key: &[u8]) -> Option<String> {
+        eprintln!(
+            "[AST]     decode_rc4 input: {:?}, key len: {}",
+            value,
+            key.len()
+        );
+        if key.is_empty() {
+            eprintln!("[AST]     decode_rc4: empty key, returning None");
+            return None;
+        }
+
+        let mut data = BASE64_STANDARD.decode(value.as_bytes()).ok()?;
+        eprintln!("[AST]     decode_rc4 base64-decoded bytes: {:?}", data);
+
+        match key.len() {
+            8 => {
+                eprintln!("[AST]     decode_rc4: using 8-byte key");
+                let key_arr = Key::<U8>::from_slice(key);
+                let mut cipher = Rc4::<_>::new(key_arr);
+                cipher.apply_keystream(&mut data);
+            }
+            16 => {
+                eprintln!("[AST]     decode_rc4: using 16-byte key");
+                let key_arr = Key::<U16>::from_slice(key);
+                let mut cipher = Rc4::<_>::new(key_arr);
+                cipher.apply_keystream(&mut data);
+            }
+            32 => {
+                eprintln!("[AST]     decode_rc4: using 32-byte key");
+                let key_arr = Key::<U32>::from_slice(key);
+                let mut cipher = Rc4::<_>::new(key_arr);
+                cipher.apply_keystream(&mut data);
+            }
+            _ => {
+                eprintln!(
+                    "[AST]     decode_rc4: unsupported key length: {} bytes",
+                    key.len()
+                );
+                return None;
+            }
+        }
+
+        eprintln!("[AST]     decode_rc4 output bytes: {:?}", data);
+        let result = String::from_utf8(data).ok();
+        eprintln!("[AST]     decode_rc4 output: {:?}", result);
+        result
     }
 
     fn extract_simple_array_access<'a>(
@@ -431,15 +568,20 @@ impl DecoderInliner {
             return None;
         }
 
-        let string_value = &array_info.strings[actual_index];
+        let raw_value = &array_info.strings[actual_index];
+        eprintln!("[AST]   Raw value from array: {:?}", raw_value);
+        eprintln!("[AST]   Decoder type: {:?}", decoder.decoder_type);
+
+        let decoded_value = self.apply_decoder(raw_value, &decoder.decoder_type)?;
+
         eprintln!(
-            "[AST] ✓ Inlining decoder call: {}({}) → \"{}\"",
-            func_name, arg_value, string_value
+            "[AST] ✓ Inlining decoder call: {}({}) → \"{}\" (decoder: {:?})",
+            func_name, arg_value, decoded_value, decoder.decoder_type
         );
 
         Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
             span: SPAN,
-            value: ctx.ast.atom(string_value.as_str()),
+            value: ctx.ast.atom(&decoded_value),
             raw: None,
             lone_surrogates: false,
         })))
@@ -655,5 +797,104 @@ mod tests {
         assert_eq!(decoder.detected_decoders.len(), 1);
         assert!(decoder.has_changed());
         assert!(output.contains("\"c\""), "Should use rotated array");
+    }
+
+    #[test]
+    fn test_base64_decoder() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+
+        let plain = "hello world";
+        let encoded = STANDARD.encode(plain.as_bytes());
+
+        let code = format!(
+            r#"
+            var _0xstr = ["{}"];
+            function _0xdec(a) {{
+                return atob(_0xstr[a]);
+            }}
+            console.log(_0xdec(0));
+            "#,
+            encoded
+        );
+
+        let (output, decoder) = run_decoder_inline(&code);
+        eprintln!("Output:\n{}", output);
+
+        assert_eq!(decoder.detected_decoders.len(), 1);
+        assert!(decoder.has_changed(), "Should have decoded base64");
+        assert!(
+            output.contains(&format!("\"{}\"", plain)),
+            "Should contain decoded string"
+        );
+    }
+
+    #[test]
+    fn test_xor_decoder() {
+        let plain = "HELLO";
+        let key = b"\x01";
+        let encoded: String = plain
+            .chars()
+            .map(|c| {
+                let xored = (c as u8) ^ key[0];
+                char::from(xored)
+            })
+            .collect();
+
+        let code = format!(
+            r#"
+            var _0xstr = ["{}"];
+            function _0xdec(a) {{
+                return xorDecode(_0xstr[a], "\x01");
+            }}
+            console.log(_0xdec(0));
+            "#,
+            encoded
+        );
+
+        let (output, decoder) = run_decoder_inline(&code);
+        eprintln!("Output:\n{}", output);
+
+        assert_eq!(decoder.detected_decoders.len(), 1);
+        assert!(decoder.has_changed(), "Should have decoded XOR");
+        assert!(
+            output.contains(&format!("\"{}\"", plain)),
+            "Should contain decoded string"
+        );
+    }
+
+    #[test]
+    fn test_rc4_decoder() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use rc4::{Key, KeyInit, Rc4, StreamCipher, consts::U8};
+
+        let plain = "secret";
+        let key = b"password";
+        let key_arr = Key::<U8>::from_slice(key);
+        let mut cipher = Rc4::<_>::new(key_arr);
+        let mut encoded = plain.as_bytes().to_vec();
+        cipher.apply_keystream(&mut encoded);
+
+        let encoded_b64 = STANDARD.encode(&encoded);
+
+        let code = format!(
+            r#"
+            var _0xstr = ["{}"];
+            function _0xdec(a) {{
+                return rc4Decode(_0xstr[a], "password");
+            }}
+            console.log(_0xdec(0));
+            "#,
+            encoded_b64
+        );
+
+        let (output, decoder) = run_decoder_inline(&code);
+        eprintln!("Output:\n{}", output);
+
+        assert_eq!(decoder.detected_decoders.len(), 1);
+        assert!(decoder.has_changed(), "Should have decoded RC4 and base64");
+        assert!(
+            output.contains(&format!("\"{}\"", plain)),
+            "Should contain decoded string"
+        );
     }
 }
