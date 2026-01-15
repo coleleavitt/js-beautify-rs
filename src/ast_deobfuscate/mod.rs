@@ -29,6 +29,7 @@ pub mod string_array_rotation;
 pub mod ternary;
 pub mod try_catch;
 pub mod unicode_mangling;
+pub mod variable_rename;
 pub mod void_replacer;
 
 pub use algebraic_simplify::AlgebraicSimplifier;
@@ -53,6 +54,7 @@ pub use string_array_rotation::StringArrayRotation;
 pub use ternary::TernarySimplifier;
 pub use try_catch::TryCatchRemover;
 pub use unicode_mangling::UnicodeNormalizer;
+pub use variable_rename::VariableRenamer;
 pub use void_replacer::VoidReplacer;
 
 use oxc_allocator::Allocator;
@@ -83,6 +85,7 @@ pub struct AstDeobfuscator {
     boolean_literal_converter: BooleanLiteralConverter,
     void_replacer: VoidReplacer,
     object_sparsing_consolidator: ObjectSparsingConsolidator,
+    variable_renamer: VariableRenamer,
 }
 
 impl AstDeobfuscator {
@@ -106,6 +109,7 @@ impl AstDeobfuscator {
             boolean_literal_converter: BooleanLiteralConverter::new(),
             void_replacer: VoidReplacer::new(),
             object_sparsing_consolidator: ObjectSparsingConsolidator::new(),
+            variable_renamer: VariableRenamer::new(),
         }
     }
 
@@ -253,6 +257,13 @@ impl AstDeobfuscator {
             &mut program,
             &mut ctx,
         );
+
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        traverse_mut_with_ctx(&mut self.variable_renamer, &mut program, &mut ctx);
 
         let output = Codegen::new().build(&program).code;
         Ok(output)
