@@ -12,7 +12,7 @@ use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
-use crate::ast_deobfuscate::state::{DecoderInfo, DeobfuscateState, OffsetOperation};
+use crate::ast_deobfuscate::state::{DecoderInfo, DecoderType, DeobfuscateState, OffsetOperation};
 
 pub type Ctx<'a> = TraverseCtx<'a, DeobfuscateState>;
 
@@ -66,12 +66,12 @@ impl DecoderInliner {
             body.statements.len()
         );
 
-        let (array_name, offset, offset_op) =
+        let (array_name, offset, offset_op, decoder_type) =
             self.analyze_function_body(&body.statements, param_name, ctx)?;
 
         eprintln!(
-            "[AST] ✓ Detected decoder: {} for array {} (offset: {:?} {})",
-            func_name, array_name, offset_op, offset
+            "[AST] ✓ Detected decoder: {} for array {} (offset: {:?} {}, type: {:?})",
+            func_name, array_name, offset_op, offset, decoder_type
         );
 
         Some(DecoderInfo {
@@ -79,6 +79,7 @@ impl DecoderInliner {
             array_name,
             offset,
             offset_operation: offset_op,
+            decoder_type,
         })
     }
 
@@ -87,7 +88,7 @@ impl DecoderInliner {
         statements: &[Statement<'a>],
         param_name: &str,
         ctx: &Ctx<'a>,
-    ) -> Option<(String, i32, OffsetOperation)> {
+    ) -> Option<(String, i32, OffsetOperation, DecoderType)> {
         eprintln!(
             "[AST]   Analyzing body with {} statements",
             statements.len()
@@ -96,20 +97,22 @@ impl DecoderInliner {
         let mut array_name = None;
         let mut offset = 0i32;
         let mut offset_op = OffsetOperation::None;
+        let mut decoder_type = DecoderType::Simple;
 
         for stmt in statements {
             match stmt {
                 Statement::ReturnStatement(ret) => {
                     eprintln!("[AST]     Found return statement");
                     if let Some(arg) = &ret.argument {
-                        if let Some((arr, off, op)) =
-                            self.extract_array_access(arg, param_name, ctx)
+                        if let Some((arr, off, op, dec_type)) =
+                            self.extract_array_access_with_decoder(arg, param_name, ctx)
                         {
                             eprintln!(
-                                "[AST]       extract_array_access returned: array={}, offset={}, op={:?}",
-                                arr, off, op
+                                "[AST]       extract_array_access returned: array={}, offset={}, op={:?}, decoder={:?}",
+                                arr, off, op, dec_type
                             );
                             array_name = Some(arr);
+                            decoder_type = dec_type;
                             if offset_op == OffsetOperation::None {
                                 eprintln!(
                                     "[AST]       No assignment offset found, using inline offset"
@@ -144,7 +147,7 @@ impl DecoderInliner {
         if let Some(arr) = array_name {
             if ctx.state.string_arrays.contains_key(&arr) {
                 eprintln!("[AST]     Array {} is a known string array", arr);
-                Some((arr, offset, offset_op))
+                Some((arr, offset, offset_op, decoder_type))
             } else {
                 eprintln!("[AST]     Array {} not found in string arrays", arr);
                 None
@@ -155,11 +158,92 @@ impl DecoderInliner {
         }
     }
 
-    fn extract_array_access<'a>(
+    fn extract_array_access_with_decoder<'a>(
         &self,
         expr: &Expression<'a>,
         param_name: &str,
         _ctx: &Ctx<'a>,
+    ) -> Option<(String, i32, OffsetOperation, DecoderType)> {
+        if let Some(decoder_type) = self.detect_decoder_call(expr) {
+            eprintln!("[AST]       Detected decoder call: {:?}", decoder_type);
+            if let Expression::CallExpression(call) = expr {
+                if let Some(arg) = call.arguments.first() {
+                    if let Some(arg_expr) = arg.as_expression() {
+                        if let Some((arr, off, op)) =
+                            self.extract_simple_array_access(arg_expr, param_name)
+                        {
+                            return Some((arr, off, op, decoder_type));
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((arr, off, op)) = self.extract_simple_array_access(expr, param_name) {
+            return Some((arr, off, op, DecoderType::Simple));
+        }
+
+        None
+    }
+
+    fn detect_decoder_call(&self, expr: &Expression<'_>) -> Option<DecoderType> {
+        if let Expression::CallExpression(call) = expr {
+            if let Expression::Identifier(func_id) = &call.callee {
+                let func_name = func_id.name.as_str();
+
+                if func_name == "atob" {
+                    return Some(DecoderType::Base64);
+                }
+
+                if func_name.contains("xor") || func_name.contains("XOR") {
+                    if let Some(key) = self.extract_xor_key(call) {
+                        return Some(DecoderType::Xor { key });
+                    }
+                }
+
+                if func_name.contains("rc4") || func_name.contains("RC4") {
+                    if let Some(key) = self.extract_rc4_key(call) {
+                        return Some(DecoderType::Rc4 { key });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_xor_key(&self, call: &CallExpression<'_>) -> Option<Vec<u8>> {
+        if call.arguments.len() >= 2 {
+            if let Some(arg) = call.arguments.get(1) {
+                if let Some(expr) = arg.as_expression() {
+                    if let Expression::StringLiteral(lit) = expr {
+                        return Some(lit.value.as_bytes().to_vec());
+                    }
+                    if let Expression::NumericLiteral(lit) = expr {
+                        return Some(vec![lit.value as u8]);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_rc4_key(&self, call: &CallExpression<'_>) -> Option<Vec<u8>> {
+        if call.arguments.len() >= 2 {
+            if let Some(arg) = call.arguments.get(1) {
+                if let Some(expr) = arg.as_expression() {
+                    if let Expression::StringLiteral(lit) = expr {
+                        return Some(lit.value.as_bytes().to_vec());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_simple_array_access<'a>(
+        &self,
+        expr: &Expression<'a>,
+        param_name: &str,
     ) -> Option<(String, i32, OffsetOperation)> {
         match expr {
             Expression::ComputedMemberExpression(member) => {
