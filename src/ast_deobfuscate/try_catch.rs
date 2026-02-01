@@ -1,5 +1,6 @@
 use oxc_allocator::Vec as OxcVec;
 use oxc_ast::ast::*;
+use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -58,11 +59,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
                 let first = try_body_statements.into_iter().next().unwrap();
                 *stmt = first;
             } else {
-                *stmt = Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-                    span: SPAN,
-                    body: try_body_statements,
-                    scope_id: Default::default(),
-                }));
+                let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+                *stmt = ctx
+                    .ast
+                    .statement_block_with_scope_id(SPAN, try_body_statements, scope_id);
             }
         }
     }
@@ -77,7 +77,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
+    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
 
     fn run_try_catch_remover(code: &str) -> String {
         let allocator = Allocator::default();

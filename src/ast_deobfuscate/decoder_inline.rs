@@ -14,10 +14,10 @@ use rustc_hash::FxHashMap;
 
 use crate::ast_deobfuscate::state::{DecoderInfo, DecoderType, DeobfuscateState, OffsetOperation};
 
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use rc4::{
+    consts::{U16, U32, U8},
     Key, KeyInit, Rc4, StreamCipher,
-    consts::{U8, U16, U32},
 };
 
 pub type Ctx<'a> = TraverseCtx<'a, DeobfuscateState>;
@@ -801,7 +801,7 @@ mod tests {
 
     #[test]
     fn test_base64_decoder() {
-        use base64::{Engine, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine};
 
         let plain = "hello world";
         let encoded = STANDARD.encode(plain.as_bytes());
@@ -864,8 +864,8 @@ mod tests {
 
     #[test]
     fn test_rc4_decoder() {
-        use base64::{Engine, engine::general_purpose::STANDARD};
-        use rc4::{Key, KeyInit, Rc4, StreamCipher, consts::U8};
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use rc4::{consts::U8, Key, KeyInit, Rc4, StreamCipher};
 
         let plain = "secret";
         let key = b"password";
