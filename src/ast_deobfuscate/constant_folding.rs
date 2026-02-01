@@ -249,7 +249,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
+    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
 
     fn run_fold(code: &str) -> String {
         let allocator = Allocator::default();

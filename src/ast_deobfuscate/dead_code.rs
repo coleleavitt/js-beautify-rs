@@ -1,4 +1,5 @@
 use oxc_ast::ast::*;
+use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -188,11 +189,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadCodeEliminator {
                 } else if Self::is_true(&if_stmt.test) {
                     eprintln!("[AST] Eliminating if(true) - keeping consequent");
                     self.changed = true;
-                    *stmt = Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-                        span: SPAN,
-                        body: ctx.ast.vec(),
-                        scope_id: Default::default(),
-                    }));
+                    let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+                    *stmt = ctx
+                        .ast
+                        .statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id);
                 }
             }
             Statement::WhileStatement(while_stmt) => {
@@ -247,7 +247,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
+    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
 
     fn run_dce(code: &str) -> String {
         let allocator = Allocator::default();

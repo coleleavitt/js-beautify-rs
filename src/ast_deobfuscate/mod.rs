@@ -62,7 +62,7 @@ use oxc_codegen::Codegen;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
+use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
 
 use crate::Result;
 
@@ -202,6 +202,12 @@ impl AstDeobfuscator {
         traverse_mut_with_ctx(&mut self.constant_folder, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.algebraic_simplifier, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.strength_reducer, &mut program, &mut ctx);
+
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         traverse_mut_with_ctx(&mut self.dead_code_eliminator, &mut program, &mut ctx);
 
         let scoping = SemanticBuilder::new()
@@ -249,6 +255,14 @@ impl AstDeobfuscator {
         traverse_mut_with_ctx(&mut self.dynamic_property_converter, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.ternary_simplifier, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.try_catch_remover, &mut program, &mut ctx);
+
+        // Rebuild scoping after try_catch_remover and dead_code_eliminator
+        // which create new BlockStatement nodes during traversal.
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         traverse_mut_with_ctx(&mut self.unicode_normalizer, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.boolean_literal_converter, &mut program, &mut ctx);
         traverse_mut_with_ctx(&mut self.void_replacer, &mut program, &mut ctx);
