@@ -1,3 +1,4 @@
+use oxc_allocator::CloneIn;
 use oxc_ast::ast::*;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -381,76 +382,18 @@ impl DeadVarEliminator {
         decl: &VariableDeclarator<'a>,
         ctx: &mut Ctx<'a>,
     ) -> VariableDeclarator<'a> {
-        VariableDeclarator {
-            span: SPAN,
-            kind: decl.kind,
-            id: Self::clone_binding_pattern(&decl.id, ctx),
-            init: decl.init.as_ref().map(|e| Self::clone_expression(e, ctx)),
-            definite: decl.definite,
-            type_annotation: None,
-        }
+        decl.clone_in(ctx.ast.allocator)
     }
 
     fn clone_binding_pattern<'a>(
         pattern: &BindingPattern<'a>,
         ctx: &mut Ctx<'a>,
     ) -> BindingPattern<'a> {
-        match pattern {
-            BindingPattern::BindingIdentifier(ident) => {
-                BindingPattern::BindingIdentifier(ctx.ast.alloc(BindingIdentifier {
-                    span: SPAN,
-                    name: ctx.ast.atom(ident.name.as_str()),
-                    symbol_id: Default::default(),
-                }))
-            }
-            _ => BindingPattern::BindingIdentifier(ctx.ast.alloc(BindingIdentifier {
-                span: SPAN,
-                name: ctx.ast.atom("_unknown"),
-                symbol_id: Default::default(),
-            })),
-        }
+        pattern.clone_in(ctx.ast.allocator)
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        match expr {
-            Expression::Identifier(id) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(id.name.as_str()),
-                    reference_id: Default::default(),
-                }))
-            }
-            Expression::NumericLiteral(num) => {
-                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: num.value,
-                    raw: num.raw.map(|r| ctx.ast.atom(r.as_str())),
-                    base: num.base,
-                }))
-            }
-            Expression::StringLiteral(s) => {
-                Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: SPAN,
-                    value: ctx.ast.atom(s.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                }))
-            }
-            Expression::BooleanLiteral(b) => {
-                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-                    span: SPAN,
-                    value: b.value,
-                }))
-            }
-            Expression::NullLiteral(_) => {
-                Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))
-            }
-            _ => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                span: SPAN,
-                name: ctx.ast.atom("_expr"),
-                reference_id: Default::default(),
-            })),
-        }
+        expr.clone_in(ctx.ast.allocator)
     }
 }
 
