@@ -1,3 +1,4 @@
+use oxc_allocator::CloneIn;
 use oxc_ast::ast::*;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -197,45 +198,7 @@ impl CallProxyInliner {
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        match expr {
-            Expression::Identifier(id) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(id.name.as_str()),
-                    reference_id: Default::default(),
-                }))
-            }
-            Expression::NumericLiteral(num) => {
-                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: num.value,
-                    raw: num.raw.map(|r| ctx.ast.atom(r.as_str())),
-                    base: num.base,
-                }))
-            }
-            Expression::StringLiteral(s) => {
-                Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: SPAN,
-                    value: ctx.ast.atom(s.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                }))
-            }
-            Expression::BooleanLiteral(b) => {
-                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-                    span: SPAN,
-                    value: b.value,
-                }))
-            }
-            Expression::NullLiteral(_) => {
-                Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))
-            }
-            _ => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                span: SPAN,
-                name: ctx.ast.atom("_expr"),
-                reference_id: Default::default(),
-            })),
-        }
+        expr.clone_in(ctx.ast.allocator)
     }
 }
 

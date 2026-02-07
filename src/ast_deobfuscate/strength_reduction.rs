@@ -1,3 +1,4 @@
+use oxc_allocator::CloneIn;
 use oxc_ast::ast::*;
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
@@ -101,28 +102,7 @@ impl StrengthReducer {
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        match expr {
-            Expression::Identifier(id) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(id.name.as_str()),
-                    reference_id: Default::default(),
-                }))
-            }
-            Expression::NumericLiteral(num) => {
-                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: num.value,
-                    raw: num.raw.map(|r| ctx.ast.atom(r.as_str())),
-                    base: num.base,
-                }))
-            }
-            _ => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                span: SPAN,
-                name: ctx.ast.atom("_expr"),
-                reference_id: Default::default(),
-            })),
-        }
+        expr.clone_in(ctx.ast.allocator)
     }
 
     fn make_number<'a>(val: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
