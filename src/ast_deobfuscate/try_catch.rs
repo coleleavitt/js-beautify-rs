@@ -47,19 +47,33 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
                 return;
             }
 
-            eprintln!("[AST] Removing empty try-catch, extracting try body");
+            eprintln!(
+                "[TRY_CATCH] Removing empty try-catch, extracting try body ({} stmts)",
+                try_stmt.block.body.len()
+            );
             self.changed = true;
 
             let try_body_statements =
                 std::mem::replace(&mut try_stmt.block.body, OxcVec::new_in(ctx.ast.allocator));
 
             if try_body_statements.is_empty() {
+                eprintln!("[TRY_CATCH] Empty try body -> EmptyStatement");
                 *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
             } else if try_body_statements.len() == 1 {
-                let first = try_body_statements.into_iter().next().unwrap();
-                *stmt = first;
+                eprintln!("[TRY_CATCH] Single stmt try body -> unwrapping");
+                let mut iter = try_body_statements.into_iter();
+                if let Some(first) = iter.next() {
+                    *stmt = first;
+                } else {
+                    eprintln!("[TRY_CATCH] ERROR: iterator was empty despite len() == 1");
+                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                }
             } else {
                 let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+                eprintln!(
+                    "[TRY_CATCH] Multi-stmt try body -> BlockStatement with scope_id: {:?}",
+                    scope_id
+                );
                 *stmt = ctx
                     .ast
                     .statement_block_with_scope_id(SPAN, try_body_statements, scope_id);

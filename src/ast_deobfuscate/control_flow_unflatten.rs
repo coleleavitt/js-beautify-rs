@@ -19,15 +19,21 @@
 //! console.log("third");
 //! ```
 
-use oxc_allocator::Vec as OxcVec;
+use oxc_allocator::{CloneIn, Vec as OxcVec};
 use oxc_ast::ast::*;
-use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
 pub type Ctx<'a> = TraverseCtx<'a, DeobfuscateState>;
+
+enum UnflattenAction {
+    Keep,
+    Skip,
+    UnflattenWhile(usize),
+    UnflattenFor(usize),
+}
 
 #[derive(Debug, Clone)]
 pub struct ControlFlowInfo {
@@ -203,69 +209,6 @@ impl ControlFlowUnflattener {
         None
     }
 
-    fn try_unflatten_for<'a>(
-        &mut self,
-        for_stmt: &ForStatement<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<OxcVec<'a, Statement<'a>>> {
-        eprintln!("[AST] try_unflatten_for called");
-
-        if !self.is_control_flow_for(for_stmt) {
-            eprintln!("[AST]   Not a control flow for, skipping");
-            return None;
-        }
-
-        eprintln!("[AST]   Extracting switch from for");
-        let switch = self.extract_switch_from_for(for_stmt)?;
-        eprintln!("[AST]   Got switch, checking discriminant");
-
-        let seq_var = self.is_sequence_access(&switch.discriminant)?;
-        eprintln!("[AST]   Sequence var: {}", seq_var);
-
-        let sequence = self.detected_sequences.get(&seq_var)?;
-        eprintln!("[AST]   Sequence: {:?}", sequence);
-
-        eprintln!(
-            "[AST] Unflattening control flow for {} with sequence {:?}",
-            seq_var, sequence
-        );
-
-        let mut case_map: FxHashMap<String, &SwitchCase<'a>> = FxHashMap::default();
-        for case in &switch.cases {
-            if let Some(test) = &case.test {
-                let case_value = match test {
-                    Expression::StringLiteral(lit) => lit.value.as_str().to_string(),
-                    Expression::NumericLiteral(lit) => lit
-                        .raw
-                        .map_or_else(|| lit.value.to_string(), |r| r.to_string()),
-                    _ => continue,
-                };
-                case_map.insert(case_value, case);
-            }
-        }
-
-        let mut result = ctx.ast.vec();
-
-        for step in sequence {
-            if let Some(case) = case_map.get(step) {
-                eprintln!("[AST]   Processing case {}", step);
-                for stmt in &case.consequent {
-                    if self.should_keep_statement(stmt) {
-                        let cloned = self.clone_statement(stmt, ctx);
-                        result.push(cloned);
-                    }
-                }
-            }
-        }
-
-        if result.is_empty() {
-            return None;
-        }
-
-        self.changed = true;
-        Some(result)
-    }
-
     fn extract_switch_from_while<'a, 'b>(
         &self,
         while_stmt: &'b WhileStatement<'a>,
@@ -345,33 +288,34 @@ impl ControlFlowUnflattener {
         None
     }
 
-    fn try_unflatten_while<'a>(
-        &mut self,
+    fn extract_unflattened_while<'a>(
+        &self,
         while_stmt: &WhileStatement<'a>,
         ctx: &mut Ctx<'a>,
     ) -> Option<OxcVec<'a, Statement<'a>>> {
-        eprintln!("[AST] try_unflatten_while called");
-
-        if !self.is_control_flow_while(while_stmt) {
-            eprintln!("[AST]   Not a control flow while, skipping");
-            return None;
-        }
-
-        eprintln!("[AST]   Extracting switch from while");
         let switch = self.extract_switch_from_while(while_stmt)?;
-        eprintln!("[AST]   Got switch, checking discriminant");
-
         let seq_var = self.is_sequence_access(&switch.discriminant)?;
-        eprintln!("[AST]   Sequence var: {}", seq_var);
-
         let sequence = self.detected_sequences.get(&seq_var)?;
-        eprintln!("[AST]   Sequence: {:?}", sequence);
+        self.extract_from_switch_cases(switch, sequence, ctx)
+    }
 
-        eprintln!(
-            "[AST] Unflattening control flow for {} with sequence {:?}",
-            seq_var, sequence
-        );
+    fn extract_unflattened_for<'a>(
+        &self,
+        for_stmt: &ForStatement<'a>,
+        ctx: &mut Ctx<'a>,
+    ) -> Option<OxcVec<'a, Statement<'a>>> {
+        let switch = self.extract_switch_from_for(for_stmt)?;
+        let seq_var = self.is_sequence_access(&switch.discriminant)?;
+        let sequence = self.detected_sequences.get(&seq_var)?;
+        self.extract_from_switch_cases(switch, sequence, ctx)
+    }
 
+    fn extract_from_switch_cases<'a>(
+        &self,
+        switch: &SwitchStatement<'a>,
+        sequence: &[String],
+        ctx: &mut Ctx<'a>,
+    ) -> Option<OxcVec<'a, Statement<'a>>> {
         let mut case_map: FxHashMap<String, &SwitchCase<'a>> = FxHashMap::default();
         for case in &switch.cases {
             if let Some(test) = &case.test {
@@ -387,14 +331,11 @@ impl ControlFlowUnflattener {
         }
 
         let mut result = ctx.ast.vec();
-
         for step in sequence {
             if let Some(case) = case_map.get(step) {
-                eprintln!("[AST]   Processing case {}", step);
                 for stmt in &case.consequent {
                     if self.should_keep_statement(stmt) {
-                        let cloned = self.clone_statement(stmt, ctx);
-                        result.push(cloned);
+                        result.push(stmt.clone_in(ctx.ast.allocator));
                     }
                 }
             }
@@ -403,8 +344,6 @@ impl ControlFlowUnflattener {
         if result.is_empty() {
             return None;
         }
-
-        self.changed = true;
         Some(result)
     }
 
@@ -413,229 +352,6 @@ impl ControlFlowUnflattener {
             Statement::ContinueStatement(_) => false,
             Statement::BreakStatement(_) => false,
             _ => true,
-        }
-    }
-
-    fn clone_statement<'a>(&self, stmt: &Statement<'a>, ctx: &mut Ctx<'a>) -> Statement<'a> {
-        match stmt {
-            Statement::ExpressionStatement(expr_stmt) => {
-                let cloned_expr = self.clone_expression(&expr_stmt.expression, ctx);
-                Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
-                    span: SPAN,
-                    expression: cloned_expr,
-                }))
-            }
-            Statement::VariableDeclaration(var_decl) => {
-                Statement::VariableDeclaration(self.clone_var_decl(var_decl, ctx))
-            }
-            Statement::ReturnStatement(ret) => {
-                let arg = ret.argument.as_ref().map(|e| self.clone_expression(e, ctx));
-                Statement::ReturnStatement(ctx.ast.alloc(ReturnStatement {
-                    span: SPAN,
-                    argument: arg,
-                }))
-            }
-            Statement::IfStatement(if_stmt) => {
-                let test = self.clone_expression(&if_stmt.test, ctx);
-                let consequent = self.clone_statement(&if_stmt.consequent, ctx);
-                let alternate = if_stmt
-                    .alternate
-                    .as_ref()
-                    .map(|s| self.clone_statement(s, ctx));
-                Statement::IfStatement(ctx.ast.alloc(IfStatement {
-                    span: SPAN,
-                    test,
-                    consequent,
-                    alternate,
-                }))
-            }
-            Statement::BlockStatement(block) => {
-                let mut stmts = ctx.ast.vec();
-                for s in &block.body {
-                    stmts.push(self.clone_statement(s, ctx));
-                }
-                Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-                    span: SPAN,
-                    body: stmts,
-                    scope_id: Default::default(),
-                }))
-            }
-            _ => {
-                eprintln!("[AST]   Skipping unsupported statement type in clone");
-                Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }))
-            }
-        }
-    }
-
-    fn clone_expression<'a>(&self, expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        match expr {
-            Expression::Identifier(ident) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(ident.name.as_str()),
-                    reference_id: Default::default(),
-                }))
-            }
-            Expression::StringLiteral(lit) => {
-                Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: SPAN,
-                    value: ctx.ast.atom(lit.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                }))
-            }
-            Expression::NumericLiteral(lit) => {
-                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: lit.value,
-                    raw: None,
-                    base: lit.base,
-                }))
-            }
-            Expression::CallExpression(call) => {
-                let callee = self.clone_expression(&call.callee, ctx);
-                let mut args = ctx.ast.vec();
-                for arg in &call.arguments {
-                    args.push(self.clone_argument(arg, ctx));
-                }
-                Expression::CallExpression(ctx.ast.alloc(CallExpression {
-                    span: SPAN,
-                    callee,
-                    type_arguments: None,
-                    arguments: args,
-                    optional: call.optional,
-                    pure: false,
-                }))
-            }
-            Expression::StaticMemberExpression(member) => {
-                let object = self.clone_expression(&member.object, ctx);
-                Expression::StaticMemberExpression(ctx.ast.alloc(StaticMemberExpression {
-                    span: SPAN,
-                    object,
-                    property: IdentifierName {
-                        span: SPAN,
-                        name: ctx.ast.atom(member.property.name.as_str()),
-                    },
-                    optional: member.optional,
-                }))
-            }
-            Expression::AssignmentExpression(assign) => {
-                let right = self.clone_expression(&assign.right, ctx);
-                let left = self.clone_assignment_target(&assign.left, ctx);
-                Expression::AssignmentExpression(ctx.ast.alloc(AssignmentExpression {
-                    span: SPAN,
-                    operator: assign.operator,
-                    left,
-                    right,
-                }))
-            }
-            Expression::BinaryExpression(bin) => {
-                let left = self.clone_expression(&bin.left, ctx);
-                let right = self.clone_expression(&bin.right, ctx);
-                Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
-                    span: SPAN,
-                    left,
-                    operator: bin.operator,
-                    right,
-                }))
-            }
-            _ => {
-                eprintln!("[AST]   Skipping unsupported expression type in clone");
-                Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))
-            }
-        }
-    }
-
-    fn clone_argument<'a>(&self, arg: &Argument<'a>, ctx: &mut Ctx<'a>) -> Argument<'a> {
-        match arg {
-            Argument::SpreadElement(spread) => {
-                let expr = self.clone_expression(&spread.argument, ctx);
-                Argument::SpreadElement(ctx.ast.alloc(SpreadElement {
-                    span: SPAN,
-                    argument: expr,
-                }))
-            }
-            _ => {
-                let expr = arg.to_expression();
-                Argument::from(self.clone_expression(expr, ctx))
-            }
-        }
-    }
-
-    fn clone_assignment_target<'a>(
-        &self,
-        target: &AssignmentTarget<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> AssignmentTarget<'a> {
-        match target {
-            AssignmentTarget::AssignmentTargetIdentifier(ident) => {
-                AssignmentTarget::AssignmentTargetIdentifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(ident.name.as_str()),
-                    reference_id: Default::default(),
-                }))
-            }
-            _ => {
-                eprintln!("[AST]   Skipping unsupported assignment target in clone");
-                AssignmentTarget::AssignmentTargetIdentifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom("_unknown"),
-                    reference_id: Default::default(),
-                }))
-            }
-        }
-    }
-
-    fn clone_var_decl<'a>(
-        &self,
-        var_decl: &VariableDeclaration<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> oxc_allocator::Box<'a, VariableDeclaration<'a>> {
-        let mut declarations = ctx.ast.vec();
-
-        for decl in &var_decl.declarations {
-            let id = self.clone_binding_pattern(&decl.id, ctx);
-            let init = decl.init.as_ref().map(|e| self.clone_expression(e, ctx));
-
-            declarations.push(VariableDeclarator {
-                span: SPAN,
-                kind: var_decl.kind,
-                id,
-                init,
-                definite: decl.definite,
-                type_annotation: None,
-            });
-        }
-
-        ctx.ast.alloc(VariableDeclaration {
-            span: SPAN,
-            kind: var_decl.kind,
-            declarations,
-            declare: var_decl.declare,
-        })
-    }
-
-    fn clone_binding_pattern<'a>(
-        &self,
-        pattern: &BindingPattern<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> BindingPattern<'a> {
-        match pattern {
-            BindingPattern::BindingIdentifier(ident) => {
-                BindingPattern::BindingIdentifier(ctx.ast.alloc(BindingIdentifier {
-                    span: SPAN,
-                    name: ctx.ast.atom(ident.name.as_str()),
-                    symbol_id: Default::default(),
-                }))
-            }
-            _ => {
-                eprintln!("[AST]   Skipping unsupported binding pattern in clone");
-                BindingPattern::BindingIdentifier(ctx.ast.alloc(BindingIdentifier {
-                    span: SPAN,
-                    name: ctx.ast.atom("_unknown"),
-                    symbol_id: Default::default(),
-                }))
-            }
         }
     }
 }
@@ -654,13 +370,21 @@ impl<'a> Traverse<'a, DeobfuscateState> for ControlFlowUnflattener {
     }
 
     fn exit_program(&mut self, program: &mut Program<'a>, ctx: &mut Ctx<'a>) {
-        let mut new_body = ctx.ast.vec();
+        if self.detected_sequences.is_empty() {
+            // No control flow patterns detected, nothing to do
+            return;
+        }
+
+        // First pass: identify which statement indices need unflattening
+        // We need to borrow program.body immutably to check while/for statements
+        let mut unflatten_plan: Vec<UnflattenAction> = Vec::new();
         let mut skip_next_var_decl = false;
 
-        for stmt in program.body.iter() {
+        for (idx, stmt) in program.body.iter().enumerate() {
             if skip_next_var_decl {
                 if matches!(stmt, Statement::VariableDeclaration(_)) {
                     skip_next_var_decl = false;
+                    unflatten_plan.push(UnflattenAction::Skip);
                     continue;
                 }
                 skip_next_var_decl = false;
@@ -678,46 +402,113 @@ impl<'a> Traverse<'a, DeobfuscateState> for ControlFlowUnflattener {
 
                     if has_sequence {
                         skip_next_var_decl = true;
-                        continue;
+                        unflatten_plan.push(UnflattenAction::Skip);
+                    } else {
+                        unflatten_plan.push(UnflattenAction::Keep);
                     }
-
-                    new_body.push(self.clone_statement(stmt, ctx));
                 }
                 Statement::WhileStatement(while_stmt) => {
-                    if let Some(unflattened) = self.try_unflatten_while(while_stmt, ctx) {
-                        eprintln!(
-                            "[AST] ✓ Unflattened control flow: {} statements",
-                            unflattened.len()
-                        );
-                        for s in unflattened {
-                            new_body.push(s);
-                        }
+                    if self.is_control_flow_while(while_stmt) {
+                        unflatten_plan.push(UnflattenAction::UnflattenWhile(idx));
                     } else {
-                        new_body.push(self.clone_statement(stmt, ctx));
+                        unflatten_plan.push(UnflattenAction::Keep);
                     }
                 }
                 Statement::ForStatement(for_stmt) => {
-                    if let Some(unflattened) = self.try_unflatten_for(for_stmt, ctx) {
-                        eprintln!(
-                            "[AST] ✓ Unflattened for(;;) control flow: {} statements",
-                            unflattened.len()
-                        );
-                        for s in unflattened {
-                            new_body.push(s);
-                        }
+                    if self.is_control_flow_for(for_stmt) {
+                        unflatten_plan.push(UnflattenAction::UnflattenFor(idx));
                     } else {
-                        new_body.push(self.clone_statement(stmt, ctx));
+                        unflatten_plan.push(UnflattenAction::Keep);
                     }
                 }
                 _ => {
-                    new_body.push(self.clone_statement(stmt, ctx));
+                    unflatten_plan.push(UnflattenAction::Keep);
                 }
             }
         }
 
-        if self.changed {
-            program.body = new_body;
+        // Check if any unflattening is needed
+        let needs_unflatten = unflatten_plan.iter().any(|a| {
+            matches!(
+                a,
+                UnflattenAction::Skip
+                    | UnflattenAction::UnflattenWhile(_)
+                    | UnflattenAction::UnflattenFor(_)
+            )
+        });
+
+        if !needs_unflatten {
+            return;
         }
+
+        // Second pass: for statements that need unflattening, extract from switch cases
+        // using CloneIn (since we're reading from inside the while/for body).
+        // We need to do this BEFORE draining program.body because we borrow from it.
+        let mut unflattened_stmts: FxHashMap<usize, OxcVec<'a, Statement<'a>>> =
+            FxHashMap::default();
+
+        for action in &unflatten_plan {
+            match action {
+                UnflattenAction::UnflattenWhile(idx) => {
+                    if let Statement::WhileStatement(while_stmt) = &program.body[*idx] {
+                        if let Some(stmts) = self.extract_unflattened_while(while_stmt, ctx) {
+                            eprintln!(
+                                "[AST] Unflattened while control flow: {} statements",
+                                stmts.len()
+                            );
+                            unflattened_stmts.insert(*idx, stmts);
+                        }
+                    }
+                }
+                UnflattenAction::UnflattenFor(idx) => {
+                    if let Statement::ForStatement(for_stmt) = &program.body[*idx] {
+                        if let Some(stmts) = self.extract_unflattened_for(for_stmt, ctx) {
+                            eprintln!(
+                                "[AST] Unflattened for(;;) control flow: {} statements",
+                                stmts.len()
+                            );
+                            unflattened_stmts.insert(*idx, stmts);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Third pass: drain the body and build new_body by moving statements
+        let old_body = std::mem::replace(&mut program.body, OxcVec::new_in(ctx.ast.allocator));
+        let mut new_body = ctx.ast.vec();
+
+        for (idx, stmt) in old_body.into_iter().enumerate() {
+            if idx >= unflatten_plan.len() {
+                // Safety: should not happen, but move the statement anyway
+                new_body.push(stmt);
+                continue;
+            }
+            match &unflatten_plan[idx] {
+                UnflattenAction::Skip => {
+                    // Drop the statement (sequence var decl or index var decl)
+                }
+                UnflattenAction::Keep => {
+                    // Move the statement directly - no clone needed
+                    new_body.push(stmt);
+                }
+                UnflattenAction::UnflattenWhile(_) | UnflattenAction::UnflattenFor(_) => {
+                    // Replace with unflattened statements
+                    if let Some(stmts) = unflattened_stmts.remove(&idx) {
+                        self.changed = true;
+                        for s in stmts {
+                            new_body.push(s);
+                        }
+                    } else {
+                        // Unflattening failed for this one, keep original
+                        new_body.push(stmt);
+                    }
+                }
+            }
+        }
+
+        program.body = new_body;
     }
 }
 
