@@ -21,6 +21,7 @@ pub mod dynamic_property;
 pub mod empty_statement_cleanup;
 pub mod expression_simplify;
 pub mod function_inline;
+pub mod iife_unwrap;
 pub mod multi_var_split;
 pub mod object_sparsing;
 pub mod operator_proxy;
@@ -51,6 +52,7 @@ pub use dynamic_property::DynamicPropertyConverter;
 pub use empty_statement_cleanup::EmptyStatementCleanup;
 pub use expression_simplify::ExpressionSimplifier;
 pub use function_inline::{FunctionCollector, FunctionInliner};
+pub use iife_unwrap::IifeUnwrap;
 pub use multi_var_split::MultiVarSplitter;
 pub use object_sparsing::ObjectSparsingConsolidator;
 pub use operator_proxy::{OperatorProxyCollector, OperatorProxyInliner};
@@ -101,6 +103,7 @@ pub struct AstDeobfuscator {
     multi_var_splitter: MultiVarSplitter,
     ternary_to_if_else: TernaryToIfElse,
     short_circuit_to_if: ShortCircuitToIf,
+    iife_unwrap: IifeUnwrap,
 }
 
 impl AstDeobfuscator {
@@ -130,6 +133,7 @@ impl AstDeobfuscator {
             multi_var_splitter: MultiVarSplitter::new(),
             ternary_to_if_else: TernaryToIfElse::new(),
             short_circuit_to_if: ShortCircuitToIf::new(),
+            iife_unwrap: IifeUnwrap::new(),
         }
     }
 
@@ -419,11 +423,24 @@ impl AstDeobfuscator {
             self.short_circuit_to_if.converted_count()
         );
 
+        eprintln!("[DEOBFUSCATE] Phase 18: SemanticBuilder for iife_unwrap");
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        eprintln!("[DEOBFUSCATE] Phase 18: Running iife_unwrap");
+        traverse_mut_with_ctx(&mut self.iife_unwrap, &mut program, &mut ctx);
+        eprintln!(
+            "[DEOBFUSCATE] Phase 18: Unwrapped {} IIFEs",
+            self.iife_unwrap.unwrapped_count()
+        );
+
         eprintln!("[DEOBFUSCATE] Generating output code");
         let output = Codegen::new().build(&program).code;
         eprintln!("[DEOBFUSCATE] Output generated, {} bytes", output.len());
 
-        eprintln!("[DEOBFUSCATE] Phase 18: Annotating webpack modules");
+        eprintln!("[DEOBFUSCATE] Phase 19: Annotating webpack modules");
         let output = annotate_webpack_modules(&output);
 
         Ok(output)
@@ -459,7 +476,7 @@ fn annotate_webpack_modules(code: &str) -> String {
 
     if count > 0 {
         eprintln!(
-            "[DEOBFUSCATE] Phase 18: Annotated {} webpack modules",
+            "[DEOBFUSCATE] Phase 19: Annotated {} webpack modules",
             count
         );
     }
