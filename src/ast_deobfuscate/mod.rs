@@ -25,6 +25,7 @@ pub mod multi_var_split;
 pub mod object_sparsing;
 pub mod operator_proxy;
 pub mod sequence_expression_split;
+pub mod short_circuit_to_if;
 pub mod state;
 pub mod strength_reduction;
 pub mod string_array_inline;
@@ -54,6 +55,7 @@ pub use multi_var_split::MultiVarSplitter;
 pub use object_sparsing::ObjectSparsingConsolidator;
 pub use operator_proxy::{OperatorProxyCollector, OperatorProxyInliner};
 pub use sequence_expression_split::SequenceExpressionSplitter;
+pub use short_circuit_to_if::ShortCircuitToIf;
 pub use state::DeobfuscateState;
 pub use strength_reduction::StrengthReducer;
 pub use string_array_inline::StringArrayInliner;
@@ -98,6 +100,7 @@ pub struct AstDeobfuscator {
     sequence_expression_splitter: SequenceExpressionSplitter,
     multi_var_splitter: MultiVarSplitter,
     ternary_to_if_else: TernaryToIfElse,
+    short_circuit_to_if: ShortCircuitToIf,
 }
 
 impl AstDeobfuscator {
@@ -126,6 +129,7 @@ impl AstDeobfuscator {
             sequence_expression_splitter: SequenceExpressionSplitter::new(),
             multi_var_splitter: MultiVarSplitter::new(),
             ternary_to_if_else: TernaryToIfElse::new(),
+            short_circuit_to_if: ShortCircuitToIf::new(),
         }
     }
 
@@ -400,6 +404,19 @@ impl AstDeobfuscator {
         eprintln!(
             "[DEOBFUSCATE] Phase 16: Converted {} ternary expressions to if/else",
             self.ternary_to_if_else.converted_count()
+        );
+
+        eprintln!("[DEOBFUSCATE] Phase 17: SemanticBuilder for short_circuit_to_if");
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        eprintln!("[DEOBFUSCATE] Phase 17: Running short_circuit_to_if");
+        traverse_mut_with_ctx(&mut self.short_circuit_to_if, &mut program, &mut ctx);
+        eprintln!(
+            "[DEOBFUSCATE] Phase 17: Converted {} short-circuit expressions to if statements",
+            self.short_circuit_to_if.converted_count()
         );
 
         eprintln!("[DEOBFUSCATE] Generating output code");
