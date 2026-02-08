@@ -187,7 +187,7 @@ impl CallProxyInliner {
             span: SPAN,
             callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: SPAN,
-                name: ctx.ast.atom(&proxy.target_name),
+                name: ctx.ast.atom(&proxy.target_name).into(),
                 reference_id: Default::default(),
             })),
             arguments,

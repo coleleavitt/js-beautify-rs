@@ -39,7 +39,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VoidReplacer {
                     self.changed = true;
                     *expr = Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
-                        name: ctx.ast.atom("undefined"),
+                        name: ctx.ast.atom("undefined").into(),
                         reference_id: Default::default(),
                     }));
                 }

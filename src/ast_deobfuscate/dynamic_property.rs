@@ -45,7 +45,7 @@ impl DynamicPropertyConverter {
                 object,
                 property: IdentifierName {
                     span: SPAN,
-                    name: ctx.ast.atom(&property_name),
+                    name: ctx.ast.atom(&property_name).into(),
                 },
                 optional: false,
             },

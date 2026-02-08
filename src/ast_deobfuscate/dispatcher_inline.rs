@@ -181,7 +181,7 @@ impl DispatcherInliner {
             ReturnValue::Identifier(name) => {
                 Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                     span: SPAN,
-                    name: ctx.ast.atom(name.as_str()),
+                    name: ctx.ast.atom(name.as_str()).into(),
                     reference_id: None.into(),
                 }))
             }

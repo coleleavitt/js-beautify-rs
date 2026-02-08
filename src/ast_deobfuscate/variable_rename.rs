@@ -82,7 +82,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
         if Self::should_rename(old_name) {
             let new_name = self.get_or_create_rename(old_name, VarType::Variable);
             eprintln!("[AST] Renaming binding: {} → {}", old_name, new_name);
-            ident.name = ctx.ast.atom(&new_name);
+            ident.name = ctx.ast.atom(&new_name).into();
             self.changed = true;
         }
     }
@@ -95,7 +95,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
         let old_name = ident.name.as_str();
         if let Some(new_name) = self.rename_map.get(old_name) {
             eprintln!("[AST] Renaming reference: {} → {}", old_name, new_name);
-            ident.name = ctx.ast.atom(new_name);
+            ident.name = ctx.ast.atom(new_name).into();
             self.changed = true;
         }
     }
@@ -106,7 +106,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
             if Self::should_rename(old_name) {
                 let new_name = self.get_or_create_rename(old_name, VarType::Function);
                 eprintln!("[AST] Renaming function: {} → {}", old_name, new_name);
-                ident.name = ctx.ast.atom(&new_name);
+                ident.name = ctx.ast.atom(&new_name).into();
                 self.changed = true;
             }
         }
