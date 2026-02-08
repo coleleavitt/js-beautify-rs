@@ -23,3 +23,4 @@ oxc_syntax = { path = "../../forks/oxc/crates/oxc_syntax" }
 oxc_traverse = { path = "../../forks/oxc/crates/oxc_traverse" }
 oxc_codegen = { path = "../../forks/oxc/crates/oxc_codegen" }
 oxc_cfg = { path = "../../forks/oxc/crates/oxc_cfg" }
+clap = { version = "4.5.57", features = ["derive"] }
