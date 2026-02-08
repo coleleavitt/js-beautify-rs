@@ -18,6 +18,7 @@ pub mod dead_var_elimination;
 pub mod decoder_inline;
 pub mod dispatcher_inline;
 pub mod dynamic_property;
+pub mod empty_statement_cleanup;
 pub mod expression_simplify;
 pub mod function_inline;
 pub mod object_sparsing;
@@ -43,6 +44,7 @@ pub use dead_var_elimination::{DeadVarCollector, DeadVarEliminator};
 pub use decoder_inline::DecoderInliner;
 pub use dispatcher_inline::DispatcherInliner;
 pub use dynamic_property::DynamicPropertyConverter;
+pub use empty_statement_cleanup::EmptyStatementCleanup;
 pub use expression_simplify::ExpressionSimplifier;
 pub use function_inline::{FunctionCollector, FunctionInliner};
 pub use object_sparsing::ObjectSparsingConsolidator;
@@ -86,6 +88,7 @@ pub struct AstDeobfuscator {
     void_replacer: VoidReplacer,
     object_sparsing_consolidator: ObjectSparsingConsolidator,
     variable_renamer: VariableRenamer,
+    empty_statement_cleanup: EmptyStatementCleanup,
 }
 
 impl AstDeobfuscator {
@@ -110,6 +113,7 @@ impl AstDeobfuscator {
             void_replacer: VoidReplacer::new(),
             object_sparsing_consolidator: ObjectSparsingConsolidator::new(),
             variable_renamer: VariableRenamer::new(),
+            empty_statement_cleanup: EmptyStatementCleanup::new(),
         }
     }
 
@@ -329,6 +333,19 @@ impl AstDeobfuscator {
         eprintln!("[DEOBFUSCATE] Phase 12: Running variable_renamer");
         traverse_mut_with_ctx(&mut self.variable_renamer, &mut program, &mut ctx);
         eprintln!("[DEOBFUSCATE] Phase 12: DONE");
+
+        eprintln!("[DEOBFUSCATE] Phase 13: SemanticBuilder for empty_statement_cleanup");
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        eprintln!("[DEOBFUSCATE] Phase 13: Running empty_statement_cleanup");
+        traverse_mut_with_ctx(&mut self.empty_statement_cleanup, &mut program, &mut ctx);
+        eprintln!(
+            "[DEOBFUSCATE] Phase 13: Removed {} empty statements",
+            self.empty_statement_cleanup.removed_count()
+        );
 
         eprintln!("[DEOBFUSCATE] Generating output code");
         let output = Codegen::new().build(&program).code;
