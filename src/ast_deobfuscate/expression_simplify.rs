@@ -125,7 +125,7 @@ impl ExpressionSimplifier {
         self.changed = true;
         Some(Expression::Identifier(ctx.ast.alloc(IdentifierReference {
             span: SPAN,
-            name: ctx.ast.atom("undefined"),
+            name: ctx.ast.atom("undefined").into(),
             reference_id: Default::default(),
         })))
     }
@@ -148,7 +148,7 @@ impl ExpressionSimplifier {
                         object: Self::clone_expression(&member.object, ctx),
                         property: IdentifierName {
                             span: SPAN,
-                            name: ctx.ast.atom(prop_name),
+                            name: ctx.ast.atom(prop_name).into(),
                         },
                         optional: member.optional,
                     },

@@ -314,7 +314,7 @@ impl FunctionInliner {
                 } else {
                     Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
-                        name: ctx.ast.atom("undefined"),
+                        name: ctx.ast.atom("undefined").into(),
                         reference_id: Default::default(),
                     }))
                 }
@@ -322,7 +322,7 @@ impl FunctionInliner {
             ReturnExpr::Identifier(name) => {
                 Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                     span: SPAN,
-                    name: ctx.ast.atom(name),
+                    name: ctx.ast.atom(name).into(),
                     reference_id: Default::default(),
                 }))
             }
@@ -400,7 +400,7 @@ impl FunctionInliner {
                     span: SPAN,
                     callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
-                        name: ctx.ast.atom(callee),
+                        name: ctx.ast.atom(callee).into(),
                         reference_id: Default::default(),
                     })),
                     arguments,

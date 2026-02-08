@@ -8,7 +8,7 @@ use oxc_ast::ast::*;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SPAN;
 use oxc_syntax::scope::ScopeFlags;
-use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
+use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx, Traverse, TraverseCtx};
 
 use crate::oxc_opts::state::OptimizationState;
 
@@ -222,7 +222,7 @@ impl LoopUnroller {
                 } else {
                     Some(Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
-                        name: ctx.ast.atom(ident.name.as_str()),
+                        name: ctx.ast.atom(ident.name.as_str()).into(),
                         reference_id: None.into(),
                     })))
                 }
@@ -272,7 +272,7 @@ impl LoopUnroller {
                         object,
                         property: IdentifierName {
                             span: SPAN,
-                            name: ctx.ast.atom(static_mem.property.name.as_str()),
+                            name: ctx.ast.atom(static_mem.property.name.as_str()).into(),
                         },
                         optional: static_mem.optional,
                     },
@@ -333,7 +333,7 @@ impl LoopUnroller {
                 } else {
                     Some(Argument::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
-                        name: ctx.ast.atom(ident.name.as_str()),
+                        name: ctx.ast.atom(ident.name.as_str()).into(),
                         reference_id: None.into(),
                     })))
                 }

@@ -148,7 +148,7 @@ impl ObjectSparsingConsolidator {
             PropertyValue::Identifier(name) => {
                 Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                     span: SPAN,
-                    name: ctx.ast.atom(name),
+                    name: ctx.ast.atom(name).into(),
                     reference_id: Default::default(),
                 }))
             }
@@ -220,7 +220,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
                     kind: PropertyKind::Init,
                     key: PropertyKey::StaticIdentifier(ctx.ast.alloc(IdentifierName {
                         span: SPAN,
-                        name: ctx.ast.atom(&prop.name),
+                        name: ctx.ast.atom(&prop.name).into(),
                     })),
                     value: value_expr,
                     method: false,

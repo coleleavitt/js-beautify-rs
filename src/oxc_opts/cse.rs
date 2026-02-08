@@ -7,7 +7,7 @@ use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::*;
 use oxc_semantic::SemanticBuilder;
 
-use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
+use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx, Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
 use crate::oxc_opts::state::OptimizationState;
@@ -206,7 +206,7 @@ impl CommonSubexpressionElimination {
             Expression::Identifier(ident) => {
                 Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                     span: ident.span,
-                    name: ctx.ast.atom(ident.name.as_str()),
+                    name: ctx.ast.atom(ident.name.as_str()).into(),
                     reference_id: None.into(),
                 }))
             }
