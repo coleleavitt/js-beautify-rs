@@ -30,6 +30,7 @@ pub mod strength_reduction;
 pub mod string_array_inline;
 pub mod string_array_rotation;
 pub mod ternary;
+pub mod ternary_to_if_else;
 pub mod try_catch;
 pub mod unicode_mangling;
 pub mod variable_rename;
@@ -58,6 +59,7 @@ pub use strength_reduction::StrengthReducer;
 pub use string_array_inline::StringArrayInliner;
 pub use string_array_rotation::StringArrayRotation;
 pub use ternary::TernarySimplifier;
+pub use ternary_to_if_else::TernaryToIfElse;
 pub use try_catch::TryCatchRemover;
 pub use unicode_mangling::UnicodeNormalizer;
 pub use variable_rename::VariableRenamer;
@@ -95,6 +97,7 @@ pub struct AstDeobfuscator {
     empty_statement_cleanup: EmptyStatementCleanup,
     sequence_expression_splitter: SequenceExpressionSplitter,
     multi_var_splitter: MultiVarSplitter,
+    ternary_to_if_else: TernaryToIfElse,
 }
 
 impl AstDeobfuscator {
@@ -122,6 +125,7 @@ impl AstDeobfuscator {
             empty_statement_cleanup: EmptyStatementCleanup::new(),
             sequence_expression_splitter: SequenceExpressionSplitter::new(),
             multi_var_splitter: MultiVarSplitter::new(),
+            ternary_to_if_else: TernaryToIfElse::new(),
         }
     }
 
@@ -383,6 +387,19 @@ impl AstDeobfuscator {
         eprintln!(
             "[DEOBFUSCATE] Phase 15: Split {} multi-var declarations",
             self.multi_var_splitter.split_count()
+        );
+
+        eprintln!("[DEOBFUSCATE] Phase 16: SemanticBuilder for ternary_to_if_else");
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        eprintln!("[DEOBFUSCATE] Phase 16: Running ternary_to_if_else");
+        traverse_mut_with_ctx(&mut self.ternary_to_if_else, &mut program, &mut ctx);
+        eprintln!(
+            "[DEOBFUSCATE] Phase 16: Converted {} ternary expressions to if/else",
+            self.ternary_to_if_else.converted_count()
         );
 
         eprintln!("[DEOBFUSCATE] Generating output code");
