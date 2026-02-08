@@ -1,10 +1,66 @@
+use clap::Parser;
 use js_beautify_rs::tokenizer::Tokenizer;
 use js_beautify_rs::webpack_module_extractor::ModuleExtractor;
-use js_beautify_rs::{Options, beautify};
-use std::env;
+use js_beautify_rs::{beautify, Options};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
+
+/// A fast JavaScript beautifier and deobfuscator powered by oxc.
+///
+/// Beautifies minified JavaScript, deobfuscates obfuscated webpack bundles,
+/// and extracts webpack modules into separate files.
+#[derive(Parser, Debug)]
+#[command(name = "jsbeautify", version, about, long_about = None)]
+struct Cli {
+    /// Input JavaScript file (use "-" for stdin)
+    #[arg(value_name = "FILE")]
+    input: String,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long, value_name = "FILE")]
+    output: Option<String>,
+
+    /// Enable AST-based deobfuscation (19-phase pipeline)
+    #[arg(short, long)]
+    deobfuscate: bool,
+
+    /// Split webpack chunks into separate files
+    #[arg(long)]
+    split_chunks: bool,
+
+    /// Directory for chunk output [default: ./chunks]
+    #[arg(long, value_name = "DIR")]
+    chunk_dir: Option<PathBuf>,
+
+    /// Write chunk metadata to a JSON file
+    #[arg(long, value_name = "FILE")]
+    chunk_map: Option<PathBuf>,
+
+    /// Extract webpack modules to separate files
+    #[arg(long)]
+    extract_modules: bool,
+
+    /// Directory for module output [default: ./modules]
+    #[arg(long, value_name = "DIR")]
+    module_dir: Option<PathBuf>,
+
+    /// Generate a dependency graph in DOT format
+    #[arg(long, value_name = "FILE")]
+    dependency_graph: Option<PathBuf>,
+
+    /// Generate source maps
+    #[arg(long)]
+    source_maps: bool,
+
+    /// Indentation size in spaces [default: 4]
+    #[arg(long, value_name = "N")]
+    indent_size: Option<usize>,
+
+    /// Use tabs for indentation instead of spaces
+    #[arg(long)]
+    indent_with_tabs: bool,
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -14,23 +70,38 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
+    let cli = Cli::parse();
 
-    if args.len() < 2 {
-        print_usage(&args[0]);
-        std::process::exit(1);
-    }
-
-    let input_path = &args[1];
-    let code = if input_path == "-" {
+    let code = if cli.input == "-" {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer)?;
         buffer
     } else {
-        fs::read_to_string(input_path)?
+        fs::read_to_string(&cli.input)?
     };
 
-    let options = parse_options(&args[1..])?;
+    let mut options = Options::default();
+    options.deobfuscate = cli.deobfuscate;
+    options.split_chunks = cli.split_chunks;
+    options.extract_modules = cli.extract_modules;
+    options.generate_source_map = cli.source_maps;
+    options.indent_with_tabs = cli.indent_with_tabs;
+
+    if let Some(dir) = cli.chunk_dir {
+        options.chunk_dir = dir;
+    }
+    if let Some(path) = cli.chunk_map {
+        options.chunk_map_output = Some(path);
+    }
+    if let Some(dir) = cli.module_dir {
+        options.module_dir = dir;
+    }
+    if let Some(path) = &cli.dependency_graph {
+        options.dependency_graph = Some(path.clone());
+    }
+    if let Some(size) = cli.indent_size {
+        options.indent_size = size;
+    }
 
     if options.extract_modules {
         eprintln!("[WEBPACK] Extracting modules...");
@@ -61,103 +132,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let beautified = beautify(&code, &options)?;
 
-    if let Some(output_path) = get_output_path(&args) {
-        fs::write(&output_path, beautified)?;
+    if let Some(output_path) = &cli.output {
+        fs::write(output_path, &beautified)?;
         eprintln!("Beautified code written to {}", output_path);
     } else {
         println!("{}", beautified);
     }
 
     Ok(())
-}
-
-fn print_usage(program: &str) {
-    eprintln!("Usage: {} <input_file> [OPTIONS]", program);
-    eprintln!("   or: cat file.js | {} > output.js", program);
-    eprintln!();
-    eprintln!("OPTIONS:");
-    eprintln!("  -o, --output <file>          Write output to file");
-    eprintln!("  --deobfuscate                Enable deobfuscation");
-    eprintln!("  --split-chunks               Split webpack chunks into separate files");
-    eprintln!("  --chunk-dir <dir>            Directory for chunk output (default: ./chunks)");
-    eprintln!("  --chunk-map <file>           Write chunk metadata to JSON file");
-    eprintln!("  --extract-modules            Extract webpack modules to separate files");
-    eprintln!("  --module-dir <dir>           Directory for module output (default: ./modules)");
-    eprintln!("  --dependency-graph <file>    Generate dependency graph (DOT format)");
-    eprintln!("  --source-maps                Generate source maps");
-}
-
-fn parse_options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
-    let mut options = Options::default();
-    let mut i = 1;
-
-    while i < args.len() {
-        match args[i].as_str() {
-            "--deobfuscate" => {
-                options.deobfuscate = true;
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--split-chunks" => {
-                options.split_chunks = true;
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--chunk-dir" => {
-                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
-                    return Err("--chunk-dir requires a value".into());
-                }
-                i = i.checked_add(1).ok_or("index overflow")?;
-                options.chunk_dir = PathBuf::from(&args[i]);
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--chunk-map" => {
-                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
-                    return Err("--chunk-map requires a value".into());
-                }
-                i = i.checked_add(1).ok_or("index overflow")?;
-                options.chunk_map_output = Some(PathBuf::from(&args[i]));
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--extract-modules" => {
-                options.extract_modules = true;
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--module-dir" => {
-                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
-                    return Err("--module-dir requires a value".into());
-                }
-                i = i.checked_add(1).ok_or("index overflow")?;
-                options.module_dir = PathBuf::from(&args[i]);
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--dependency-graph" => {
-                if i.checked_add(1).ok_or("index overflow")? >= args.len() {
-                    return Err("--dependency-graph requires a value".into());
-                }
-                i = i.checked_add(1).ok_or("index overflow")?;
-                options.dependency_graph = Some(PathBuf::from(&args[i]));
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "--source-maps" => {
-                options.generate_source_map = true;
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-            "-o" | "--output" => {
-                i = i.checked_add(2).ok_or("index overflow")?;
-            }
-            _ => {
-                i = i.checked_add(1).ok_or("index overflow")?;
-            }
-        }
-    }
-
-    Ok(options)
-}
-
-fn get_output_path(args: &[String]) -> Option<String> {
-    for i in 1..args.len() {
-        if (args[i] == "-o" || args[i] == "--output") && i.checked_add(1)? < args.len() {
-            return Some(args[i.checked_add(1)?].clone());
-        }
-    }
-    None
 }
