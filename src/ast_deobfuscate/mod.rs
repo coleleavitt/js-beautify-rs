@@ -21,6 +21,7 @@ pub mod dynamic_property;
 pub mod empty_statement_cleanup;
 pub mod expression_simplify;
 pub mod function_inline;
+pub mod multi_var_split;
 pub mod object_sparsing;
 pub mod operator_proxy;
 pub mod sequence_expression_split;
@@ -48,6 +49,7 @@ pub use dynamic_property::DynamicPropertyConverter;
 pub use empty_statement_cleanup::EmptyStatementCleanup;
 pub use expression_simplify::ExpressionSimplifier;
 pub use function_inline::{FunctionCollector, FunctionInliner};
+pub use multi_var_split::MultiVarSplitter;
 pub use object_sparsing::ObjectSparsingConsolidator;
 pub use operator_proxy::{OperatorProxyCollector, OperatorProxyInliner};
 pub use sequence_expression_split::SequenceExpressionSplitter;
@@ -92,6 +94,7 @@ pub struct AstDeobfuscator {
     variable_renamer: VariableRenamer,
     empty_statement_cleanup: EmptyStatementCleanup,
     sequence_expression_splitter: SequenceExpressionSplitter,
+    multi_var_splitter: MultiVarSplitter,
 }
 
 impl AstDeobfuscator {
@@ -118,6 +121,7 @@ impl AstDeobfuscator {
             variable_renamer: VariableRenamer::new(),
             empty_statement_cleanup: EmptyStatementCleanup::new(),
             sequence_expression_splitter: SequenceExpressionSplitter::new(),
+            multi_var_splitter: MultiVarSplitter::new(),
         }
     }
 
@@ -366,6 +370,19 @@ impl AstDeobfuscator {
         eprintln!(
             "[DEOBFUSCATE] Phase 14: Split {} sequence expressions",
             self.sequence_expression_splitter.split_count()
+        );
+
+        eprintln!("[DEOBFUSCATE] Phase 15: SemanticBuilder for multi_var_split");
+        let scoping = SemanticBuilder::new()
+            .build(&program)
+            .semantic
+            .into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        eprintln!("[DEOBFUSCATE] Phase 15: Running multi_var_splitter");
+        traverse_mut_with_ctx(&mut self.multi_var_splitter, &mut program, &mut ctx);
+        eprintln!(
+            "[DEOBFUSCATE] Phase 15: Split {} multi-var declarations",
+            self.multi_var_splitter.split_count()
         );
 
         eprintln!("[DEOBFUSCATE] Generating output code");
