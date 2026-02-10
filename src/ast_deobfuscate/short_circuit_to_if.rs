@@ -1,5 +1,6 @@
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::*;
+use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
 
@@ -47,11 +48,10 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
     }));
     let mut body_stmts = ctx.ast.vec();
     body_stmts.push(action_stmt);
-    let block = Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-        span: SPAN,
-        body: body_stmts,
-        scope_id: Default::default(),
-    }));
+    let block_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+    let block = ctx
+        .ast
+        .statement_block_with_scope_id(SPAN, body_stmts, block_scope_id);
 
     let test = match logical.operator {
         LogicalOperator::And => logical.left.clone_in(ctx.ast.allocator),
