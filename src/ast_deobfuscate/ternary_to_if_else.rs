@@ -23,6 +23,7 @@
 
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::*;
+use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
 
@@ -73,11 +74,10 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
     }));
     let mut consequent_body = ctx.ast.vec();
     consequent_body.push(consequent_stmt);
-    let consequent_block = Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-        span: SPAN,
-        body: consequent_body,
-        scope_id: Default::default(),
-    }));
+    let consequent_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+    let consequent_block =
+        ctx.ast
+            .statement_block_with_scope_id(SPAN, consequent_body, consequent_scope_id);
 
     let alternate_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
         span: SPAN,
@@ -85,11 +85,10 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
     }));
     let mut alternate_body = ctx.ast.vec();
     alternate_body.push(alternate_stmt);
-    let alternate_block = Statement::BlockStatement(ctx.ast.alloc(BlockStatement {
-        span: SPAN,
-        body: alternate_body,
-        scope_id: Default::default(),
-    }));
+    let alternate_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+    let alternate_block =
+        ctx.ast
+            .statement_block_with_scope_id(SPAN, alternate_body, alternate_scope_id);
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
         span: SPAN,
