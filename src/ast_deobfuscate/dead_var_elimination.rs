@@ -382,18 +382,18 @@ impl DeadVarEliminator {
         decl: &VariableDeclarator<'a>,
         ctx: &mut Ctx<'a>,
     ) -> VariableDeclarator<'a> {
-        decl.clone_in(ctx.ast.allocator)
+        decl.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 
     fn clone_binding_pattern<'a>(
         pattern: &BindingPattern<'a>,
         ctx: &mut Ctx<'a>,
     ) -> BindingPattern<'a> {
-        pattern.clone_in(ctx.ast.allocator)
+        pattern.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        expr.clone_in(ctx.ast.allocator)
+        expr.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 }
 

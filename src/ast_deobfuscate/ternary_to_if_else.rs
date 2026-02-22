@@ -64,9 +64,9 @@ fn is_ternary_expr_stmt(stmt: &Statement<'_>) -> bool {
 /// Build an `IfStatement` from a `ConditionalExpression`, wrapping the
 /// consequent and alternate branches in `BlockStatement`s.
 fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Statement<'a> {
-    let test = cond.test.clone_in(ctx.ast.allocator);
-    let consequent_expr = cond.consequent.clone_in(ctx.ast.allocator);
-    let alternate_expr = cond.alternate.clone_in(ctx.ast.allocator);
+    let test = cond.test.clone_in_with_semantic_ids(ctx.ast.allocator);
+    let consequent_expr = cond.consequent.clone_in_with_semantic_ids(ctx.ast.allocator);
+    let alternate_expr = cond.alternate.clone_in_with_semantic_ids(ctx.ast.allocator);
 
     let consequent_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
         span: SPAN,
@@ -116,7 +116,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -143,7 +143,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -179,7 +179,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
                     continue;
                 }
             }
-            new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+            new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
         eprintln!(

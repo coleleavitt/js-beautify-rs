@@ -41,7 +41,7 @@ fn is_short_circuit_expr_stmt(stmt: &Statement<'_>) -> bool {
 }
 
 fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>) -> Statement<'a> {
-    let action_expr = logical.right.clone_in(ctx.ast.allocator);
+    let action_expr = logical.right.clone_in_with_semantic_ids(ctx.ast.allocator);
     let action_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
         span: SPAN,
         expression: action_expr,
@@ -54,16 +54,16 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
         .statement_block_with_scope_id(SPAN, body_stmts, block_scope_id);
 
     let test = match logical.operator {
-        LogicalOperator::And => logical.left.clone_in(ctx.ast.allocator),
+        LogicalOperator::And => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
         LogicalOperator::Or => {
-            let inner = logical.left.clone_in(ctx.ast.allocator);
+            let inner = logical.left.clone_in_with_semantic_ids(ctx.ast.allocator);
             Expression::UnaryExpression(ctx.ast.alloc(UnaryExpression {
                 span: SPAN,
                 operator: UnaryOperator::LogicalNot,
                 argument: inner,
             }))
         }
-        LogicalOperator::Coalesce => logical.left.clone_in(ctx.ast.allocator),
+        LogicalOperator::Coalesce => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
     };
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
@@ -97,7 +97,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
                     }
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -129,7 +129,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
                     }
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -172,7 +172,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
                     }
                 }
             }
-            new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+            new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
         eprintln!(

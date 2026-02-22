@@ -41,21 +41,21 @@ impl DeadCodeEliminator {
         stmt: &Statement<'b>,
         ctx: &mut TraverseCtx<'b, DeobfuscateState>,
     ) -> Statement<'b> {
-        stmt.clone_in(ctx.ast.allocator)
+        stmt.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 
     fn clone_expression<'b>(
         expr: &Expression<'b>,
         ctx: &mut TraverseCtx<'b, DeobfuscateState>,
     ) -> Expression<'b> {
-        expr.clone_in(ctx.ast.allocator)
+        expr.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 
     fn clone_binding_pattern<'b>(
         pattern: &BindingPattern<'b>,
         ctx: &mut TraverseCtx<'b, DeobfuscateState>,
     ) -> BindingPattern<'b> {
-        pattern.clone_in(ctx.ast.allocator)
+        pattern.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 }
 

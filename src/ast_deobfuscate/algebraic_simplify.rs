@@ -293,7 +293,7 @@ impl AlgebraicSimplifier {
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        expr.clone_in(ctx.ast.allocator)
+        expr.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 
     fn make_number<'a>(val: i64, ctx: &mut Ctx<'a>) -> Expression<'a> {

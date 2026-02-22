@@ -40,7 +40,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
-                new_body.push(stmt.clone_in(ctx.ast.allocator));
+                new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
             }
         }
         let after = new_body.len();
@@ -70,7 +70,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
-                new_body.push(stmt.clone_in(ctx.ast.allocator));
+                new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
             }
         }
         let after = new_body.len();
@@ -98,7 +98,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
-                new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+                new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
             }
         }
         let after = new_stmts.len();
