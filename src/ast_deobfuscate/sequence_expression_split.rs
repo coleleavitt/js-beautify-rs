@@ -73,14 +73,14 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     for expr in seq.expressions.iter() {
                         new_body.push(
                             ctx.ast
-                                .statement_expression(SPAN, expr.clone_in(ctx.ast.allocator)),
+                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                         );
                     }
                     self.split_count += 1;
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -114,14 +114,14 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     for expr in seq.expressions.iter() {
                         new_body.push(
                             ctx.ast
-                                .statement_expression(SPAN, expr.clone_in(ctx.ast.allocator)),
+                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                         );
                     }
                     self.split_count += 1;
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!("[SEQ_SPLIT] Block body: {} -> {} statements", before, after);
@@ -152,14 +152,14 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     for expr in seq.expressions.iter() {
                         new_stmts.push(
                             ctx.ast
-                                .statement_expression(SPAN, expr.clone_in(ctx.ast.allocator)),
+                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                         );
                     }
                     self.split_count += 1;
                     continue;
                 }
             }
-            new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+            new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
         eprintln!(

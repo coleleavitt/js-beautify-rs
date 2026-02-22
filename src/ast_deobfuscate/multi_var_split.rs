@@ -73,7 +73,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     );
                     for declarator in var_decl.declarations.iter() {
                         let mut single_declarations = ctx.ast.vec();
-                        single_declarations.push(declarator.clone_in(ctx.ast.allocator));
+                        single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                         new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(
                             VariableDeclaration {
                                 span: SPAN,
@@ -87,7 +87,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -121,7 +121,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     );
                     for declarator in var_decl.declarations.iter() {
                         let mut single_declarations = ctx.ast.vec();
-                        single_declarations.push(declarator.clone_in(ctx.ast.allocator));
+                        single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                         new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(
                             VariableDeclaration {
                                 span: SPAN,
@@ -135,7 +135,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     continue;
                 }
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
         eprintln!(
@@ -169,7 +169,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     );
                     for declarator in var_decl.declarations.iter() {
                         let mut single_declarations = ctx.ast.vec();
-                        single_declarations.push(declarator.clone_in(ctx.ast.allocator));
+                        single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                         new_stmts.push(Statement::VariableDeclaration(ctx.ast.alloc(
                             VariableDeclaration {
                                 span: SPAN,
@@ -183,7 +183,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     continue;
                 }
             }
-            new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+            new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
         eprintln!(

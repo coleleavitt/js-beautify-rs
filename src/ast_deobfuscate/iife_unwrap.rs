@@ -84,7 +84,7 @@ fn try_unwrap_standalone<'a>(
         return false;
     };
     for inner_stmt in arrow.body.statements.iter() {
-        new_body.push(inner_stmt.clone_in(ctx.ast.allocator));
+        new_body.push(inner_stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
     }
     true
 }
@@ -168,13 +168,13 @@ fn try_unwrap_assigned<'a>(
         return false;
     }
     for inner_stmt in body_stmts[..last_idx].iter() {
-        new_body.push(inner_stmt.clone_in(ctx.ast.allocator));
+        new_body.push(inner_stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
     }
-    let new_init = return_expr.clone_in(ctx.ast.allocator);
+    let new_init = return_expr.clone_in_with_semantic_ids(ctx.ast.allocator);
     let new_declarator = VariableDeclarator {
         span: SPAN,
         kind: var_decl.kind,
-        id: var_decl.declarations[0].id.clone_in(ctx.ast.allocator),
+        id: var_decl.declarations[0].id.clone_in_with_semantic_ids(ctx.ast.allocator),
         type_annotation: None,
         init: Some(new_init),
         definite: false,
@@ -208,7 +208,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         program.body = new_body;
     }
@@ -229,7 +229,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
             }
-            new_body.push(stmt.clone_in(ctx.ast.allocator));
+            new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         block.body = new_body;
     }
@@ -256,7 +256,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
             }
-            new_stmts.push(stmt.clone_in(ctx.ast.allocator));
+            new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         body.statements = new_stmts;
     }

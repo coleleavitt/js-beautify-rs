@@ -335,7 +335,7 @@ impl ControlFlowUnflattener {
             if let Some(case) = case_map.get(step) {
                 for stmt in &case.consequent {
                     if self.should_keep_statement(stmt) {
-                        result.push(stmt.clone_in(ctx.ast.allocator));
+                        result.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
                     }
                 }
             }
