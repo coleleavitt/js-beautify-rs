@@ -47,7 +47,32 @@ Options:
 
 ## Deobfuscation Pipeline
 
-The `--deobfuscate` flag runs a 19-phase AST transformation pipeline. Each phase feeds the next — order matters.
+The `--deobfuscate` flag runs a **Phase 0 pre-processor** followed by a **19-phase AST transformation pipeline**. Each phase feeds the next — order matters.
+
+### Phase 0: Encrypted Eval Decryption (Pre-AST)
+
+Before AST parsing, jsbeautify detects and decrypts a specific obfuscation pattern used by phishing kits (Tycoon2FA and similar):
+
+```javascript
+// Input: Encrypted eval pattern
+var data = "NjFiMjZkZDA6MTcwNDcy:SGVsbG8gV29ybGQh...";  // Base64 with PRNG seed
+var chars = ['\x23e64','\x23v05','\x23a0B','\x23l2C'];   // Steganographic "eval"
+// ... PRNG XOR + Caesar cipher decryption logic ...
+window[chars.map(c => c[1]).join('')](decrypted);       // eval(decrypted)
+
+// Output: Decrypted code directly in source
+console.log("Hello World!");
+```
+
+**Encryption layers removed:**
+1. Base64 decode with colon-delimited PRNG seed and counter
+2. XOR keystream via custom PRNG (seed-based)
+3. Variable-shift Caesar cipher (shift values 1–25 per character)
+4. Color-hex steganography for the `eval` call
+
+This pattern was reverse-engineered from a live phishing campaign. The decrypted payload replaces the entire encrypted block in-place before AST processing continues.
+
+### AST Transformation Phases (1–19)
 
 | Phase | Pass | What it does |
 |-------|------|-------------|
@@ -84,7 +109,7 @@ The binary is at `./target/release/jsbeautify`.
 ## Running Tests
 
 ```bash
-# Unit tests (211 tests across all deobfuscation passes)
+# Unit tests (221 tests across all deobfuscation passes)
 cargo test --lib
 ```
 
