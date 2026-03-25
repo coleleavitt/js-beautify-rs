@@ -37,25 +37,8 @@ impl DeadCodeEliminator {
         }
     }
 
-    fn clone_statement<'b>(
-        stmt: &Statement<'b>,
-        ctx: &mut TraverseCtx<'b, DeobfuscateState>,
-    ) -> Statement<'b> {
+    fn clone_statement<'b>(stmt: &Statement<'b>, ctx: &mut TraverseCtx<'b, DeobfuscateState>) -> Statement<'b> {
         stmt.clone_in_with_semantic_ids(ctx.ast.allocator)
-    }
-
-    fn clone_expression<'b>(
-        expr: &Expression<'b>,
-        ctx: &mut TraverseCtx<'b, DeobfuscateState>,
-    ) -> Expression<'b> {
-        expr.clone_in_with_semantic_ids(ctx.ast.allocator)
-    }
-
-    fn clone_binding_pattern<'b>(
-        pattern: &BindingPattern<'b>,
-        ctx: &mut TraverseCtx<'b, DeobfuscateState>,
-    ) -> BindingPattern<'b> {
-        pattern.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 }
 
@@ -77,17 +60,13 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadCodeEliminator {
                     eprintln!("[AST] Eliminating if(true) - keeping consequent");
                     self.changed = true;
                     let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-                    *stmt = ctx
-                        .ast
-                        .statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id);
+                    *stmt = ctx.ast.statement_block_with_scope_id(SPAN, ctx.ast.vec(), scope_id);
                 }
             }
-            Statement::WhileStatement(while_stmt) => {
-                if Self::is_false(&while_stmt.test) {
-                    eprintln!("[AST] Eliminating while(false) loop");
-                    self.changed = true;
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
-                }
+            Statement::WhileStatement(while_stmt) if Self::is_false(&while_stmt.test) => {
+                eprintln!("[AST] Eliminating while(false) loop");
+                self.changed = true;
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
             }
             _ => {}
         }
@@ -134,7 +113,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_dce(code: &str) -> String {
         let allocator = Allocator::default();
@@ -144,10 +123,7 @@ mod tests {
 
         let mut eliminator = DeadCodeEliminator::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut eliminator, &mut program, &mut ctx);

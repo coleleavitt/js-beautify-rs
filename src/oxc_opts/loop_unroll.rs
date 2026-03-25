@@ -8,7 +8,7 @@ use oxc_ast::ast::*;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SPAN;
 use oxc_syntax::scope::ScopeFlags;
-use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx, Traverse, TraverseCtx};
+use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
 
 use crate::oxc_opts::state::OptimizationState;
 
@@ -27,10 +27,7 @@ impl LoopUnroller {
         self.changed = false;
 
         let state = OptimizationState::new();
-        let scoping = SemanticBuilder::new()
-            .build(program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, allocator);
 
         traverse_mut_with_ctx(self, program, &mut ctx);
@@ -104,12 +101,7 @@ impl LoopUnroller {
         for i in 0..iterations {
             let current_value = init_value.checked_add(i.checked_mul(increment)?)?;
 
-            let body_clone = self.clone_and_substitute_loop_body(
-                &stmt.body,
-                &loop_var_name,
-                current_value,
-                ctx,
-            )?;
+            let body_clone = self.clone_and_substitute_loop_body(&stmt.body, &loop_var_name, current_value, ctx)?;
 
             unrolled_stmts.push(body_clone);
         }
@@ -130,8 +122,7 @@ impl LoopUnroller {
                 let mut new_stmts = ctx.ast.vec();
 
                 for stmt in &block.body {
-                    if let Some(new_stmt) = self.substitute_in_statement(stmt, loop_var, value, ctx)
-                    {
+                    if let Some(new_stmt) = self.substitute_in_statement(stmt, loop_var, value, ctx) {
                         new_stmts.push(new_stmt);
                     } else {
                         return None;
@@ -139,14 +130,10 @@ impl LoopUnroller {
                 }
 
                 let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-                let block = ctx
-                    .ast
-                    .block_statement_with_scope_id(SPAN, new_stmts, scope_id);
+                let block = ctx.ast.block_statement_with_scope_id(SPAN, new_stmts, scope_id);
                 Some(Statement::BlockStatement(ctx.ast.alloc(block)))
             }
-            Statement::ExpressionStatement(_) => {
-                self.substitute_in_statement(body, loop_var, value, ctx)
-            }
+            Statement::ExpressionStatement(_) => self.substitute_in_statement(body, loop_var, value, ctx),
             _ => None,
         }
     }
@@ -160,14 +147,11 @@ impl LoopUnroller {
     ) -> Option<Statement<'a>> {
         match stmt {
             Statement::ExpressionStatement(expr_stmt) => {
-                let new_expr =
-                    self.substitute_in_expression(&expr_stmt.expression, loop_var, value, ctx)?;
-                Some(Statement::ExpressionStatement(ctx.ast.alloc(
-                    ExpressionStatement {
-                        span: SPAN,
-                        expression: new_expr,
-                    },
-                )))
+                let new_expr = self.substitute_in_expression(&expr_stmt.expression, loop_var, value, ctx)?;
+                Some(Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+                    span: SPAN,
+                    expression: new_expr,
+                })))
             }
             Statement::VariableDeclaration(var_decl) => {
                 let mut new_decls = ctx.ast.vec();
@@ -190,14 +174,12 @@ impl LoopUnroller {
                     });
                 }
 
-                Some(Statement::VariableDeclaration(ctx.ast.alloc(
-                    VariableDeclaration {
-                        span: SPAN,
-                        kind: var_decl.kind,
-                        declarations: new_decls,
-                        declare: var_decl.declare,
-                    },
-                )))
+                Some(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                    span: SPAN,
+                    kind: var_decl.kind,
+                    declarations: new_decls,
+                    declare: var_decl.declare,
+                })))
             }
             _ => None,
         }
@@ -228,8 +210,7 @@ impl LoopUnroller {
                 }
             }
             Expression::CallExpression(call) => {
-                let new_callee =
-                    self.substitute_in_expression(&call.callee, loop_var, value, ctx)?;
+                let new_callee = self.substitute_in_expression(&call.callee, loop_var, value, ctx)?;
                 let mut new_args = ctx.ast.vec();
 
                 for arg in &call.arguments {
@@ -253,18 +234,15 @@ impl LoopUnroller {
                 let left = self.substitute_in_expression(&bin.left, loop_var, value, ctx)?;
                 let right = self.substitute_in_expression(&bin.right, loop_var, value, ctx)?;
 
-                Some(Expression::BinaryExpression(ctx.ast.alloc(
-                    BinaryExpression {
-                        span: SPAN,
-                        left,
-                        operator: bin.operator,
-                        right,
-                    },
-                )))
+                Some(Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                    span: SPAN,
+                    left,
+                    operator: bin.operator,
+                    right,
+                })))
             }
             Expression::StaticMemberExpression(static_mem) => {
-                let object =
-                    self.substitute_in_expression(&static_mem.object, loop_var, value, ctx)?;
+                let object = self.substitute_in_expression(&static_mem.object, loop_var, value, ctx)?;
 
                 Some(Expression::StaticMemberExpression(ctx.ast.alloc(
                     StaticMemberExpression {
@@ -279,10 +257,8 @@ impl LoopUnroller {
                 )))
             }
             Expression::ComputedMemberExpression(computed) => {
-                let object =
-                    self.substitute_in_expression(&computed.object, loop_var, value, ctx)?;
-                let property =
-                    self.substitute_in_expression(&computed.expression, loop_var, value, ctx)?;
+                let object = self.substitute_in_expression(&computed.object, loop_var, value, ctx)?;
+                let property = self.substitute_in_expression(&computed.expression, loop_var, value, ctx)?;
 
                 Some(Expression::ComputedMemberExpression(ctx.ast.alloc(
                     ComputedMemberExpression {
@@ -293,22 +269,18 @@ impl LoopUnroller {
                     },
                 )))
             }
-            Expression::NumericLiteral(lit) => {
-                Some(Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: lit.value,
-                    raw: lit.raw,
-                    base: lit.base,
-                })))
-            }
-            Expression::StringLiteral(lit) => {
-                Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: SPAN,
-                    value: ctx.ast.atom(lit.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                })))
-            }
+            Expression::NumericLiteral(lit) => Some(Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                span: SPAN,
+                value: lit.value,
+                raw: lit.raw,
+                base: lit.base,
+            }))),
+            Expression::StringLiteral(lit) => Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                span: SPAN,
+                value: ctx.ast.atom(lit.value.as_str()),
+                raw: None,
+                lone_surrogates: false,
+            }))),
             _ => None,
         }
     }
@@ -338,46 +310,35 @@ impl LoopUnroller {
                     })))
                 }
             }
-            Argument::NumericLiteral(lit) => {
-                Some(Argument::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: SPAN,
-                    value: lit.value,
-                    raw: lit.raw,
-                    base: lit.base,
-                })))
-            }
-            Argument::StringLiteral(lit) => {
-                Some(Argument::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: SPAN,
-                    value: ctx.ast.atom(lit.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                })))
-            }
-            Argument::BooleanLiteral(lit) => {
-                Some(Argument::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-                    span: SPAN,
-                    value: lit.value,
-                })))
-            }
-            Argument::NullLiteral(_) => Some(Argument::NullLiteral(
-                ctx.ast.alloc(NullLiteral { span: SPAN }),
-            )),
+            Argument::NumericLiteral(lit) => Some(Argument::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                span: SPAN,
+                value: lit.value,
+                raw: lit.raw,
+                base: lit.base,
+            }))),
+            Argument::StringLiteral(lit) => Some(Argument::StringLiteral(ctx.ast.alloc(StringLiteral {
+                span: SPAN,
+                value: ctx.ast.atom(lit.value.as_str()),
+                raw: None,
+                lone_surrogates: false,
+            }))),
+            Argument::BooleanLiteral(lit) => Some(Argument::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                span: SPAN,
+                value: lit.value,
+            }))),
+            Argument::NullLiteral(_) => Some(Argument::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))),
             Argument::BinaryExpression(bin) => {
                 let left = self.substitute_in_expression(&bin.left, loop_var, value, ctx)?;
                 let right = self.substitute_in_expression(&bin.right, loop_var, value, ctx)?;
-                Some(Argument::BinaryExpression(ctx.ast.alloc(
-                    BinaryExpression {
-                        span: SPAN,
-                        left,
-                        operator: bin.operator,
-                        right,
-                    },
-                )))
+                Some(Argument::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                    span: SPAN,
+                    left,
+                    operator: bin.operator,
+                    right,
+                })))
             }
             Argument::CallExpression(call) => {
-                let new_callee =
-                    self.substitute_in_expression(&call.callee, loop_var, value, ctx)?;
+                let new_callee = self.substitute_in_expression(&call.callee, loop_var, value, ctx)?;
                 let mut new_args = ctx.ast.vec();
                 for a in &call.arguments {
                     if let Argument::SpreadElement(_) = a {
@@ -408,14 +369,12 @@ impl Default for LoopUnroller {
 
 impl<'a> Traverse<'a, OptimizationState> for LoopUnroller {
     fn enter_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
-        if let Statement::ForStatement(for_stmt) = stmt {
-            if let Some(unrolled) = self.try_unroll_for_loop(for_stmt, ctx) {
-                let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-                let block = ctx
-                    .ast
-                    .block_statement_with_scope_id(SPAN, unrolled, scope_id);
-                *stmt = Statement::BlockStatement(ctx.ast.alloc(block));
-            }
+        if let Statement::ForStatement(for_stmt) = stmt
+            && let Some(unrolled) = self.try_unroll_for_loop(for_stmt, ctx)
+        {
+            let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
+            let block = ctx.ast.block_statement_with_scope_id(SPAN, unrolled, scope_id);
+            *stmt = Statement::BlockStatement(ctx.ast.alloc(block));
         }
     }
 }

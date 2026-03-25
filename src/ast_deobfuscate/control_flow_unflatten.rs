@@ -3,7 +3,7 @@
 //! Detects and restores flattened control flow patterns:
 //! ```js
 //! // Obfuscated (flattened)
-//! var _flow = "2|0|1".split("|"), _i = 0;
+//! var _flow = "2|0|1".split('|'), _i = 0;
 //! while (true) {
 //!     switch (_flow[_i++]) {
 //!         case "0": console.log("second"); continue;
@@ -71,23 +71,15 @@ impl ControlFlowUnflattener {
 
             if let Some(init) = &decl.init {
                 if let Some(sequence) = self.extract_split_sequence(init) {
-                    eprintln!(
-                        "[AST] Found control flow sequence: {} = {:?}",
-                        var_name, sequence
-                    );
-                    self.detected_sequences
-                        .insert(var_name.to_string(), sequence);
+                    eprintln!("[AST] Found control flow sequence: {} = {:?}", var_name, sequence);
+                    self.detected_sequences.insert(var_name.to_string(), sequence);
                 }
 
-                if self.is_zero_initializer(init) {
-                    if let Some(seq_var) = self.find_associated_sequence_var(var_name) {
-                        eprintln!(
-                            "[AST] Found index variable: {} for sequence {}",
-                            var_name, seq_var
-                        );
-                        self.detected_index_vars
-                            .insert(seq_var.clone(), var_name.to_string());
-                    }
+                if self.is_zero_initializer(init)
+                    && let Some(seq_var) = self.find_associated_sequence_var(var_name)
+                {
+                    eprintln!("[AST] Found index variable: {var_name} for sequence {seq_var}");
+                    self.detected_index_vars.insert(seq_var.clone(), var_name.to_string());
                 }
             }
         }
@@ -162,24 +154,20 @@ impl ControlFlowUnflattener {
         }
 
         let has_switch = self.body_contains_switch(&while_stmt.body);
-        eprintln!("[AST]   Body contains switch: {}", has_switch);
+        eprintln!("[AST]   Body contains switch: {has_switch}");
         has_switch
     }
 
     fn body_contains_switch<'a>(&self, stmt: &Statement<'a>) -> bool {
         match stmt {
-            Statement::BlockStatement(block) => block
-                .body
-                .iter()
-                .any(|s| matches!(s, Statement::SwitchStatement(_))),
+            Statement::BlockStatement(block) => block.body.iter().any(|s| matches!(s, Statement::SwitchStatement(_))),
             Statement::SwitchStatement(_) => true,
             _ => false,
         }
     }
 
     fn is_control_flow_for<'a>(&self, for_stmt: &ForStatement<'a>) -> bool {
-        let is_infinite =
-            for_stmt.init.is_none() && for_stmt.test.is_none() && for_stmt.update.is_none();
+        let is_infinite = for_stmt.init.is_none() && for_stmt.test.is_none() && for_stmt.update.is_none();
 
         if !is_infinite {
             eprintln!("[AST]   Rejecting: not for(;;)");
@@ -188,14 +176,11 @@ impl ControlFlowUnflattener {
 
         eprintln!("[AST]   for(;;) detected");
         let has_switch = self.body_contains_switch(&for_stmt.body);
-        eprintln!("[AST]   Body contains switch: {}", has_switch);
+        eprintln!("[AST]   Body contains switch: {has_switch}");
         has_switch
     }
 
-    fn extract_switch_from_for<'a, 'b>(
-        &self,
-        for_stmt: &'b ForStatement<'a>,
-    ) -> Option<&'b SwitchStatement<'a>> {
+    fn extract_switch_from_for<'a, 'b>(&self, for_stmt: &'b ForStatement<'a>) -> Option<&'b SwitchStatement<'a>> {
         let block = match &for_stmt.body {
             Statement::BlockStatement(block) => block,
             _ => return None,
@@ -209,10 +194,7 @@ impl ControlFlowUnflattener {
         None
     }
 
-    fn extract_switch_from_while<'a, 'b>(
-        &self,
-        while_stmt: &'b WhileStatement<'a>,
-    ) -> Option<&'b SwitchStatement<'a>> {
+    fn extract_switch_from_while<'a, 'b>(&self, while_stmt: &'b WhileStatement<'a>) -> Option<&'b SwitchStatement<'a>> {
         let block = match &while_stmt.body {
             Statement::BlockStatement(block) => block,
             _ => return None,
@@ -227,10 +209,7 @@ impl ControlFlowUnflattener {
     }
 
     fn is_sequence_access<'a>(&self, expr: &Expression<'a>) -> Option<String> {
-        eprintln!(
-            "[AST]   Checking discriminant: {:?}",
-            std::mem::discriminant(expr)
-        );
+        eprintln!("[AST]   Checking discriminant: {:?}", std::mem::discriminant(expr));
 
         let array_name = match expr {
             Expression::ComputedMemberExpression(member) => {
@@ -249,18 +228,16 @@ impl ControlFlowUnflattener {
             Expression::UpdateExpression(update) => {
                 eprintln!("[AST]   Discriminant is UpdateExpression");
                 match &update.argument {
-                    SimpleAssignmentTarget::ComputedMemberExpression(member) => {
-                        match &member.object {
-                            Expression::Identifier(ident) => {
-                                eprintln!("[AST]   Array name: {}", ident.name);
-                                ident.name.as_str()
-                            }
-                            _ => {
-                                eprintln!("[AST]   Member object is not Identifier");
-                                return None;
-                            }
+                    SimpleAssignmentTarget::ComputedMemberExpression(member) => match &member.object {
+                        Expression::Identifier(ident) => {
+                            eprintln!("[AST]   Array name: {}", ident.name);
+                            ident.name.as_str()
                         }
-                    }
+                        _ => {
+                            eprintln!("[AST]   Member object is not Identifier");
+                            return None;
+                        }
+                    },
                     _ => {
                         eprintln!("[AST]   Update argument is not ComputedMemberExpression");
                         return None;
@@ -268,15 +245,13 @@ impl ControlFlowUnflattener {
                 }
             }
             _ => {
-                eprintln!(
-                    "[AST]   Discriminant is neither ComputedMemberExpression nor UpdateExpression"
-                );
+                eprintln!("[AST]   Discriminant is neither ComputedMemberExpression nor UpdateExpression");
                 return None;
             }
         };
 
         if self.detected_sequences.contains_key(array_name) {
-            eprintln!("[AST]   Found sequence access for: {}", array_name);
+            eprintln!("[AST]   Found sequence access for: {array_name}");
             return Some(array_name.to_string());
         }
 
@@ -321,9 +296,7 @@ impl ControlFlowUnflattener {
             if let Some(test) = &case.test {
                 let case_value = match test {
                     Expression::StringLiteral(lit) => lit.value.as_str().to_string(),
-                    Expression::NumericLiteral(lit) => lit
-                        .raw
-                        .map_or_else(|| lit.value.to_string(), |r| r.to_string()),
+                    Expression::NumericLiteral(lit) => lit.raw.map_or_else(|| lit.value.to_string(), |r| r.to_string()),
                     _ => continue,
                 };
                 case_map.insert(case_value, case);
@@ -348,11 +321,7 @@ impl ControlFlowUnflattener {
     }
 
     fn should_keep_statement<'a>(&self, stmt: &Statement<'a>) -> bool {
-        match stmt {
-            Statement::ContinueStatement(_) => false,
-            Statement::BreakStatement(_) => false,
-            _ => true,
-        }
+        !matches!(stmt, Statement::ContinueStatement(_) | Statement::BreakStatement(_))
     }
 }
 
@@ -407,19 +376,11 @@ impl<'a> Traverse<'a, DeobfuscateState> for ControlFlowUnflattener {
                         unflatten_plan.push(UnflattenAction::Keep);
                     }
                 }
-                Statement::WhileStatement(while_stmt) => {
-                    if self.is_control_flow_while(while_stmt) {
-                        unflatten_plan.push(UnflattenAction::UnflattenWhile(idx));
-                    } else {
-                        unflatten_plan.push(UnflattenAction::Keep);
-                    }
+                Statement::WhileStatement(while_stmt) if self.is_control_flow_while(while_stmt) => {
+                    unflatten_plan.push(UnflattenAction::UnflattenWhile(idx));
                 }
-                Statement::ForStatement(for_stmt) => {
-                    if self.is_control_flow_for(for_stmt) {
-                        unflatten_plan.push(UnflattenAction::UnflattenFor(idx));
-                    } else {
-                        unflatten_plan.push(UnflattenAction::Keep);
-                    }
+                Statement::ForStatement(for_stmt) if self.is_control_flow_for(for_stmt) => {
+                    unflatten_plan.push(UnflattenAction::UnflattenFor(idx));
                 }
                 _ => {
                     unflatten_plan.push(UnflattenAction::Keep);
@@ -431,9 +392,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ControlFlowUnflattener {
         let needs_unflatten = unflatten_plan.iter().any(|a| {
             matches!(
                 a,
-                UnflattenAction::Skip
-                    | UnflattenAction::UnflattenWhile(_)
-                    | UnflattenAction::UnflattenFor(_)
+                UnflattenAction::Skip | UnflattenAction::UnflattenWhile(_) | UnflattenAction::UnflattenFor(_)
             )
         });
 
@@ -444,31 +403,24 @@ impl<'a> Traverse<'a, DeobfuscateState> for ControlFlowUnflattener {
         // Second pass: for statements that need unflattening, extract from switch cases
         // using CloneIn (since we're reading from inside the while/for body).
         // We need to do this BEFORE draining program.body because we borrow from it.
-        let mut unflattened_stmts: FxHashMap<usize, OxcVec<'a, Statement<'a>>> =
-            FxHashMap::default();
+        let mut unflattened_stmts: FxHashMap<usize, OxcVec<'a, Statement<'a>>> = FxHashMap::default();
 
         for action in &unflatten_plan {
             match action {
                 UnflattenAction::UnflattenWhile(idx) => {
-                    if let Statement::WhileStatement(while_stmt) = &program.body[*idx] {
-                        if let Some(stmts) = self.extract_unflattened_while(while_stmt, ctx) {
-                            eprintln!(
-                                "[AST] Unflattened while control flow: {} statements",
-                                stmts.len()
-                            );
-                            unflattened_stmts.insert(*idx, stmts);
-                        }
+                    if let Statement::WhileStatement(while_stmt) = &program.body[*idx]
+                        && let Some(stmts) = self.extract_unflattened_while(while_stmt, ctx)
+                    {
+                        eprintln!("[AST] Unflattened while control flow: {} statements", stmts.len());
+                        unflattened_stmts.insert(*idx, stmts);
                     }
                 }
                 UnflattenAction::UnflattenFor(idx) => {
-                    if let Statement::ForStatement(for_stmt) = &program.body[*idx] {
-                        if let Some(stmts) = self.extract_unflattened_for(for_stmt, ctx) {
-                            eprintln!(
-                                "[AST] Unflattened for(;;) control flow: {} statements",
-                                stmts.len()
-                            );
-                            unflattened_stmts.insert(*idx, stmts);
-                        }
+                    if let Statement::ForStatement(for_stmt) = &program.body[*idx]
+                        && let Some(stmts) = self.extract_unflattened_for(for_stmt, ctx)
+                    {
+                        eprintln!("[AST] Unflattened for(;;) control flow: {} statements", stmts.len());
+                        unflattened_stmts.insert(*idx, stmts);
                     }
                 }
                 _ => {}
@@ -521,7 +473,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_unflatten(code: &str) -> String {
         let allocator = Allocator::default();
@@ -531,10 +483,7 @@ mod tests {
 
         let mut unflattener = ControlFlowUnflattener::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut unflattener, &mut program, &mut ctx);
@@ -544,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_detect_sequence() {
-        let code = r#"var _flow = "2|0|1".split("|");"#;
+        let code = r#"var _flow = "2|0|1".split('|');"#;
         let allocator = Allocator::default();
         let source_type = SourceType::mjs();
         let ret = Parser::new(&allocator, code, source_type).parse();
@@ -552,10 +501,7 @@ mod tests {
 
         let mut unflattener = ControlFlowUnflattener::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut unflattener, &mut program, &mut ctx);
@@ -570,7 +516,7 @@ mod tests {
     #[test]
     fn test_simple_unflatten() {
         let code = r#"
-var _flow = "2|0|1".split("|");
+var _flow = "2|0|1".split('|');
 var _i = 0;
 while (true) {
     switch (_flow[_i++]) {
@@ -583,7 +529,7 @@ while (true) {
 "#;
 
         let output = run_unflatten(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
         assert!(output.contains("first"));
         assert!(output.contains("second"));
@@ -592,13 +538,13 @@ while (true) {
 
     #[test]
     fn test_no_unflatten_regular_while() {
-        let code = r#"
+        let code = r"
 var x = 0;
 while (x < 10) {
     console.log(x);
     x++;
 }
-"#;
+";
 
         let output = run_unflatten(code);
 
@@ -609,7 +555,7 @@ while (x < 10) {
     #[test]
     fn test_for_infinite_unflatten() {
         let code = r#"
-var _flow = "1|0|2".split("|");
+var _flow = "1|0|2".split('|');
 var _i = 0;
 for (;;) {
     switch (_flow[_i++]) {
@@ -622,7 +568,7 @@ for (;;) {
 "#;
 
         let output = run_unflatten(code);
-        eprintln!("For(;;) Output:\n{}", output);
+        eprintln!("For(;;) Output:\n{output}");
 
         assert!(output.contains("first"));
         assert!(output.contains("second"));

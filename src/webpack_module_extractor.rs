@@ -1,6 +1,5 @@
-use crate::BeautifyError;
-use crate::Result;
 use crate::token::{Token, TokenType};
+use crate::{BeautifyError, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -27,6 +26,12 @@ pub struct WebpackModule {
 
 pub struct ModuleExtractor {
     modules: HashMap<usize, WebpackModule>,
+}
+
+impl Default for ModuleExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ModuleExtractor {
@@ -119,14 +124,14 @@ impl ModuleExtractor {
                 break;
             }
 
-            if tokens[i].token_type == TokenType::Number {
-                if let Some(module) = self.try_parse_module(tokens, i)? {
-                    self.modules.insert(module.id, module);
-                    i = i.checked_add(1).ok_or_else(|| {
-                        BeautifyError::BeautificationFailed("overflow".to_string())
-                    })?;
-                    continue;
-                }
+            if tokens[i].token_type == TokenType::Number
+                && let Some(module) = self.try_parse_module(tokens, i)?
+            {
+                self.modules.insert(module.id, module);
+                i = i
+                    .checked_add(1)
+                    .ok_or_else(|| BeautifyError::BeautificationFailed("overflow".to_string()))?;
+                continue;
             }
 
             i = i
@@ -164,20 +169,14 @@ impl ModuleExtractor {
             return Ok(None);
         }
 
-        if tokens[func_pos].token_type == TokenType::Reserved && tokens[func_pos].text == "function"
-        {
+        if tokens[func_pos].token_type == TokenType::Reserved && tokens[func_pos].text == "function" {
             let func_end = self.find_function_end(tokens, func_pos)?;
             if func_end.is_none() {
                 return Ok(None);
             }
             let func_end = func_end.unwrap();
 
-            trace_webpack!(
-                "parsed module {}: positions {}..{}",
-                module_id,
-                func_pos,
-                func_end
-            );
+            trace_webpack!("parsed module {}: positions {}..{}", module_id, func_pos, func_end);
 
             return Ok(Some(WebpackModule {
                 id: module_id,
@@ -200,19 +199,17 @@ impl ModuleExtractor {
 
         while i < tokens.len() {
             if tokens[i].token_type == TokenType::StartBlock {
-                depth = depth.checked_add(1).ok_or_else(|| {
-                    BeautifyError::BeautificationFailed("depth overflow".to_string())
-                })?;
+                depth = depth
+                    .checked_add(1)
+                    .ok_or_else(|| BeautifyError::BeautificationFailed("depth overflow".to_string()))?;
                 found_first_brace = true;
-            } else if tokens[i].token_type == TokenType::EndBlock {
-                if depth > 0 {
-                    depth = depth.checked_sub(1).ok_or_else(|| {
-                        BeautifyError::BeautificationFailed("depth underflow".to_string())
-                    })?;
+            } else if tokens[i].token_type == TokenType::EndBlock && depth > 0 {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| BeautifyError::BeautificationFailed("depth underflow".to_string()))?;
 
-                    if found_first_brace && depth == 0 {
-                        return Ok(Some(i));
-                    }
+                if found_first_brace && depth == 0 {
+                    return Ok(Some(i));
                 }
             }
 
@@ -228,24 +225,19 @@ impl ModuleExtractor {
         trace_webpack!("=== WRITING MODULES ===");
         trace_webpack!("output directory: {}", output_dir.display());
 
-        fs::create_dir_all(output_dir).map_err(|e| {
-            BeautifyError::BeautificationFailed(format!("failed to create output directory: {}", e))
-        })?;
+        fs::create_dir_all(output_dir)
+            .map_err(|e| BeautifyError::BeautificationFailed(format!("failed to create output directory: {e}")))?;
 
         for (id, module) in &self.modules {
-            let filename = format!("module_{}.js", id);
+            let filename = format!("module_{id}.js");
             let output_path = output_dir.join(&filename);
 
-            let module_tokens: Vec<Token> = tokens[module.start_pos..=module.end_pos]
-                .iter()
-                .cloned()
-                .collect();
+            let module_tokens: Vec<Token> = tokens[module.start_pos..=module.end_pos].to_vec();
 
             let module_code = self.tokens_to_string(&module_tokens);
 
-            fs::write(&output_path, module_code).map_err(|e| {
-                BeautifyError::BeautificationFailed(format!("failed to write module {}: {}", id, e))
-            })?;
+            fs::write(&output_path, module_code)
+                .map_err(|e| BeautifyError::BeautificationFailed(format!("failed to write module {id}: {e}")))?;
 
             trace_webpack!("wrote module {} to {}", id, filename);
         }
@@ -255,11 +247,7 @@ impl ModuleExtractor {
     }
 
     fn tokens_to_string(&self, tokens: &[Token]) -> String {
-        tokens
-            .iter()
-            .map(|t| t.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ")
+        tokens.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ")
     }
 
     pub fn extract_dependencies(&mut self, tokens: &[Token]) -> Result<()> {
@@ -277,12 +265,7 @@ impl ModuleExtractor {
         Ok(())
     }
 
-    fn find_dependencies_in_range(
-        &self,
-        tokens: &[Token],
-        start: usize,
-        end: usize,
-    ) -> Result<Vec<usize>> {
+    fn find_dependencies_in_range(&self, tokens: &[Token], start: usize, end: usize) -> Result<Vec<usize>> {
         let mut deps = Vec::new();
         let mut i = start;
 
@@ -293,16 +276,16 @@ impl ModuleExtractor {
                     .ok_or_else(|| BeautifyError::BeautificationFailed("overflow".to_string()))?;
 
                 if paren < tokens.len() && tokens[paren].token_type == TokenType::StartExpr {
-                    let num_pos = paren.checked_add(1).ok_or_else(|| {
-                        BeautifyError::BeautificationFailed("overflow".to_string())
-                    })?;
+                    let num_pos = paren
+                        .checked_add(1)
+                        .ok_or_else(|| BeautifyError::BeautificationFailed("overflow".to_string()))?;
 
-                    if num_pos < tokens.len() && tokens[num_pos].token_type == TokenType::Number {
-                        if let Ok(dep_id) = tokens[num_pos].text.parse::<usize>() {
-                            if !deps.contains(&dep_id) {
-                                deps.push(dep_id);
-                            }
-                        }
+                    if num_pos < tokens.len()
+                        && tokens[num_pos].token_type == TokenType::Number
+                        && let Ok(dep_id) = tokens[num_pos].text.parse::<usize>()
+                        && !deps.contains(&dep_id)
+                    {
+                        deps.push(dep_id);
                     }
                 }
             }
@@ -322,23 +305,22 @@ impl ModuleExtractor {
         graph.push_str("  rankdir=LR;\n");
         graph.push_str("  node [shape=box];\n\n");
 
-        for (id, _module) in &self.modules {
-            graph.push_str(&format!("  module_{} [label=\"Module {}\"];\n", id, id));
+        for id in self.modules.keys() {
+            graph.push_str(&format!("  module_{id} [label=\"Module {id}\"];\n"));
         }
 
-        graph.push_str("\n");
+        graph.push('\n');
 
         for (id, module) in &self.modules {
             for dep in &module.dependencies {
-                graph.push_str(&format!("  module_{} -> module_{};\n", id, dep));
+                graph.push_str(&format!("  module_{id} -> module_{dep};\n"));
             }
         }
 
         graph.push_str("}\n");
 
-        fs::write(output_path, graph).map_err(|e| {
-            BeautifyError::BeautificationFailed(format!("failed to write dependency graph: {}", e))
-        })?;
+        fs::write(output_path, graph)
+            .map_err(|e| BeautifyError::BeautificationFailed(format!("failed to write dependency graph: {e}")))?;
 
         trace_webpack!("wrote dependency graph to {}", output_path.display());
         Ok(())

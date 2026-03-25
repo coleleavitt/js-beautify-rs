@@ -39,10 +39,7 @@ impl StringArrayRotation {
         name.starts_with("_0x") || name.starts_with("_0X")
     }
 
-    fn detect_string_array<'a>(
-        &mut self,
-        var_decl: &VariableDeclaration<'a>,
-    ) -> Option<StringArrayInfo> {
+    fn detect_string_array<'a>(&mut self, var_decl: &VariableDeclaration<'a>) -> Option<StringArrayInfo> {
         if var_decl.declarations.len() != 1 {
             return None;
         }
@@ -86,10 +83,7 @@ impl StringArrayRotation {
         })
     }
 
-    fn detect_rotation_iife<'a>(
-        &mut self,
-        call_expr: &CallExpression<'a>,
-    ) -> Option<(String, usize)> {
+    fn detect_rotation_iife<'a>(&mut self, call_expr: &CallExpression<'a>) -> Option<(String, usize)> {
         eprintln!("[AST] Checking call for rotation IIFE");
 
         let func = match &call_expr.callee {
@@ -113,7 +107,7 @@ impl StringArrayRotation {
             }
         };
 
-        if func.params.items.len() < 1 {
+        if func.params.items.is_empty() {
             eprintln!("[AST]   No params");
             return None;
         }
@@ -131,17 +125,14 @@ impl StringArrayRotation {
         };
 
         if !self.detected_arrays.contains_key(array_name) {
-            eprintln!("[AST]   {} not in arrays", array_name);
+            eprintln!("[AST]   {array_name} not in arrays");
             return None;
         }
 
         eprintln!("[AST]   Analyzing body");
         let rotation_count = self.analyze_rotation_body(&func.body.as_ref()?.statements)?;
 
-        eprintln!(
-            "[AST] Detected rotation IIFE: {} with count {}",
-            array_name, rotation_count
-        );
+        eprintln!("[AST] Detected rotation IIFE: {array_name} with count {rotation_count}");
 
         Some((array_name.to_string(), rotation_count))
     }
@@ -153,7 +144,7 @@ impl StringArrayRotation {
         eprintln!("[AST]     Body has {} statements", statements.len());
 
         for (i, stmt) in statements.iter().enumerate() {
-            eprintln!("[AST]     Scanning statement {}", i);
+            eprintln!("[AST]     Scanning statement {i}");
             self.scan_for_rotation(stmt, &mut has_rotation_ops, &mut rotation_count);
         }
 
@@ -173,12 +164,7 @@ impl StringArrayRotation {
         }
     }
 
-    fn scan_for_rotation<'a>(
-        &self,
-        stmt: &Statement<'a>,
-        has_ops: &mut bool,
-        count: &mut Option<usize>,
-    ) {
+    fn scan_for_rotation<'a>(&self, stmt: &Statement<'a>, has_ops: &mut bool, count: &mut Option<usize>) {
         match stmt {
             Statement::VariableDeclaration(var_decl) => {
                 eprintln!(
@@ -200,10 +186,7 @@ impl StringArrayRotation {
                 self.scan_for_rotation(&while_stmt.body, has_ops, count);
             }
             Statement::BlockStatement(block) => {
-                eprintln!(
-                    "[AST]       Found BlockStatement with {} statements",
-                    block.body.len()
-                );
+                eprintln!("[AST]       Found BlockStatement with {} statements", block.body.len());
                 for stmt in &block.body {
                     self.scan_for_rotation(stmt, has_ops, count);
                 }
@@ -214,20 +197,15 @@ impl StringArrayRotation {
         }
     }
 
-    fn scan_expr_for_rotation<'a>(
-        &self,
-        expr: &Expression<'a>,
-        has_ops: &mut bool,
-        count: &mut Option<usize>,
-    ) {
+    fn scan_expr_for_rotation<'a>(&self, expr: &Expression<'a>, has_ops: &mut bool, count: &mut Option<usize>) {
         match expr {
             Expression::CallExpression(call) => {
                 eprintln!("[AST]         Found CallExpression");
                 if let Expression::StaticMemberExpression(member) = &call.callee {
                     let method = member.property.name.as_str();
-                    eprintln!("[AST]           Method: {}", method);
+                    eprintln!("[AST]           Method: {method}");
                     if matches!(method, "push" | "shift" | "unshift" | "pop" | "splice") {
-                        eprintln!("[AST]           ✓ Found rotation operation: {}", method);
+                        eprintln!("[AST]           ✓ Found rotation operation: {method}");
                         *has_ops = true;
                     }
                 }
@@ -235,18 +213,17 @@ impl StringArrayRotation {
                 for arg in &call.arguments {
                     if let Argument::NumericLiteral(lit) = arg {
                         let num = lit.value as usize;
-                        eprintln!("[AST]           Numeric arg: {}", num);
+                        eprintln!("[AST]           Numeric arg: {num}");
                         if num > 0 && num < 1000 {
-                            eprintln!("[AST]           ✓ Found rotation count: {}", num);
+                            eprintln!("[AST]           ✓ Found rotation count: {num}");
                             *count = Some(num);
                         }
                     }
-                    if let Argument::Identifier(_ident) = arg {
-                        if let Expression::StaticMemberExpression(member) = &call.callee {
-                            if matches!(member.property.name.as_str(), "push" | "shift") {
-                                *has_ops = true;
-                            }
-                        }
+                    if let Argument::Identifier(_ident) = arg
+                        && let Expression::StaticMemberExpression(member) = &call.callee
+                        && matches!(member.property.name.as_str(), "push" | "shift")
+                    {
+                        *has_ops = true;
                     }
                 }
             }
@@ -287,10 +264,7 @@ impl StringArrayRotation {
                 array_info.rotated = true;
                 array_info.rotation_count = *rotation_count;
 
-                eprintln!(
-                    "[AST] Applied rotation to {}: {} positions",
-                    array_name, rotation_count
-                );
+                eprintln!("[AST] Applied rotation to {array_name}: {rotation_count} positions");
                 eprintln!(
                     "[AST]   Result: {:?}",
                     &array_info.strings[..5.min(array_info.strings.len())]
@@ -298,9 +272,7 @@ impl StringArrayRotation {
             }
         }
 
-        state
-            .string_arrays
-            .extend(self.detected_arrays.drain().map(|(k, v)| (k, v)));
+        state.string_arrays.extend(self.detected_arrays.drain());
     }
 }
 
@@ -312,32 +284,27 @@ impl Default for StringArrayRotation {
 
 impl<'a> Traverse<'a, DeobfuscateState> for StringArrayRotation {
     fn enter_statement(&mut self, stmt: &mut Statement<'a>, _ctx: &mut Ctx<'a>) {
-        if let Statement::VariableDeclaration(var_decl) = stmt {
-            if let Some(array_info) = self.detect_string_array(var_decl) {
-                eprintln!(
-                    "[AST] Found string array: {} with {} strings",
-                    array_info.var_name,
-                    array_info.strings.len()
-                );
-                eprintln!(
-                    "[AST]   First 5: {:?}",
-                    &array_info.strings[..5.min(array_info.strings.len())]
-                );
-                self.detected_arrays
-                    .insert(array_info.var_name.clone(), array_info);
-            }
+        if let Statement::VariableDeclaration(var_decl) = stmt
+            && let Some(array_info) = self.detect_string_array(var_decl)
+        {
+            eprintln!(
+                "[AST] Found string array: {} with {} strings",
+                array_info.var_name,
+                array_info.strings.len()
+            );
+            eprintln!(
+                "[AST]   First 5: {:?}",
+                &array_info.strings[..5.min(array_info.strings.len())]
+            );
+            self.detected_arrays.insert(array_info.var_name.clone(), array_info);
         }
 
-        if let Statement::ExpressionStatement(expr_stmt) = stmt {
-            if let Expression::CallExpression(call) = &expr_stmt.expression {
-                if let Some((array_name, rotation_count)) = self.detect_rotation_iife(call) {
-                    eprintln!(
-                        "[AST] Detected rotation IIFE for {}: {} rotations",
-                        array_name, rotation_count
-                    );
-                    self.pending_rotations.insert(array_name, rotation_count);
-                }
-            }
+        if let Statement::ExpressionStatement(expr_stmt) = stmt
+            && let Expression::CallExpression(call) = &expr_stmt.expression
+            && let Some((array_name, rotation_count)) = self.detect_rotation_iife(call)
+        {
+            eprintln!("[AST] Detected rotation IIFE for {array_name}: {rotation_count} rotations");
+            self.pending_rotations.insert(array_name, rotation_count);
         }
     }
 }
@@ -359,10 +326,7 @@ mod tests {
 
         let mut pass = StringArrayRotation::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = oxc_traverse::ReusableTraverseCtx::new(state, scoping, &allocator);
 
         oxc_traverse::traverse_mut_with_ctx(&mut pass, &mut program, &mut ctx);

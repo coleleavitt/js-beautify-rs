@@ -29,8 +29,7 @@ impl SourceMap {
             return;
         }
 
-        let encoded =
-            encode_vlq(0) + &encode_vlq(0) + &encode_vlq(original_line as i64 - 1) + &encode_vlq(0);
+        let encoded = encode_vlq(0) + &encode_vlq(0) + &encode_vlq(original_line as i64 - 1) + &encode_vlq(0);
 
         if !self.mappings.is_empty() {
             self.mappings.push(';');
@@ -45,7 +44,7 @@ impl SourceMap {
     pub fn to_data_url(&self) -> Result<String, serde_json::Error> {
         let json = self.to_json()?;
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json);
-        Ok(format!("data:application/json;base64,{}", encoded))
+        Ok(format!("data:application/json;base64,{encoded}"))
     }
 
     pub fn for_chunk(chunk_name: &str, chunk_filename: &str, line_count: usize) -> Self {
@@ -65,11 +64,7 @@ const VLQ_BASE_MASK: i64 = VLQ_BASE - 1;
 const VLQ_CONTINUATION_BIT: i64 = VLQ_BASE;
 
 fn encode_vlq(value: i64) -> String {
-    let mut vlq = if value < 0 {
-        ((-value) << 1) | 1
-    } else {
-        value << 1
-    };
+    let mut vlq = if value < 0 { ((-value) << 1) | 1 } else { value << 1 };
 
     let mut result = String::new();
     loop {

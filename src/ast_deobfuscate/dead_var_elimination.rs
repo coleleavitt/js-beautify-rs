@@ -29,10 +29,7 @@ impl VarInfo {
     }
 
     fn is_dead(&self) -> bool {
-        self.declaration_count > 0
-            && self.read_count == 0
-            && !self.is_function_param
-            && !self.is_exported
+        self.declaration_count > 0 && self.read_count == 0 && !self.is_function_param && !self.is_exported
     }
 }
 
@@ -62,42 +59,27 @@ impl DeadVarCollector {
     }
 
     fn record_declaration(&mut self, name: &str) {
-        let entry = self
-            .variables
-            .entry(name.to_string())
-            .or_insert_with(VarInfo::new);
+        let entry = self.variables.entry(name.to_string()).or_insert_with(VarInfo::new);
         entry.declaration_count += 1;
     }
 
     fn record_read(&mut self, name: &str) {
-        let entry = self
-            .variables
-            .entry(name.to_string())
-            .or_insert_with(VarInfo::new);
+        let entry = self.variables.entry(name.to_string()).or_insert_with(VarInfo::new);
         entry.read_count += 1;
     }
 
     fn record_write(&mut self, name: &str) {
-        let entry = self
-            .variables
-            .entry(name.to_string())
-            .or_insert_with(VarInfo::new);
+        let entry = self.variables.entry(name.to_string()).or_insert_with(VarInfo::new);
         entry.write_count += 1;
     }
 
     fn record_function_param(&mut self, name: &str) {
-        let entry = self
-            .variables
-            .entry(name.to_string())
-            .or_insert_with(VarInfo::new);
+        let entry = self.variables.entry(name.to_string()).or_insert_with(VarInfo::new);
         entry.is_function_param = true;
     }
 
     fn record_export(&mut self, name: &str) {
-        let entry = self
-            .variables
-            .entry(name.to_string())
-            .or_insert_with(VarInfo::new);
+        let entry = self.variables.entry(name.to_string()).or_insert_with(VarInfo::new);
         entry.is_exported = true;
     }
 }
@@ -115,7 +97,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarCollector {
             self.record_declaration(name);
             self.current_declaration_name = Some(name.to_string());
             self.in_declaration = true;
-            eprintln!("[AST] Found declaration: {}", name);
+            eprintln!("[AST] Found declaration: {name}");
         }
     }
 
@@ -128,23 +110,15 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarCollector {
         if let BindingPattern::BindingIdentifier(ident) = &param.pattern {
             let name = ident.name.as_str();
             self.record_function_param(name);
-            eprintln!("[AST] Found function param: {}", name);
+            eprintln!("[AST] Found function param: {name}");
         }
     }
 
-    fn enter_assignment_expression(
-        &mut self,
-        _expr: &mut AssignmentExpression<'a>,
-        _ctx: &mut Ctx<'a>,
-    ) {
+    fn enter_assignment_expression(&mut self, _expr: &mut AssignmentExpression<'a>, _ctx: &mut Ctx<'a>) {
         self.in_lhs_of_assignment = true;
     }
 
-    fn exit_assignment_expression(
-        &mut self,
-        expr: &mut AssignmentExpression<'a>,
-        _ctx: &mut Ctx<'a>,
-    ) {
+    fn exit_assignment_expression(&mut self, expr: &mut AssignmentExpression<'a>, _ctx: &mut Ctx<'a>) {
         self.in_lhs_of_assignment = false;
 
         if let AssignmentTarget::AssignmentTargetIdentifier(ident) = &expr.left {
@@ -161,19 +135,14 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarCollector {
         }
     }
 
-    fn enter_identifier_reference(
-        &mut self,
-        ident: &mut IdentifierReference<'a>,
-        _ctx: &mut Ctx<'a>,
-    ) {
+    fn enter_identifier_reference(&mut self, ident: &mut IdentifierReference<'a>, _ctx: &mut Ctx<'a>) {
         let name = ident.name.as_str();
 
-        if self.in_declaration {
-            if let Some(ref decl_name) = self.current_declaration_name {
-                if name == decl_name {
-                    return;
-                }
-            }
+        if self.in_declaration
+            && let Some(ref decl_name) = self.current_declaration_name
+            && name == decl_name
+        {
+            return;
         }
 
         if !self.in_lhs_of_assignment {
@@ -181,11 +150,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarCollector {
         }
     }
 
-    fn enter_export_named_declaration(
-        &mut self,
-        decl: &mut ExportNamedDeclaration<'a>,
-        _ctx: &mut Ctx<'a>,
-    ) {
+    fn enter_export_named_declaration(&mut self, decl: &mut ExportNamedDeclaration<'a>, _ctx: &mut Ctx<'a>) {
         for specifier in &decl.specifiers {
             if let ModuleExportName::IdentifierName(ident) = &specifier.local {
                 self.record_export(ident.name.as_str());
@@ -195,11 +160,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarCollector {
         }
     }
 
-    fn enter_export_default_declaration(
-        &mut self,
-        decl: &mut ExportDefaultDeclaration<'a>,
-        _ctx: &mut Ctx<'a>,
-    ) {
+    fn enter_export_default_declaration(&mut self, decl: &mut ExportDefaultDeclaration<'a>, _ctx: &mut Ctx<'a>) {
         match &decl.declaration {
             ExportDefaultDeclarationKind::Identifier(ident) => {
                 self.record_export(ident.name.as_str());
@@ -240,10 +201,10 @@ impl DeadVarEliminator {
         if let BindingPattern::BindingIdentifier(ident) = &decl.id {
             let name = ident.name.as_str();
             if self.dead_vars.contains(name) {
-                if let Some(init) = &decl.init {
-                    if Self::has_side_effects(init) {
-                        return false;
-                    }
+                if let Some(init) = &decl.init
+                    && Self::has_side_effects(init)
+                {
+                    return false;
                 }
                 return true;
             }
@@ -261,9 +222,7 @@ impl DeadVarEliminator {
             | Expression::ThisExpression(_) => false,
 
             Expression::ArrayExpression(arr) => arr.elements.iter().any(|el| match el {
-                ArrayExpressionElement::SpreadElement(spread) => {
-                    Self::has_side_effects(&spread.argument)
-                }
+                ArrayExpressionElement::SpreadElement(spread) => Self::has_side_effects(&spread.argument),
                 ArrayExpressionElement::Elision(_) => false,
                 _ => {
                     if let Some(expr) = el.as_expression() {
@@ -277,22 +236,19 @@ impl DeadVarEliminator {
             Expression::ObjectExpression(obj) => obj.properties.iter().any(|prop| match prop {
                 ObjectPropertyKind::ObjectProperty(p) => {
                     let key_has_side_effects = if p.computed {
-                        p.key.as_expression().map_or(false, Self::has_side_effects)
+                        p.key.as_expression().is_some_and(Self::has_side_effects)
                     } else {
                         false
                     };
                     Self::has_side_effects(&p.value) || key_has_side_effects
                 }
-                ObjectPropertyKind::SpreadProperty(spread) => {
-                    Self::has_side_effects(&spread.argument)
-                }
+                ObjectPropertyKind::SpreadProperty(spread) => Self::has_side_effects(&spread.argument),
             }),
 
             Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => false,
 
             Expression::UnaryExpression(unary) => {
-                matches!(unary.operator, UnaryOperator::Delete)
-                    || Self::has_side_effects(&unary.argument)
+                matches!(unary.operator, UnaryOperator::Delete) || Self::has_side_effects(&unary.argument)
             }
 
             Expression::BinaryExpression(binary) => {
@@ -309,9 +265,7 @@ impl DeadVarEliminator {
                     || Self::has_side_effects(&cond.alternate)
             }
 
-            Expression::SequenceExpression(seq) => {
-                seq.expressions.iter().any(|e| Self::has_side_effects(e))
-            }
+            Expression::SequenceExpression(seq) => seq.expressions.iter().any(|e| Self::has_side_effects(e)),
 
             Expression::ParenthesizedExpression(paren) => Self::has_side_effects(&paren.expression),
 
@@ -331,10 +285,7 @@ impl DeadVarEliminator {
 impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
     fn exit_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
         if let Statement::VariableDeclaration(var_decl) = stmt {
-            let all_dead = var_decl
-                .declarations
-                .iter()
-                .all(|d| self.should_remove_declarator(d));
+            let all_dead = var_decl.declarations.iter().all(|d| self.should_remove_declarator(d));
 
             if all_dead && !var_decl.declarations.is_empty() {
                 for decl in &var_decl.declarations {
@@ -347,10 +298,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
                 return;
             }
 
-            let has_dead = var_decl
-                .declarations
-                .iter()
-                .any(|d| self.should_remove_declarator(d));
+            let has_dead = var_decl.declarations.iter().any(|d| self.should_remove_declarator(d));
             if has_dead {
                 let mut new_declarations = ctx.ast.vec();
                 for decl in var_decl.declarations.iter() {
@@ -378,22 +326,8 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
 }
 
 impl DeadVarEliminator {
-    fn clone_declarator<'a>(
-        decl: &VariableDeclarator<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> VariableDeclarator<'a> {
+    fn clone_declarator<'a>(decl: &VariableDeclarator<'a>, ctx: &mut Ctx<'a>) -> VariableDeclarator<'a> {
         decl.clone_in_with_semantic_ids(ctx.ast.allocator)
-    }
-
-    fn clone_binding_pattern<'a>(
-        pattern: &BindingPattern<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> BindingPattern<'a> {
-        pattern.clone_in_with_semantic_ids(ctx.ast.allocator)
-    }
-
-    fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        expr.clone_in_with_semantic_ids(ctx.ast.allocator)
     }
 }
 
@@ -406,7 +340,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_elimination(code: &str) -> String {
         let allocator = Allocator::default();
@@ -416,10 +350,7 @@ mod tests {
 
         let mut collector = DeadVarCollector::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
@@ -430,10 +361,7 @@ mod tests {
         if !dead_vars.is_empty() {
             let mut eliminator = DeadVarEliminator::new(dead_vars);
             let state = DeobfuscateState::new();
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
             traverse_mut_with_ctx(&mut eliminator, &mut program, &mut ctx);
@@ -445,7 +373,7 @@ mod tests {
     #[test]
     fn test_remove_unused_var() {
         let output = run_elimination("var unused = 5;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("unused"),
             "Should remove unused variable, got: {}",
@@ -467,7 +395,7 @@ mod tests {
     fn test_remove_multiple_unused() {
         let output = run_elimination("var a = 1; var b = 2;");
         assert!(
-            !output.contains("a") && !output.contains("b"),
+            !output.contains('a') && !output.contains('b'),
             "Should remove multiple unused variables, got: {}",
             output
         );
@@ -496,7 +424,7 @@ mod tests {
     #[test]
     fn test_mixed_declarations() {
         let output = run_elimination("var used = 1, unused = 2; console.log(used);");
-        eprintln!("Mixed output: {}", output);
+        eprintln!("Mixed output: {output}");
         assert!(
             output.contains("used"),
             "Should preserve used variable, got: {}",
@@ -507,7 +435,7 @@ mod tests {
     #[test]
     fn test_written_but_not_read() {
         let output = run_elimination("var x = 1; x = 2;");
-        eprintln!("Written not read output: {}", output);
+        eprintln!("Written not read output: {output}");
         assert!(
             !output.contains("var x"),
             "Should remove variable that is only written, got: {}",

@@ -49,9 +49,7 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
     let mut body_stmts = ctx.ast.vec();
     body_stmts.push(action_stmt);
     let block_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-    let block = ctx
-        .ast
-        .statement_block_with_scope_id(SPAN, body_stmts, block_scope_id);
+    let block = ctx.ast.statement_block_with_scope_id(SPAN, body_stmts, block_scope_id);
 
     let test = match logical.operator {
         LogicalOperator::And => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
@@ -84,26 +82,22 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in program.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::LogicalExpression(logical) = &expr_stmt.expression {
-                    if matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or) {
-                        eprintln!(
-                            "[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in program body",
-                            logical.operator
-                        );
-                        new_body.push(build_if_from_logical(logical, ctx));
-                        self.converted_count += 1;
-                        continue;
-                    }
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::LogicalExpression(logical) = &expr_stmt.expression
+                && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
+            {
+                eprintln!(
+                    "[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in program body",
+                    logical.operator
+                );
+                new_body.push(build_if_from_logical(logical, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!(
-            "[SHORT_CIRCUIT_TO_IF] Program body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[SHORT_CIRCUIT_TO_IF] Program body: {before} -> {after} statements");
         program.body = new_body;
     }
 
@@ -116,42 +110,32 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in block.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::LogicalExpression(logical) = &expr_stmt.expression {
-                    if matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or) {
-                        eprintln!(
-                            "[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in block",
-                            logical.operator
-                        );
-                        new_body.push(build_if_from_logical(logical, ctx));
-                        self.converted_count += 1;
-                        continue;
-                    }
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::LogicalExpression(logical) = &expr_stmt.expression
+                && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
+            {
+                eprintln!("[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in block", logical.operator);
+                new_body.push(build_if_from_logical(logical, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!(
-            "[SHORT_CIRCUIT_TO_IF] Block body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[SHORT_CIRCUIT_TO_IF] Block body: {before} -> {after} statements");
         block.body = new_body;
     }
 
     fn exit_function_body(&mut self, body: &mut FunctionBody<'a>, ctx: &mut Ctx<'a>) {
         // Skip arrow expression bodies — converting there would lose the
         // implicit return value and change semantics.
-        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent() {
-            if *arrow.expression() {
-                return;
-            }
+        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent()
+            && *arrow.expression()
+        {
+            return;
         }
 
-        let has_candidate = body
-            .statements
-            .iter()
-            .any(|s| is_short_circuit_expr_stmt(s));
+        let has_candidate = body.statements.iter().any(|s| is_short_circuit_expr_stmt(s));
         if !has_candidate {
             return;
         }
@@ -159,26 +143,22 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
         for stmt in body.statements.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::LogicalExpression(logical) = &expr_stmt.expression {
-                    if matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or) {
-                        eprintln!(
-                            "[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in function body",
-                            logical.operator
-                        );
-                        new_stmts.push(build_if_from_logical(logical, ctx));
-                        self.converted_count += 1;
-                        continue;
-                    }
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::LogicalExpression(logical) = &expr_stmt.expression
+                && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
+            {
+                eprintln!(
+                    "[SHORT_CIRCUIT_TO_IF] Converting {:?} to if in function body",
+                    logical.operator
+                );
+                new_stmts.push(build_if_from_logical(logical, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
-        eprintln!(
-            "[SHORT_CIRCUIT_TO_IF] Function body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[SHORT_CIRCUIT_TO_IF] Function body: {before} -> {after} statements");
         body.statements = new_stmts;
     }
 }
@@ -192,7 +172,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_convert(code: &str) -> (String, usize) {
         let allocator = Allocator::default();
@@ -202,18 +182,12 @@ mod tests {
 
         let mut converter = ShortCircuitToIf::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut converter, &mut program, &mut ctx);
 
-        (
-            Codegen::new().build(&program).code,
-            converter.converted_count(),
-        )
+        (Codegen::new().build(&program).code, converter.converted_count())
     }
 
     #[test]
@@ -224,16 +198,8 @@ mod tests {
             "Should have converted at least 1 && expression, got: {}",
             count
         );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
-        assert!(
-            !output.contains("&&"),
-            "Should NOT contain '&&', got: {}",
-            output
-        );
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(!output.contains("&&"), "Should NOT contain '&&', got: {}", output);
     }
 
     #[test]
@@ -244,66 +210,30 @@ mod tests {
             "Should have converted at least 1 || expression, got: {}",
             count
         );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
-        assert!(
-            output.contains("!"),
-            "Should contain '!' negation, got: {}",
-            output
-        );
-        assert!(
-            !output.contains("||"),
-            "Should NOT contain '||', got: {}",
-            output
-        );
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(output.contains('!'), "Should contain '!' negation, got: {}", output);
+        assert!(!output.contains("||"), "Should NOT contain '||', got: {}", output);
     }
 
     #[test]
     fn test_preserve_assignment_and() {
         let (output, count) = run_convert("var x = cond && val;");
-        assert_eq!(
-            count, 0,
-            "Should NOT convert && inside var declaration, got: {}",
-            count
-        );
-        assert!(
-            output.contains("&&"),
-            "Should still contain '&&', got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT convert && inside var declaration, got: {}", count);
+        assert!(output.contains("&&"), "Should still contain '&&', got: {}", output);
     }
 
     #[test]
     fn test_preserve_return_or() {
         let (output, count) = run_convert("function f() { return cond || val; }");
-        assert_eq!(
-            count, 0,
-            "Should NOT convert || inside return, got: {}",
-            count
-        );
-        assert!(
-            output.contains("||"),
-            "Should still contain '||', got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT convert || inside return, got: {}", count);
+        assert!(output.contains("||"), "Should still contain '||', got: {}", output);
     }
 
     #[test]
     fn test_convert_in_function_body() {
         let (output, count) = run_convert("function f() { cond && doA(); }");
-        assert!(
-            count >= 1,
-            "Should have converted && in function body, got: {}",
-            count
-        );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
+        assert!(count >= 1, "Should have converted && in function body, got: {}", count);
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
     }
 
     #[test]
@@ -314,25 +244,13 @@ mod tests {
             "Should NOT convert && in arrow expression body, got: {}",
             count
         );
-        assert!(
-            output.contains("&&"),
-            "Should still contain '&&', got: {}",
-            output
-        );
+        assert!(output.contains("&&"), "Should still contain '&&', got: {}", output);
     }
 
     #[test]
     fn test_preserve_nullish_coalescing() {
         let (output, count) = run_convert("x ?? (x = 1);");
-        assert_eq!(
-            count, 0,
-            "Should NOT convert ?? (nullish coalescing), got: {}",
-            count
-        );
-        assert!(
-            output.contains("??"),
-            "Should still contain '??', got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT convert ?? (nullish coalescing), got: {}", count);
+        assert!(output.contains("??"), "Should still contain '??', got: {}", output);
     }
 }

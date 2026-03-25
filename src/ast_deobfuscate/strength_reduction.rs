@@ -21,11 +21,7 @@ impl StrengthReducer {
         self.changed
     }
 
-    fn try_reduce_multiply<'a>(
-        &mut self,
-        binary: &BinaryExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_reduce_multiply<'a>(&mut self, binary: &BinaryExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         if binary.operator != BinaryOperator::Multiplication {
             return None;
         }
@@ -37,17 +33,13 @@ impl StrengthReducer {
 
         let shift_amount = (n as f64).log2() as u32;
 
-        eprintln!("[AST] Reducing x * {} to x << {}", n, shift_amount);
+        eprintln!("[AST] Reducing x * {n} to x << {shift_amount}");
 
         self.changed = true;
         Some(Self::make_shift_left(&binary.left, shift_amount, ctx))
     }
 
-    fn try_reduce_divide<'a>(
-        &mut self,
-        binary: &BinaryExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_reduce_divide<'a>(&mut self, binary: &BinaryExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         if binary.operator != BinaryOperator::Division {
             return None;
         }
@@ -59,17 +51,13 @@ impl StrengthReducer {
 
         let shift_amount = (n as f64).log2() as u32;
 
-        eprintln!("[AST] Reducing x / {} to x >> {}", n, shift_amount);
+        eprintln!("[AST] Reducing x / {n} to x >> {shift_amount}");
 
         self.changed = true;
         Some(Self::make_shift_right(&binary.left, shift_amount, ctx))
     }
 
-    fn try_reduce_modulo<'a>(
-        &mut self,
-        binary: &BinaryExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_reduce_modulo<'a>(&mut self, binary: &BinaryExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         if binary.operator != BinaryOperator::Remainder {
             return None;
         }
@@ -81,7 +69,7 @@ impl StrengthReducer {
 
         let mask = n - 1;
 
-        eprintln!("[AST] Reducing x % {} to x & {}", n, mask);
+        eprintln!("[AST] Reducing x % {n} to x & {mask}");
 
         self.changed = true;
         Some(Self::make_bitwise_and(&binary.left, mask, ctx))
@@ -123,11 +111,7 @@ impl StrengthReducer {
         }))
     }
 
-    fn make_shift_right<'a>(
-        left: &Expression<'a>,
-        shift: u32,
-        ctx: &mut Ctx<'a>,
-    ) -> Expression<'a> {
+    fn make_shift_right<'a>(left: &Expression<'a>, shift: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
             span: SPAN,
             left: Self::clone_expression(left, ctx),
@@ -177,7 +161,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_reduce(code: &str) -> String {
         let allocator = Allocator::default();
@@ -187,10 +171,7 @@ mod tests {
 
         let mut reducer = StrengthReducer::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut reducer, &mut program, &mut ctx);
@@ -201,108 +182,56 @@ mod tests {
     #[test]
     fn test_multiply_by_2() {
         let output = run_reduce("var r = x * 2;");
-        assert!(
-            output.contains("<<"),
-            "Should reduce x * 2 to x << 1, got: {}",
-            output
-        );
-        assert!(
-            output.contains("1"),
-            "Shift amount should be 1, got: {}",
-            output
-        );
+        assert!(output.contains("<<"), "Should reduce x * 2 to x << 1, got: {}", output);
+        assert!(output.contains('1'), "Shift amount should be 1, got: {}", output);
     }
 
     #[test]
     fn test_multiply_by_4() {
         let output = run_reduce("var r = x * 4;");
-        assert!(
-            output.contains("<<"),
-            "Should reduce x * 4 to x << 2, got: {}",
-            output
-        );
-        assert!(
-            output.contains("2"),
-            "Shift amount should be 2, got: {}",
-            output
-        );
+        assert!(output.contains("<<"), "Should reduce x * 4 to x << 2, got: {}", output);
+        assert!(output.contains('2'), "Shift amount should be 2, got: {}", output);
     }
 
     #[test]
     fn test_multiply_by_8() {
         let output = run_reduce("var r = x * 8;");
-        assert!(
-            output.contains("<<"),
-            "Should reduce x * 8 to x << 3, got: {}",
-            output
-        );
-        assert!(
-            output.contains("3"),
-            "Shift amount should be 3, got: {}",
-            output
-        );
+        assert!(output.contains("<<"), "Should reduce x * 8 to x << 3, got: {}", output);
+        assert!(output.contains('3'), "Shift amount should be 3, got: {}", output);
     }
 
     #[test]
     fn test_divide_by_2() {
         let output = run_reduce("var r = x / 2;");
-        assert!(
-            output.contains(">>"),
-            "Should reduce x / 2 to x >> 1, got: {}",
-            output
-        );
-        assert!(
-            output.contains("1"),
-            "Shift amount should be 1, got: {}",
-            output
-        );
+        assert!(output.contains(">>"), "Should reduce x / 2 to x >> 1, got: {}", output);
+        assert!(output.contains('1'), "Shift amount should be 1, got: {}", output);
     }
 
     #[test]
     fn test_divide_by_4() {
         let output = run_reduce("var r = x / 4;");
-        assert!(
-            output.contains(">>"),
-            "Should reduce x / 4 to x >> 2, got: {}",
-            output
-        );
-        assert!(
-            output.contains("2"),
-            "Shift amount should be 2, got: {}",
-            output
-        );
+        assert!(output.contains(">>"), "Should reduce x / 4 to x >> 2, got: {}", output);
+        assert!(output.contains('2'), "Shift amount should be 2, got: {}", output);
     }
 
     #[test]
     fn test_modulo_by_2() {
         let output = run_reduce("var r = x % 2;");
-        assert!(
-            output.contains("&"),
-            "Should reduce x % 2 to x & 1, got: {}",
-            output
-        );
-        assert!(output.contains("1"), "Mask should be 1, got: {}", output);
+        assert!(output.contains('&'), "Should reduce x % 2 to x & 1, got: {}", output);
+        assert!(output.contains('1'), "Mask should be 1, got: {}", output);
     }
 
     #[test]
     fn test_modulo_by_4() {
         let output = run_reduce("var r = x % 4;");
-        assert!(
-            output.contains("&"),
-            "Should reduce x % 4 to x & 3, got: {}",
-            output
-        );
-        assert!(output.contains("3"), "Mask should be 3, got: {}", output);
+        assert!(output.contains('&'), "Should reduce x % 4 to x & 3, got: {}", output);
+        assert!(output.contains('3'), "Mask should be 3, got: {}", output);
     }
 
     #[test]
     fn test_no_reduction_non_power_of_two() {
         let output = run_reduce("var r = x * 3;");
-        assert!(
-            output.contains("*"),
-            "Should NOT reduce x * 3, got: {}",
-            output
-        );
+        assert!(output.contains('*'), "Should NOT reduce x * 3, got: {}", output);
     }
 
     #[test]

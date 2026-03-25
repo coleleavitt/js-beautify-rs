@@ -53,8 +53,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
             );
             self.changed = true;
 
-            let try_body_statements =
-                std::mem::replace(&mut try_stmt.block.body, OxcVec::new_in(ctx.ast.allocator));
+            let try_body_statements = std::mem::replace(&mut try_stmt.block.body, OxcVec::new_in(ctx.ast.allocator));
 
             if try_body_statements.is_empty() {
                 eprintln!("[TRY_CATCH] Empty try body -> EmptyStatement");
@@ -91,7 +90,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_try_catch_remover(code: &str) -> String {
         let allocator = Allocator::default();
@@ -101,10 +100,7 @@ mod tests {
 
         let mut remover = TryCatchRemover::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut remover, &mut program, &mut ctx);
@@ -115,12 +111,8 @@ mod tests {
     #[test]
     fn test_remove_empty_catch() {
         let output = run_try_catch_remover("try { var x = 1; } catch(e) {}");
-        eprintln!("Output: {}", output);
-        assert!(
-            !output.contains("try"),
-            "Should remove try keyword, got: {}",
-            output
-        );
+        eprintln!("Output: {output}");
+        assert!(!output.contains("try"), "Should remove try keyword, got: {}", output);
         assert!(
             !output.contains("catch"),
             "Should remove catch keyword, got: {}",
@@ -136,23 +128,19 @@ mod tests {
     #[test]
     fn test_preserve_non_empty_catch() {
         let output = run_try_catch_remover("try { var x = 1; } catch(e) { console.log(e); }");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("try"),
             "Should keep try with non-empty catch, got: {}",
             output
         );
-        assert!(
-            output.contains("catch"),
-            "Should keep non-empty catch, got: {}",
-            output
-        );
+        assert!(output.contains("catch"), "Should keep non-empty catch, got: {}", output);
     }
 
     #[test]
     fn test_preserve_finally() {
         let output = run_try_catch_remover("try { var x = 1; } catch(e) {} finally { cleanup(); }");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("try"),
             "Should preserve try with finally, got: {}",

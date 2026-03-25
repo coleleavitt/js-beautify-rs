@@ -56,10 +56,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
     }
 
     fn exit_block_statement(&mut self, block: &mut BlockStatement<'a>, ctx: &mut Ctx<'a>) {
-        let has_empty = block
-            .body
-            .iter()
-            .any(|s| matches!(s, Statement::EmptyStatement(_)));
+        let has_empty = block.body.iter().any(|s| matches!(s, Statement::EmptyStatement(_)));
         if !has_empty {
             return;
         }
@@ -121,7 +118,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_cleanup(code: &str) -> (String, usize) {
         let allocator = Allocator::default();
@@ -131,10 +128,7 @@ mod tests {
 
         let mut cleanup = EmptyStatementCleanup::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut cleanup, &mut program, &mut ctx);
@@ -158,7 +152,7 @@ mod tests {
         let (output, count) = run_cleanup("{ var x = 1; ; var y = 2; }");
         assert!(count >= 1, "Should have removed at least 1, got: {}", count);
         assert!(
-            output.contains("x") && output.contains("y"),
+            output.contains('x') && output.contains('y'),
             "Should preserve non-empty statements, got: {}",
             output
         );
@@ -173,7 +167,7 @@ mod tests {
             count
         );
         assert!(
-            output.contains("x") && output.contains("y"),
+            output.contains('x') && output.contains('y'),
             "Should preserve non-empty statements, got: {}",
             output
         );
@@ -183,10 +177,6 @@ mod tests {
     fn test_preserve_for_empty() {
         // for(;;) uses empty statements legitimately — but those are in ForStatement, not blocks
         let (output, _count) = run_cleanup("for (;;) { break; }");
-        assert!(
-            output.contains("for"),
-            "Should preserve for loop, got: {}",
-            output
-        );
+        assert!(output.contains("for"), "Should preserve for loop, got: {}", output);
     }
 }

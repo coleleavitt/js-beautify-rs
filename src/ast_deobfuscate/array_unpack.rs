@@ -19,11 +19,7 @@ impl ArrayUnpacker {
         self.changed
     }
 
-    fn try_unpack<'a>(
-        &mut self,
-        member: &MemberExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_unpack<'a>(&mut self, member: &MemberExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         let MemberExpression::ComputedMemberExpression(computed) = member else {
             return None;
         };
@@ -50,7 +46,7 @@ impl ArrayUnpacker {
 
         let expr = element.to_expression();
 
-        eprintln!("[AST] Unpacking array access at index {}", index);
+        eprintln!("[AST] Unpacking array access at index {index}");
         self.changed = true;
 
         Some(Self::clone_expression(expr, ctx))
@@ -70,20 +66,15 @@ impl Default for ArrayUnpacker {
 impl<'a> Traverse<'a, DeobfuscateState> for ArrayUnpacker {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
         if let Expression::ComputedMemberExpression(member) = expr {
-            let member_expr =
-                MemberExpression::ComputedMemberExpression(ctx.ast.alloc(std::mem::replace(
-                    member.as_mut(),
-                    ComputedMemberExpression {
-                        span: oxc_span::SPAN,
-                        object: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
-                            span: oxc_span::SPAN,
-                        })),
-                        expression: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
-                            span: oxc_span::SPAN,
-                        })),
-                        optional: false,
-                    },
-                )));
+            let member_expr = MemberExpression::ComputedMemberExpression(ctx.ast.alloc(std::mem::replace(
+                member.as_mut(),
+                ComputedMemberExpression {
+                    span: oxc_span::SPAN,
+                    object: Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: oxc_span::SPAN })),
+                    expression: Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: oxc_span::SPAN })),
+                    optional: false,
+                },
+            )));
             if let Some(unpacked) = self.try_unpack(&member_expr, ctx) {
                 *expr = unpacked;
             } else {
@@ -104,7 +95,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_array_unpack(code: &str) -> String {
         let allocator = Allocator::default();
@@ -114,10 +105,7 @@ mod tests {
 
         let mut unpacker = ArrayUnpacker::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut unpacker, &mut program, &mut ctx);
@@ -128,7 +116,7 @@ mod tests {
     #[test]
     fn test_unpack_array_first_element() {
         let output = run_array_unpack("var x = [\"a\", \"b\"][0];");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("\"a\"") && !output.contains("[\"a\""),
             "Should unpack to first element, got: {}",
@@ -139,7 +127,7 @@ mod tests {
     #[test]
     fn test_unpack_array_second_element() {
         let output = run_array_unpack("var x = [1, 2, 3][1];");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("= 2") || output.contains("=2"),
             "Should unpack to second element, got: {}",
@@ -150,7 +138,7 @@ mod tests {
     #[test]
     fn test_unpack_array_identifier() {
         let output = run_array_unpack("var x = [foo, bar][0];");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("= foo") || output.contains("=foo"),
             "Should unpack to identifier, got: {}",
@@ -161,7 +149,7 @@ mod tests {
     #[test]
     fn test_preserve_out_of_bounds() {
         let output = run_array_unpack("var x = [1, 2][5];");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("[1, 2][5]") || output.contains("[1,2][5]"),
             "Should preserve out of bounds access, got: {}",

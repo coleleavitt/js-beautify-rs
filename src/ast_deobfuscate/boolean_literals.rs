@@ -65,7 +65,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_boolean_literals(code: &str) -> String {
         let allocator = Allocator::default();
@@ -75,10 +75,7 @@ mod tests {
 
         let mut converter = BooleanLiteralConverter::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut converter, &mut program, &mut ctx);
@@ -89,32 +86,28 @@ mod tests {
     #[test]
     fn test_not_zero_to_true() {
         let output = run_boolean_literals("var x = !0;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(output.contains("true"), "Expected true, got: {}", output);
     }
 
     #[test]
     fn test_not_one_to_false() {
         let output = run_boolean_literals("var x = !1;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(output.contains("false"), "Expected false, got: {}", output);
     }
 
     #[test]
     fn test_preserve_other_not() {
         let output = run_boolean_literals("var x = !5;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(output.contains("!5"), "Should preserve !5, got: {}", output);
     }
 
     #[test]
     fn test_preserve_not_variable() {
         let output = run_boolean_literals("var x = !foo;");
-        eprintln!("Output: {}", output);
-        assert!(
-            output.contains("!foo"),
-            "Should preserve !foo, got: {}",
-            output
-        );
+        eprintln!("Output: {output}");
+        assert!(output.contains("!foo"), "Should preserve !foo, got: {}", output);
     }
 }

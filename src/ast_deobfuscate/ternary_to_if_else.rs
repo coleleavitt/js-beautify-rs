@@ -75,9 +75,9 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
     let mut consequent_body = ctx.ast.vec();
     consequent_body.push(consequent_stmt);
     let consequent_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-    let consequent_block =
-        ctx.ast
-            .statement_block_with_scope_id(SPAN, consequent_body, consequent_scope_id);
+    let consequent_block = ctx
+        .ast
+        .statement_block_with_scope_id(SPAN, consequent_body, consequent_scope_id);
 
     let alternate_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
         span: SPAN,
@@ -86,9 +86,9 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
     let mut alternate_body = ctx.ast.vec();
     alternate_body.push(alternate_stmt);
     let alternate_scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-    let alternate_block =
-        ctx.ast
-            .statement_block_with_scope_id(SPAN, alternate_body, alternate_scope_id);
+    let alternate_block = ctx
+        .ast
+        .statement_block_with_scope_id(SPAN, alternate_body, alternate_scope_id);
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
         span: SPAN,
@@ -108,21 +108,18 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in program.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::ConditionalExpression(cond) = &expr_stmt.expression {
-                    eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in program body");
-                    new_body.push(build_if_stmt(cond, ctx));
-                    self.converted_count += 1;
-                    continue;
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
+            {
+                eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in program body");
+                new_body.push(build_if_stmt(cond, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!(
-            "[TERNARY_TO_IF] Program body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[TERNARY_TO_IF] Program body: {before} -> {after} statements");
         program.body = new_body;
     }
 
@@ -135,21 +132,18 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in block.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::ConditionalExpression(cond) = &expr_stmt.expression {
-                    eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in block");
-                    new_body.push(build_if_stmt(cond, ctx));
-                    self.converted_count += 1;
-                    continue;
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
+            {
+                eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in block");
+                new_body.push(build_if_stmt(cond, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!(
-            "[TERNARY_TO_IF] Block body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[TERNARY_TO_IF] Block body: {before} -> {after} statements");
         block.body = new_body;
     }
 
@@ -157,10 +151,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
         // Skip arrow expression bodies — converting the ternary there would lose the
         // implicit return value. e.g. `(K) => cond ? a : b` must NOT become
         // `(K) => { if (cond) { a; } else { b; } }` because that changes semantics.
-        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent() {
-            if *arrow.expression() {
-                return;
-            }
+        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent()
+            && *arrow.expression()
+        {
+            return;
         }
 
         let has_candidate = body.statements.iter().any(|s| is_ternary_expr_stmt(s));
@@ -171,21 +165,18 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
         for stmt in body.statements.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::ConditionalExpression(cond) = &expr_stmt.expression {
-                    eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in function body");
-                    new_stmts.push(build_if_stmt(cond, ctx));
-                    self.converted_count += 1;
-                    continue;
-                }
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
+            {
+                eprintln!("[TERNARY_TO_IF] Converting ternary to if/else in function body");
+                new_stmts.push(build_if_stmt(cond, ctx));
+                self.converted_count += 1;
+                continue;
             }
             new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
-        eprintln!(
-            "[TERNARY_TO_IF] Function body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[TERNARY_TO_IF] Function body: {before} -> {after} statements");
         body.statements = new_stmts;
     }
 }
@@ -199,7 +190,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_convert(code: &str) -> (String, usize) {
         let allocator = Allocator::default();
@@ -209,38 +200,20 @@ mod tests {
 
         let mut converter = TernaryToIfElse::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut converter, &mut program, &mut ctx);
 
-        (
-            Codegen::new().build(&program).code,
-            converter.converted_count(),
-        )
+        (Codegen::new().build(&program).code, converter.converted_count())
     }
 
     #[test]
     fn test_convert_simple_ternary() {
         let (output, count) = run_convert("cond ? doA() : doB();");
-        assert!(
-            count >= 1,
-            "Should have converted at least 1 ternary, got: {}",
-            count
-        );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
-        assert!(
-            output.contains("else"),
-            "Should contain 'else', got: {}",
-            output
-        );
+        assert!(count >= 1, "Should have converted at least 1 ternary, got: {}", count);
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(output.contains("else"), "Should contain 'else', got: {}", output);
         assert!(
             !output.contains('?'),
             "Should NOT contain '?' ternary operator, got: {}",
@@ -266,11 +239,7 @@ mod tests {
     #[test]
     fn test_preserve_return_ternary() {
         let (output, count) = run_convert("function f() { return cond ? 1 : 2; }");
-        assert_eq!(
-            count, 0,
-            "Should NOT convert ternary inside return, got: {}",
-            count
-        );
+        assert_eq!(count, 0, "Should NOT convert ternary inside return, got: {}", count);
         assert!(
             output.contains('?'),
             "Should still contain '?' ternary operator, got: {}",
@@ -286,26 +255,14 @@ mod tests {
             "Should have converted ternary in function body, got: {}",
             count
         );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
     }
 
     #[test]
     fn test_convert_in_block() {
         let (output, count) = run_convert("{ cond ? doA() : doB(); }");
-        assert!(
-            count >= 1,
-            "Should have converted ternary in block, got: {}",
-            count
-        );
-        assert!(
-            output.contains("if"),
-            "Should contain 'if', got: {}",
-            output
-        );
+        assert!(count >= 1, "Should have converted ternary in block, got: {}", count);
+        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
     }
 
     #[test]

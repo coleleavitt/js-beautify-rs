@@ -1,7 +1,7 @@
 use clap::Parser;
 use js_beautify_rs::tokenizer::Tokenizer;
 use js_beautify_rs::webpack_module_extractor::ModuleExtractor;
-use js_beautify_rs::{beautify, Options};
+use js_beautify_rs::{Options, beautify};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -64,7 +64,7 @@ struct Cli {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
@@ -80,12 +80,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         fs::read_to_string(&cli.input)?
     };
 
-    let mut options = Options::default();
-    options.deobfuscate = cli.deobfuscate;
-    options.split_chunks = cli.split_chunks;
-    options.extract_modules = cli.extract_modules;
-    options.generate_source_map = cli.source_maps;
-    options.indent_with_tabs = cli.indent_with_tabs;
+    let mut options = Options {
+        deobfuscate: cli.deobfuscate,
+        split_chunks: cli.split_chunks,
+        extract_modules: cli.extract_modules,
+        generate_source_map: cli.source_maps,
+        indent_with_tabs: cli.indent_with_tabs,
+        ..Options::default()
+    };
 
     if let Some(dir) = cli.chunk_dir {
         options.chunk_dir = dir;
@@ -114,17 +116,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[WEBPACK] Found {} modules", extractor.module_count());
 
         extractor.write_modules(&tokens, &options.module_dir)?;
-        eprintln!(
-            "[WEBPACK] Modules written to {}",
-            options.module_dir.display()
-        );
+        eprintln!("[WEBPACK] Modules written to {}", options.module_dir.display());
 
         if let Some(graph_path) = &options.dependency_graph {
             extractor.generate_dependency_graph(graph_path)?;
-            eprintln!(
-                "[WEBPACK] Dependency graph written to {}",
-                graph_path.display()
-            );
+            eprintln!("[WEBPACK] Dependency graph written to {}", graph_path.display());
         }
 
         return Ok(());
@@ -134,9 +130,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(output_path) = &cli.output {
         fs::write(output_path, &beautified)?;
-        eprintln!("Beautified code written to {}", output_path);
+        eprintln!("Beautified code written to {output_path}");
     } else {
-        println!("{}", beautified);
+        println!("{beautified}");
     }
 
     Ok(())

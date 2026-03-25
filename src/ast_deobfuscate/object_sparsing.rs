@@ -75,10 +75,7 @@ impl ObjectSparsingConsolidator {
         Some(id.name.as_str().to_string())
     }
 
-    fn extract_property_assignment(
-        stmt: &Statement<'_>,
-        target_name: &str,
-    ) -> Option<(String, PropertyValue)> {
+    fn extract_property_assignment(stmt: &Statement<'_>, target_name: &str) -> Option<(String, PropertyValue)> {
         let Statement::ExpressionStatement(expr_stmt) = stmt else {
             return None;
         };
@@ -112,14 +109,10 @@ impl ObjectSparsingConsolidator {
     fn extract_value(expr: &Expression<'_>) -> Option<PropertyValue> {
         match expr {
             Expression::NumericLiteral(n) => Some(PropertyValue::Number(n.value)),
-            Expression::StringLiteral(s) => {
-                Some(PropertyValue::String(s.value.as_str().to_string()))
-            }
+            Expression::StringLiteral(s) => Some(PropertyValue::String(s.value.as_str().to_string())),
             Expression::BooleanLiteral(b) => Some(PropertyValue::Bool(b.value)),
             Expression::NullLiteral(_) => Some(PropertyValue::Null),
-            Expression::Identifier(id) => {
-                Some(PropertyValue::Identifier(id.name.as_str().to_string()))
-            }
+            Expression::Identifier(id) => Some(PropertyValue::Identifier(id.name.as_str().to_string())),
             _ => None,
         }
     }
@@ -138,20 +131,15 @@ impl ObjectSparsingConsolidator {
                 raw: None,
                 lone_surrogates: false,
             })),
-            PropertyValue::Bool(b) => Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+            PropertyValue::Bool(b) => {
+                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: *b }))
+            }
+            PropertyValue::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN })),
+            PropertyValue::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: SPAN,
-                value: *b,
+                name: ctx.ast.atom(name).into(),
+                reference_id: Default::default(),
             })),
-            PropertyValue::Null => {
-                Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))
-            }
-            PropertyValue::Identifier(name) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(name).into(),
-                    reference_id: Default::default(),
-                }))
-            }
         }
     }
 }
@@ -163,11 +151,7 @@ impl Default for ObjectSparsingConsolidator {
 }
 
 impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
-    fn exit_statements(
-        &mut self,
-        stmts: &mut oxc_allocator::Vec<'a, Statement<'a>>,
-        ctx: &mut Ctx<'a>,
-    ) {
+    fn exit_statements(&mut self, stmts: &mut oxc_allocator::Vec<'a, Statement<'a>>, ctx: &mut Ctx<'a>) {
         let mut i = 0;
         while i < stmts.len() {
             let Some(obj_name) = Self::get_empty_object_decl_name(&stmts[i]) else {
@@ -180,9 +164,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
             let mut j = i + 1;
 
             while j < stmts.len() {
-                if let Some((prop_name, value)) =
-                    Self::extract_property_assignment(&stmts[j], &obj_name)
-                {
+                if let Some((prop_name, value)) = Self::extract_property_assignment(&stmts[j], &obj_name) {
                     collected.push(CollectedProperty {
                         name: prop_name,
                         value,
@@ -235,10 +217,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
                 properties: new_properties,
             }));
 
-            if let Statement::VariableDeclaration(decl) = &mut stmts[decl_index] {
-                if let Some(declarator) = decl.declarations.first_mut() {
-                    declarator.init = Some(new_object);
-                }
+            if let Statement::VariableDeclaration(decl) = &mut stmts[decl_index]
+                && let Some(declarator) = decl.declarations.first_mut()
+            {
+                declarator.init = Some(new_object);
             }
 
             self.changed = true;
@@ -255,7 +237,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_consolidation(code: &str) -> String {
         let allocator = Allocator::default();
@@ -265,10 +247,7 @@ mod tests {
 
         let mut consolidator = ObjectSparsingConsolidator::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut consolidator, &mut program, &mut ctx);
@@ -279,13 +258,13 @@ mod tests {
     #[test]
     fn test_consolidate_simple() {
         let output = run_consolidation(
-            r#"
+            r"
             var obj = {};
             obj.a = 1;
             obj.b = 2;
-        "#,
+        ",
         );
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("a:") && output.contains("b:"),
             "Expected consolidated object, got: {}",
@@ -302,7 +281,7 @@ mod tests {
             config.value = 42;
         "#,
         );
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("name:") && output.contains("value:"),
             "Expected consolidated object, got: {}",
@@ -313,12 +292,12 @@ mod tests {
     #[test]
     fn test_no_consolidation_non_empty() {
         let output = run_consolidation(
-            r#"
+            r"
             var obj = {existing: true};
             obj.a = 1;
-        "#,
+        ",
         );
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("obj.a = 1"),
             "Should preserve non-empty object assignment, got: {}",
@@ -335,7 +314,7 @@ mod tests {
             obj.a = 1;
         "#,
         );
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("obj.a = 1"),
             "Should preserve assignment after gap, got: {}",

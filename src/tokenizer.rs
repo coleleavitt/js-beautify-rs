@@ -38,13 +38,7 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        tokens.push(Token::with_newlines(
-            TokenType::Eof,
-            "",
-            self.line,
-            self.column,
-            0,
-        ));
+        tokens.push(Token::with_newlines(TokenType::Eof, "", self.line, self.column, 0));
 
         Ok(tokens)
     }
@@ -64,7 +58,7 @@ impl<'a> Tokenizer<'a> {
             ';' => TokenType::Semicolon,
             ',' => TokenType::Comma,
             '.' => {
-                if self.peek_char().map_or(false, |c| c.is_ascii_digit()) {
+                if self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
                     return self.read_number();
                 }
                 TokenType::Dot
@@ -207,7 +201,7 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        if self.current_char() == '.' && self.peek_char().map_or(false, |c| c.is_ascii_digit()) {
+        if self.current_char() == '.' && self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
             self.advance();
             while self.pos < self.input.len() && self.current_char().is_ascii_digit() {
                 self.advance();
@@ -567,6 +561,6 @@ mod tests {
         assert_eq!(tokens[0].text, "var");
         assert_eq!(tokens[2].token_type, TokenType::Equals);
         assert_eq!(tokens[3].token_type, TokenType::String);
-        assert!(tokens[3].text.contains("🎉"));
+        assert!(tokens[3].text.contains('🎉'));
     }
 }

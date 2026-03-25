@@ -123,7 +123,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_unicode_normalizer(code: &str) -> String {
         let allocator = Allocator::default();
@@ -133,10 +133,7 @@ mod tests {
 
         let mut normalizer = UnicodeNormalizer::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut normalizer, &mut program, &mut ctx);
@@ -147,7 +144,7 @@ mod tests {
     #[test]
     fn test_normalize_zero_width_in_string() {
         let output = run_unicode_normalizer("var x = \"hello\u{200B}world\";");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             !output.contains('\u{200B}'),
             "Should remove zero-width chars, got: {}",
@@ -163,7 +160,7 @@ mod tests {
     #[test]
     fn test_normalize_cyrillic_in_string() {
         let output = run_unicode_normalizer("var x = \"\u{0410}\u{0412}\u{0421}\";");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("ABC"),
             "Should normalize Cyrillic to ASCII, got: {}",
@@ -174,7 +171,7 @@ mod tests {
     #[test]
     fn test_preserve_normal_strings() {
         let output = run_unicode_normalizer("var x = \"normal string\";");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("normal string"),
             "Should preserve normal strings, got: {}",

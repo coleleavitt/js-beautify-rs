@@ -20,22 +20,24 @@ console.log(_0xdec(2));
     "#;
 
     println!("=== Original Obfuscated Code ===");
-    println!("{}", obfuscated_code);
+    println!("{obfuscated_code}");
     println!();
 
     println!("=== Beautified Without Deobfuscation ===");
     let options = Options::default();
     match beautify(obfuscated_code, &options) {
-        Ok(result) => println!("{}", result),
-        Err(e) => eprintln!("Error: {}", e),
+        Ok(result) => println!("{result}"),
+        Err(e) => eprintln!("Error: {e}"),
     }
     println!();
 
     println!("=== Beautified With Deobfuscation ===");
-    let mut options_with_deobf = Options::default();
-    options_with_deobf.deobfuscate = true;
+    let options_with_deobf = Options {
+        deobfuscate: true,
+        ..Options::default()
+    };
     match beautify(obfuscated_code, &options_with_deobf) {
-        Ok(result) => println!("{}", result),
-        Err(e) => eprintln!("Error: {}", e),
+        Ok(result) => println!("{result}"),
+        Err(e) => eprintln!("Error: {e}"),
     }
 }

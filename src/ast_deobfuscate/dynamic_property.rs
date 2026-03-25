@@ -31,10 +31,7 @@ impl DynamicPropertyConverter {
             return None;
         }
 
-        eprintln!(
-            "[AST] Converting dynamic property [\"{}\"] -> .{}",
-            property_name, property_name
-        );
+        eprintln!("[AST] Converting dynamic property [\"{property_name}\"] -> .{property_name}");
         self.changed = true;
 
         let object = Self::clone_expression(&computed.object, ctx);
@@ -66,11 +63,9 @@ impl DynamicPropertyConverter {
             Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
                 let left = self.try_extract_property_name(&binary.left)?;
                 let right = self.try_extract_property_name(&binary.right)?;
-                Some(format!("{}{}", left, right))
+                Some(format!("{left}{right}"))
             }
-            Expression::ParenthesizedExpression(paren) => {
-                self.try_extract_property_name(&paren.expression)
-            }
+            Expression::ParenthesizedExpression(paren) => self.try_extract_property_name(&paren.expression),
             _ => None,
         }
     }
@@ -112,12 +107,11 @@ fn is_valid_identifier(s: &str) -> bool {
 
 impl<'a> Traverse<'a, DeobfuscateState> for DynamicPropertyConverter {
     fn exit_member_expression(&mut self, member: &mut MemberExpression<'a>, ctx: &mut Ctx<'a>) {
-        if let MemberExpression::ComputedMemberExpression(computed) = member {
-            if let Some(converted) = self.try_convert(computed, ctx) {
-                if let Expression::StaticMemberExpression(static_member) = converted {
-                    *member = MemberExpression::StaticMemberExpression(static_member);
-                }
-            }
+        if let MemberExpression::ComputedMemberExpression(computed) = member
+            && let Some(converted) = self.try_convert(computed, ctx)
+            && let Expression::StaticMemberExpression(static_member) = converted
+        {
+            *member = MemberExpression::StaticMemberExpression(static_member);
         }
     }
 }
@@ -131,7 +125,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_dynamic_property(code: &str) -> String {
         let allocator = Allocator::default();
@@ -141,10 +135,7 @@ mod tests {
 
         let mut converter = DynamicPropertyConverter::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut converter, &mut program, &mut ctx);
@@ -155,7 +146,7 @@ mod tests {
     #[test]
     fn test_convert_string_literal_property() {
         let output = run_dynamic_property(r#"obj["property"]"#);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("obj.property"),
             "Expected obj.property, got: {}",
@@ -166,18 +157,14 @@ mod tests {
     #[test]
     fn test_convert_hex_ascii() {
         let output = run_dynamic_property("obj[97]");
-        eprintln!("Output: {}", output);
-        assert!(
-            output.contains("obj.a"),
-            "Expected obj.a (97 = 'a'), got: {}",
-            output
-        );
+        eprintln!("Output: {output}");
+        assert!(output.contains("obj.a"), "Expected obj.a (97 = 'a'), got: {}", output);
     }
 
     #[test]
     fn test_convert_concatenated_property() {
         let output = run_dynamic_property(r#"obj["pro" + "perty"]"#);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("obj.property"),
             "Expected obj.property, got: {}",
@@ -188,7 +175,7 @@ mod tests {
     #[test]
     fn test_preserve_dynamic_property() {
         let output = run_dynamic_property("obj[variable]");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("obj[variable]"),
             "Should preserve dynamic access, got: {}",
@@ -199,9 +186,9 @@ mod tests {
     #[test]
     fn test_preserve_invalid_identifier() {
         let output = run_dynamic_property(r#"obj["123invalid"]"#);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
-            output.contains("[") && output.contains("123invalid"),
+            output.contains('[') && output.contains("123invalid"),
             "Should preserve invalid identifier, got: {}",
             output
         );

@@ -87,9 +87,7 @@ impl CallProxyCollector {
         }
 
         for (i, arg) in call.arguments.iter().enumerate() {
-            let Some(arg_expr) = arg.as_expression() else {
-                return None;
-            };
+            let arg_expr = arg.as_expression()?;
             let Expression::Identifier(arg_ident) = arg_expr else {
                 return None;
             };
@@ -105,13 +103,7 @@ impl CallProxyCollector {
             params.len()
         );
 
-        Some((
-            name,
-            CallProxyInfo {
-                target_name,
-                params,
-            },
-        ))
+        Some((name, CallProxyInfo { target_name, params }))
     }
 }
 
@@ -153,11 +145,7 @@ impl CallProxyInliner {
         self.changed
     }
 
-    fn try_inline_call<'a>(
-        &mut self,
-        call: &CallExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_inline_call<'a>(&mut self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         let name = if let Expression::Identifier(ident) = &call.callee {
             ident.name.as_str()
         } else {
@@ -170,10 +158,7 @@ impl CallProxyInliner {
             return None;
         }
 
-        eprintln!(
-            "[AST] Inlining call proxy: {} -> {}",
-            name, proxy.target_name
-        );
+        eprintln!("[AST] Inlining call proxy: {} -> {}", name, proxy.target_name);
         self.changed = true;
 
         let mut arguments = ctx.ast.vec();
@@ -204,22 +189,22 @@ impl CallProxyInliner {
 
 impl<'a> Traverse<'a, DeobfuscateState> for CallProxyInliner {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
-        if let Expression::CallExpression(call) = expr {
-            if let Some(inlined) = self.try_inline_call(call, ctx) {
-                *expr = inlined;
-            }
+        if let Expression::CallExpression(call) = expr
+            && let Some(inlined) = self.try_inline_call(call, ctx)
+        {
+            *expr = inlined;
         }
     }
 
     fn exit_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
-        if let Statement::FunctionDeclaration(func) = stmt {
-            if let Some(id) = &func.id {
-                let name = id.name.as_str();
-                if self.proxies.contains_key(name) {
-                    eprintln!("[AST] Removing call proxy function: {}", name);
-                    self.changed = true;
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
-                }
+        if let Statement::FunctionDeclaration(func) = stmt
+            && let Some(id) = &func.id
+        {
+            let name = id.name.as_str();
+            if self.proxies.contains_key(name) {
+                eprintln!("[AST] Removing call proxy function: {name}");
+                self.changed = true;
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
             }
         }
     }
@@ -234,7 +219,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_call_proxy(code: &str) -> String {
         let allocator = Allocator::default();
@@ -244,27 +229,18 @@ mod tests {
 
         let mut collector = CallProxyCollector::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
 
         let single_use = collector.get_single_use_proxies();
-        eprintln!(
-            "Single use proxies: {:?}",
-            single_use.keys().collect::<Vec<_>>()
-        );
+        eprintln!("Single use proxies: {:?}", single_use.keys().collect::<Vec<_>>());
 
         if !single_use.is_empty() {
             let mut inliner = CallProxyInliner::new(single_use);
             let state = DeobfuscateState::new();
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
@@ -275,9 +251,8 @@ mod tests {
 
     #[test]
     fn test_detect_simple_proxy() {
-        let output =
-            run_call_proxy("function _0xabc(p) { return _0xdec(p); } var x = _0xabc(123);");
-        eprintln!("Output: {}", output);
+        let output = run_call_proxy("function _0xabc(p) { return _0xdec(p); } var x = _0xabc(123);");
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function _0xabc"),
             "Proxy function should be removed, got: {}",
@@ -292,10 +267,9 @@ mod tests {
 
     #[test]
     fn test_multi_param_proxy() {
-        let output = run_call_proxy(
-            "function _wrap(a, b, c) { return _target(a, b, c); } var result = _wrap(1, 2, 3);",
-        );
-        eprintln!("Output: {}", output);
+        let output =
+            run_call_proxy("function _wrap(a, b, c) { return _target(a, b, c); } var result = _wrap(1, 2, 3);");
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function _wrap"),
             "Proxy function should be removed, got: {}",
@@ -310,10 +284,8 @@ mod tests {
 
     #[test]
     fn test_preserve_multi_use_proxy() {
-        let output = run_call_proxy(
-            "function _wrap(x) { return _target(x); } var a = _wrap(1); var b = _wrap(2);",
-        );
-        eprintln!("Output: {}", output);
+        let output = run_call_proxy("function _wrap(x) { return _target(x); } var a = _wrap(1); var b = _wrap(2);");
+        eprintln!("Output: {output}");
         assert!(
             output.contains("function _wrap"),
             "Multi-use proxy should be preserved, got: {}",
@@ -323,9 +295,8 @@ mod tests {
 
     #[test]
     fn test_no_proxy_wrong_order() {
-        let output =
-            run_call_proxy("function _wrap(a, b) { return _target(b, a); } var x = _wrap(1, 2);");
-        eprintln!("Output: {}", output);
+        let output = run_call_proxy("function _wrap(a, b) { return _target(b, a); } var x = _wrap(1, 2);");
+        eprintln!("Output: {output}");
         assert!(
             output.contains("function _wrap"),
             "Non-proxy (wrong param order) should be preserved, got: {}",

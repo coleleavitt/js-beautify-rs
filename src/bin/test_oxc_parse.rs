@@ -1,8 +1,7 @@
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
-use std::env;
-use std::fs;
+use std::{env, fs};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,17 +9,17 @@ fn main() {
         eprintln!("Usage: {} <js-file>", args[0]);
         std::process::exit(1);
     }
-    
+
     let path = &args[1];
     let code = fs::read_to_string(path).expect("Failed to read file");
-    
-    println!("Testing Oxc parser on: {}", path);
+
+    println!("Testing Oxc parser on: {path}");
     println!("File size: {} bytes", code.len());
-    
+
     let allocator = Allocator::default();
     let source_type = SourceType::mjs();
     let result = Parser::new(&allocator, &code, source_type).parse();
-    
+
     if result.errors.is_empty() {
         println!("✅ SUCCESS: Oxc parsed the file successfully!");
         println!("   - Program has {} statements", result.program.body.len());

@@ -30,14 +30,12 @@ impl AlgebraicSimplifier {
             return None;
         }
 
-        if let (Expression::Identifier(left), Expression::Identifier(right)) =
-            (&binary.left, &binary.right)
+        if let (Expression::Identifier(left), Expression::Identifier(right)) = (&binary.left, &binary.right)
+            && left.name == right.name
         {
-            if left.name == right.name {
-                eprintln!("[AST] Simplifying {} - {} to 0", left.name, right.name);
-                self.changed = true;
-                return Some(Self::make_number(0, ctx));
-            }
+            eprintln!("[AST] Simplifying {} - {} to 0", left.name, right.name);
+            self.changed = true;
+            return Some(Self::make_number(0, ctx));
         }
 
         None
@@ -73,14 +71,12 @@ impl AlgebraicSimplifier {
             return None;
         }
 
-        if let (Expression::Identifier(left), Expression::Identifier(right)) =
-            (&binary.left, &binary.right)
+        if let (Expression::Identifier(left), Expression::Identifier(right)) = (&binary.left, &binary.right)
+            && left.name == right.name
         {
-            if left.name == right.name {
-                eprintln!("[AST] Simplifying {} / {} to 1", left.name, right.name);
-                self.changed = true;
-                return Some(Self::make_number(1, ctx));
-            }
+            eprintln!("[AST] Simplifying {} / {} to 1", left.name, right.name);
+            self.changed = true;
+            return Some(Self::make_number(1, ctx));
         }
 
         None
@@ -95,14 +91,12 @@ impl AlgebraicSimplifier {
             return None;
         }
 
-        if let (Expression::Identifier(left), Expression::Identifier(right)) =
-            (&binary.left, &binary.right)
+        if let (Expression::Identifier(left), Expression::Identifier(right)) = (&binary.left, &binary.right)
+            && left.name == right.name
         {
-            if left.name == right.name {
-                eprintln!("[AST] Simplifying {} % {} to 0", left.name, right.name);
-                self.changed = true;
-                return Some(Self::make_number(0, ctx));
-            }
+            eprintln!("[AST] Simplifying {} % {} to 0", left.name, right.name);
+            self.changed = true;
+            return Some(Self::make_number(0, ctx));
         }
 
         None
@@ -117,14 +111,12 @@ impl AlgebraicSimplifier {
             return None;
         }
 
-        if let (Expression::Identifier(left), Expression::Identifier(right)) =
-            (&binary.left, &binary.right)
+        if let (Expression::Identifier(left), Expression::Identifier(right)) = (&binary.left, &binary.right)
+            && left.name == right.name
         {
-            if left.name == right.name {
-                eprintln!("[AST] Simplifying {} ^ {} to 0", left.name, right.name);
-                self.changed = true;
-                return Some(Self::make_number(0, ctx));
-            }
+            eprintln!("[AST] Simplifying {} ^ {} to 0", left.name, right.name);
+            self.changed = true;
+            return Some(Self::make_number(0, ctx));
         }
 
         None
@@ -306,10 +298,7 @@ impl AlgebraicSimplifier {
     }
 
     fn make_boolean<'a>(val: bool, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-            span: SPAN,
-            value: val,
-        }))
+        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: val }))
     }
 }
 
@@ -352,7 +341,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_simplify(code: &str) -> String {
         let allocator = Allocator::default();
@@ -362,10 +351,7 @@ mod tests {
 
         let mut simplifier = AlgebraicSimplifier::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut simplifier, &mut program, &mut ctx);
@@ -376,120 +362,72 @@ mod tests {
     #[test]
     fn test_self_subtract() {
         let output = run_simplify("var r = x - x;");
-        assert!(
-            output.contains("= 0"),
-            "Should simplify x - x to 0, got: {}",
-            output
-        );
+        assert!(output.contains("= 0"), "Should simplify x - x to 0, got: {}", output);
     }
 
     #[test]
     fn test_multiply_zero_left() {
         let output = run_simplify("var r = 0 * y;");
-        assert!(
-            output.contains("= 0"),
-            "Should simplify 0 * y to 0, got: {}",
-            output
-        );
+        assert!(output.contains("= 0"), "Should simplify 0 * y to 0, got: {}", output);
     }
 
     #[test]
     fn test_multiply_zero_right() {
         let output = run_simplify("var r = x * 0;");
-        assert!(
-            output.contains("= 0"),
-            "Should simplify x * 0 to 0, got: {}",
-            output
-        );
+        assert!(output.contains("= 0"), "Should simplify x * 0 to 0, got: {}", output);
     }
 
     #[test]
     fn test_self_divide() {
         let output = run_simplify("var r = z / z;");
-        assert!(
-            output.contains("= 1"),
-            "Should simplify z / z to 1, got: {}",
-            output
-        );
+        assert!(output.contains("= 1"), "Should simplify z / z to 1, got: {}", output);
     }
 
     #[test]
     fn test_self_modulo() {
         let output = run_simplify("var r = a % a;");
-        assert!(
-            output.contains("= 0"),
-            "Should simplify a % a to 0, got: {}",
-            output
-        );
+        assert!(output.contains("= 0"), "Should simplify a % a to 0, got: {}", output);
     }
 
     #[test]
     fn test_self_xor() {
         let output = run_simplify("var r = b ^ b;");
-        assert!(
-            output.contains("= 0"),
-            "Should simplify b ^ b to 0, got: {}",
-            output
-        );
+        assert!(output.contains("= 0"), "Should simplify b ^ b to 0, got: {}", output);
     }
 
     #[test]
     fn test_add_zero_left() {
         let output = run_simplify("var r = 0 + x;");
-        assert!(
-            output.contains("= x"),
-            "Should simplify 0 + x to x, got: {}",
-            output
-        );
+        assert!(output.contains("= x"), "Should simplify 0 + x to x, got: {}", output);
     }
 
     #[test]
     fn test_add_zero_right() {
         let output = run_simplify("var r = x + 0;");
-        assert!(
-            output.contains("= x"),
-            "Should simplify x + 0 to x, got: {}",
-            output
-        );
+        assert!(output.contains("= x"), "Should simplify x + 0 to x, got: {}", output);
     }
 
     #[test]
     fn test_multiply_one_left() {
         let output = run_simplify("var r = 1 * x;");
-        assert!(
-            output.contains("= x"),
-            "Should simplify 1 * x to x, got: {}",
-            output
-        );
+        assert!(output.contains("= x"), "Should simplify 1 * x to x, got: {}", output);
     }
 
     #[test]
     fn test_multiply_one_right() {
         let output = run_simplify("var r = x * 1;");
-        assert!(
-            output.contains("= x"),
-            "Should simplify x * 1 to x, got: {}",
-            output
-        );
+        assert!(output.contains("= x"), "Should simplify x * 1 to x, got: {}", output);
     }
 
     #[test]
     fn test_divide_one() {
         let output = run_simplify("var r = x / 1;");
-        assert!(
-            output.contains("= x"),
-            "Should simplify x / 1 to x, got: {}",
-            output
-        );
+        assert!(output.contains("= x"), "Should simplify x / 1 to x, got: {}", output);
     }
 
     #[test]
     fn test_no_simplification() {
         let output = run_simplify("var r = x - y;");
-        assert!(
-            output.contains("x - y"),
-            "Should not simplify x - y, got: {}",
-            output
-        );
+        assert!(output.contains("x - y"), "Should not simplify x - y, got: {}", output);
     }
 }

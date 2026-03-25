@@ -54,12 +54,12 @@ impl ExpressionSimplifier {
                 return None;
             }
 
-            if let Expression::ArrayExpression(arr) = &inner_unary.argument {
-                if arr.elements.is_empty() {
-                    eprintln!("[AST] Simplifying !![] to true");
-                    self.changed = true;
-                    return Some(Self::make_boolean(true, ctx));
-                }
+            if let Expression::ArrayExpression(arr) = &inner_unary.argument
+                && arr.elements.is_empty()
+            {
+                eprintln!("[AST] Simplifying !![] to true");
+                self.changed = true;
+                return Some(Self::make_boolean(true, ctx));
             }
 
             if let Expression::NumericLiteral(num) = &inner_unary.argument {
@@ -89,34 +89,28 @@ impl ExpressionSimplifier {
             return None;
         }
 
-        if let Expression::ArrayExpression(arr) = &unary.argument {
-            if arr.elements.is_empty() {
-                eprintln!("[AST] Simplifying +[] to 0");
-                self.changed = true;
-                return Some(Self::make_number(0, ctx));
-            }
+        if let Expression::ArrayExpression(arr) = &unary.argument
+            && arr.elements.is_empty()
+        {
+            eprintln!("[AST] Simplifying +[] to 0");
+            self.changed = true;
+            return Some(Self::make_number(0, ctx));
         }
 
-        if let Expression::UnaryExpression(inner_unary) = &unary.argument {
-            if inner_unary.operator == UnaryOperator::LogicalNot {
-                if let Expression::ArrayExpression(arr) = &inner_unary.argument {
-                    if arr.elements.is_empty() {
-                        eprintln!("[AST] Simplifying +![] to 1");
-                        self.changed = true;
-                        return Some(Self::make_number(1, ctx));
-                    }
-                }
-            }
+        if let Expression::UnaryExpression(inner_unary) = &unary.argument
+            && inner_unary.operator == UnaryOperator::LogicalNot
+            && let Expression::ArrayExpression(arr) = &inner_unary.argument
+            && arr.elements.is_empty()
+        {
+            eprintln!("[AST] Simplifying +![] to 1");
+            self.changed = true;
+            return Some(Self::make_number(1, ctx));
         }
 
         None
     }
 
-    fn try_simplify_void<'a>(
-        &mut self,
-        unary: &UnaryExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_simplify_void<'a>(&mut self, unary: &UnaryExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         if unary.operator != UnaryOperator::Void {
             return None;
         }
@@ -139,7 +133,7 @@ impl ExpressionSimplifier {
             let prop_name = lit.value.as_str();
 
             if Self::is_valid_identifier(prop_name) {
-                eprintln!("[AST] Converting [\"{}\"]] to .{}", prop_name, prop_name);
+                eprintln!("[AST] Converting [\"{prop_name}\"]] to .{prop_name}");
                 self.changed = true;
 
                 return Some(Expression::StaticMemberExpression(ctx.ast.alloc(
@@ -168,9 +162,7 @@ impl ExpressionSimplifier {
             return None;
         }
 
-        if let (Expression::StringLiteral(left), Expression::StringLiteral(right)) =
-            (&binary.left, &binary.right)
-        {
+        if let (Expression::StringLiteral(left), Expression::StringLiteral(right)) = (&binary.left, &binary.right) {
             let combined = format!("{}{}", left.value.as_str(), right.value.as_str());
             eprintln!(
                 "[AST] Concatenating \"{}\" + \"{}\" = \"{}\"",
@@ -211,10 +203,7 @@ impl ExpressionSimplifier {
     }
 
     fn make_boolean<'a>(val: bool, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-            span: SPAN,
-            value: val,
-        }))
+        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: val }))
     }
 
     fn make_number<'a>(val: i64, ctx: &mut Ctx<'a>) -> Expression<'a> {
@@ -241,9 +230,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ExpressionSimplifier {
                 .or_else(|| self.try_simplify_plus_array(unary, ctx))
                 .or_else(|| self.try_simplify_not_number(unary, ctx))
                 .or_else(|| self.try_simplify_void(unary, ctx)),
-            Expression::ComputedMemberExpression(member) => {
-                self.try_simplify_bracket_to_dot(member, ctx)
-            }
+            Expression::ComputedMemberExpression(member) => self.try_simplify_bracket_to_dot(member, ctx),
             Expression::BinaryExpression(binary) => self.try_simplify_string_concat(binary, ctx),
             _ => None,
         };
@@ -274,7 +261,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_simplify(code: &str) -> String {
         let allocator = Allocator::default();
@@ -284,10 +271,7 @@ mod tests {
 
         let mut simplifier = ExpressionSimplifier::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut simplifier, &mut program, &mut ctx);
@@ -298,61 +282,37 @@ mod tests {
     #[test]
     fn test_not_zero_to_true() {
         let output = run_simplify("var x = !0;");
-        assert!(
-            output.contains("true"),
-            "Should convert !0 to true, got: {}",
-            output
-        );
+        assert!(output.contains("true"), "Should convert !0 to true, got: {}", output);
     }
 
     #[test]
     fn test_not_one_to_false() {
         let output = run_simplify("var x = !1;");
-        assert!(
-            output.contains("false"),
-            "Should convert !1 to false, got: {}",
-            output
-        );
+        assert!(output.contains("false"), "Should convert !1 to false, got: {}", output);
     }
 
     #[test]
     fn test_double_not_array_to_true() {
         let output = run_simplify("var x = !![];");
-        assert!(
-            output.contains("true"),
-            "Should convert !![] to true, got: {}",
-            output
-        );
+        assert!(output.contains("true"), "Should convert !![] to true, got: {}", output);
     }
 
     #[test]
     fn test_double_not_zero_to_false() {
         let output = run_simplify("var x = !!0;");
-        assert!(
-            output.contains("false"),
-            "Should convert !!0 to false, got: {}",
-            output
-        );
+        assert!(output.contains("false"), "Should convert !!0 to false, got: {}", output);
     }
 
     #[test]
     fn test_plus_array_to_zero() {
         let output = run_simplify("var x = +[];");
-        assert!(
-            output.contains("0"),
-            "Should convert +[] to 0, got: {}",
-            output
-        );
+        assert!(output.contains('0'), "Should convert +[] to 0, got: {}", output);
     }
 
     #[test]
     fn test_plus_not_array_to_one() {
         let output = run_simplify("var x = +![];");
-        assert!(
-            output.contains("1"),
-            "Should convert +![] to 1, got: {}",
-            output
-        );
+        assert!(output.contains('1'), "Should convert +![] to 1, got: {}", output);
     }
 
     #[test]
@@ -388,11 +348,7 @@ mod tests {
     #[test]
     fn test_string_concat() {
         let output = run_simplify("var x = \"Hel\" + \"lo\";");
-        assert!(
-            output.contains("Hello"),
-            "Should concatenate strings, got: {}",
-            output
-        );
+        assert!(output.contains("Hello"), "Should concatenate strings, got: {}", output);
     }
 
     #[test]

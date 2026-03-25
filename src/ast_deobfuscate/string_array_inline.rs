@@ -55,7 +55,7 @@ impl StringArrayInliner {
         let index = match &member.expression {
             Expression::NumericLiteral(lit) => {
                 let idx = lit.value as usize;
-                eprintln!("[AST]   Index: {}", idx);
+                eprintln!("[AST]   Index: {idx}");
                 idx
             }
             _ => {
@@ -74,10 +74,7 @@ impl StringArrayInliner {
         }
 
         let string_value = &array_info.strings[index];
-        eprintln!(
-            "[AST] ✓ Inlining: {}[{}] → \"{}\"",
-            array_name, index, string_value
-        );
+        eprintln!("[AST] ✓ Inlining: {array_name}[{index}] → \"{string_value}\"");
 
         Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
             span: SPAN,
@@ -96,11 +93,11 @@ impl Default for StringArrayInliner {
 
 impl<'a> Traverse<'a, DeobfuscateState> for StringArrayInliner {
     fn enter_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
-        if let Expression::ComputedMemberExpression(member) = expr {
-            if let Some(new_expr) = self.try_inline_array_access(member, ctx) {
-                *expr = new_expr;
-                self.changed = true;
-            }
+        if let Expression::ComputedMemberExpression(member) = expr
+            && let Some(new_expr) = self.try_inline_array_access(member, ctx)
+        {
+            *expr = new_expr;
+            self.changed = true;
         }
     }
 }
@@ -123,10 +120,7 @@ mod tests {
 
         let mut rotation = StringArrayRotation::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = oxc_traverse::ReusableTraverseCtx::new(state, scoping, &allocator);
 
         oxc_traverse::traverse_mut_with_ctx(&mut rotation, &mut program, &mut ctx);
@@ -134,10 +128,7 @@ mod tests {
         let mut state = DeobfuscateState::new();
         rotation.finalize(&mut state);
 
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = oxc_traverse::ReusableTraverseCtx::new(state, scoping, &allocator);
 
         let mut inliner = StringArrayInliner::new();
@@ -156,21 +147,12 @@ mod tests {
         "#;
 
         let (output, inliner) = run_string_array_inline(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
         assert!(inliner.has_changed(), "Should have inlined array access");
-        assert!(
-            output.contains("\"hello\""),
-            "Should contain inlined 'hello'"
-        );
-        assert!(
-            output.contains("\"world\""),
-            "Should contain inlined 'world'"
-        );
-        assert!(
-            !output.contains("_0x1234[0]"),
-            "Should not contain array access"
-        );
+        assert!(output.contains("\"hello\""), "Should contain inlined 'hello'");
+        assert!(output.contains("\"world\""), "Should contain inlined 'world'");
+        assert!(!output.contains("_0x1234[0]"), "Should not contain array access");
     }
 
     #[test]
@@ -189,13 +171,10 @@ mod tests {
         "#;
 
         let (output, inliner) = run_string_array_inline(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
         assert!(inliner.has_changed(), "Should have inlined array access");
-        assert!(
-            output.contains("\"c\""),
-            "Should contain rotated first element"
-        );
+        assert!(output.contains("\"c\""), "Should contain rotated first element");
     }
 
     #[test]
@@ -206,16 +185,10 @@ mod tests {
         "#;
 
         let (output, inliner) = run_string_array_inline(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
-        assert!(
-            !inliner.has_changed(),
-            "Should not inline out-of-bounds access"
-        );
-        assert!(
-            output.contains("_0x1234[10]"),
-            "Should preserve out-of-bounds access"
-        );
+        assert!(!inliner.has_changed(), "Should not inline out-of-bounds access");
+        assert!(output.contains("_0x1234[10]"), "Should preserve out-of-bounds access");
     }
 
     #[test]
@@ -227,13 +200,10 @@ mod tests {
         "#;
 
         let (output, inliner) = run_string_array_inline(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
         assert!(!inliner.has_changed(), "Should not inline variable index");
-        assert!(
-            output.contains("_0x1234[i]"),
-            "Should preserve variable index"
-        );
+        assert!(output.contains("_0x1234[i]"), "Should preserve variable index");
     }
 
     #[test]
@@ -246,14 +216,11 @@ mod tests {
         "#;
 
         let (output, inliner) = run_string_array_inline(code);
-        eprintln!("Output:\n{}", output);
+        eprintln!("Output:\n{output}");
 
         assert!(inliner.has_changed(), "Should have inlined literal indices");
         assert!(output.contains("\"a\""), "Should inline index 0");
         assert!(output.contains("\"c\""), "Should inline index 2");
-        assert!(
-            output.contains("_0x1234[someVar]"),
-            "Should preserve variable index"
-        );
+        assert!(output.contains("_0x1234[someVar]"), "Should preserve variable index");
     }
 }

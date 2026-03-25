@@ -56,11 +56,11 @@ mod tests {
 
     #[test]
     fn test_optimizer_integration() {
-        let code = r#"
+        let code = r"
             for (let i = 0; i < 3; i++) {
                 console.log(i);
             }
-        "#;
+        ";
 
         let mut optimizer = OxcOptimizer::new();
         let result = optimizer.optimize(code);

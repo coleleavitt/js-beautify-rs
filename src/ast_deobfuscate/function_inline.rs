@@ -145,11 +145,7 @@ impl FunctionCollector {
         })
     }
 
-    fn extract_return_expression(
-        &self,
-        body: &FunctionBody<'_>,
-        params: &[String],
-    ) -> Option<ReturnExpr> {
+    fn extract_return_expression(&self, body: &FunctionBody<'_>, params: &[String]) -> Option<ReturnExpr> {
         if body.statements.len() != 1 {
             return None;
         }
@@ -215,14 +211,9 @@ impl FunctionCollector {
                     UnaryOperator::BitwiseNot => UnaryOp::BitNot,
                     _ => return None,
                 };
-                Some(ReturnExpr::Unary {
-                    op,
-                    arg: Box::new(arg),
-                })
+                Some(ReturnExpr::Unary { op, arg: Box::new(arg) })
             }
-            Expression::ParenthesizedExpression(paren) => {
-                self.expr_to_return_expr(&paren.expression, params)
-            }
+            Expression::ParenthesizedExpression(paren) => self.expr_to_return_expr(&paren.expression, params),
             _ => None,
         }
     }
@@ -266,11 +257,7 @@ impl FunctionInliner {
         self.changed
     }
 
-    fn try_inline_call<'a>(
-        &mut self,
-        call: &CallExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_inline_call<'a>(&mut self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         let name = if let Expression::Identifier(ident) = &call.callee {
             ident.name.as_str()
         } else {
@@ -285,17 +272,13 @@ impl FunctionInliner {
 
         let return_expr = func.return_expression.as_ref()?;
 
-        let args: Vec<_> = call
-            .arguments
-            .iter()
-            .filter_map(|arg| arg.as_expression())
-            .collect();
+        let args: Vec<_> = call.arguments.iter().filter_map(|arg| arg.as_expression()).collect();
 
         if args.len() != func.params.len() {
             return None;
         }
 
-        eprintln!("[AST] Inlining call to function: {}", name);
+        eprintln!("[AST] Inlining call to function: {name}");
         self.changed = true;
 
         Some(self.build_expression(return_expr, &args, ctx))
@@ -319,13 +302,11 @@ impl FunctionInliner {
                     }))
                 }
             }
-            ReturnExpr::Identifier(name) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: SPAN,
-                    name: ctx.ast.atom(name).into(),
-                    reference_id: Default::default(),
-                }))
-            }
+            ReturnExpr::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                span: SPAN,
+                name: ctx.ast.atom(name).into(),
+                reference_id: Default::default(),
+            })),
             ReturnExpr::Number(val) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
                 span: SPAN,
                 value: *val,
@@ -338,10 +319,9 @@ impl FunctionInliner {
                 raw: None,
                 lone_surrogates: false,
             })),
-            ReturnExpr::Boolean(b) => Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
-                span: SPAN,
-                value: *b,
-            })),
+            ReturnExpr::Boolean(b) => {
+                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: *b }))
+            }
             ReturnExpr::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN })),
             ReturnExpr::Binary { left, op, right } => {
                 let left_expr = self.build_expression(left, args, ctx);
@@ -419,22 +399,22 @@ impl FunctionInliner {
 
 impl<'a> Traverse<'a, DeobfuscateState> for FunctionInliner {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
-        if let Expression::CallExpression(call) = expr {
-            if let Some(inlined) = self.try_inline_call(call, ctx) {
-                *expr = inlined;
-            }
+        if let Expression::CallExpression(call) = expr
+            && let Some(inlined) = self.try_inline_call(call, ctx)
+        {
+            *expr = inlined;
         }
     }
 
     fn exit_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
-        if let Statement::FunctionDeclaration(func) = stmt {
-            if let Some(id) = &func.id {
-                let name = id.name.as_str();
-                if self.functions.contains_key(name) {
-                    eprintln!("[AST] Removing inlined function declaration: {}", name);
-                    self.changed = true;
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
-                }
+        if let Statement::FunctionDeclaration(func) = stmt
+            && let Some(id) = &func.id
+        {
+            let name = id.name.as_str();
+            if self.functions.contains_key(name) {
+                eprintln!("[AST] Removing inlined function declaration: {name}");
+                self.changed = true;
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
             }
         }
     }
@@ -449,7 +429,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_inline(code: &str) -> String {
         let allocator = Allocator::default();
@@ -459,27 +439,18 @@ mod tests {
 
         let mut collector = FunctionCollector::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
 
         let single_use = collector.get_single_use_functions();
-        eprintln!(
-            "Single use functions: {:?}",
-            single_use.keys().collect::<Vec<_>>()
-        );
+        eprintln!("Single use functions: {:?}", single_use.keys().collect::<Vec<_>>());
 
         if !single_use.is_empty() {
             let mut inliner = FunctionInliner::new(single_use);
             let state = DeobfuscateState::new();
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
@@ -491,7 +462,7 @@ mod tests {
     #[test]
     fn test_inline_simple_wrapper() {
         let output = run_inline("function twice(n) { return n * 2; } var result = twice(10);");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function twice"),
             "Function declaration should be removed, got: {}",
@@ -507,7 +478,7 @@ mod tests {
     #[test]
     fn test_inline_identity() {
         let output = run_inline("function id(x) { return x; } var y = id(42);");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function id"),
             "Function should be removed, got: {}",
@@ -522,10 +493,8 @@ mod tests {
 
     #[test]
     fn test_preserve_multi_use() {
-        let output = run_inline(
-            "function add(a, b) { return a + b; } var x = add(1, 2); var y = add(3, 4);",
-        );
-        eprintln!("Output: {}", output);
+        let output = run_inline("function add(a, b) { return a + b; } var x = add(1, 2); var y = add(3, 4);");
+        eprintln!("Output: {output}");
         assert!(
             output.contains("function add"),
             "Multi-use function should be preserved, got: {}",
@@ -536,16 +505,12 @@ mod tests {
     #[test]
     fn test_inline_with_constant() {
         let output = run_inline("function getConst() { return 42; } var x = getConst();");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function getConst"),
             "Function should be removed, got: {}",
             output
         );
-        assert!(
-            output.contains("42"),
-            "Should contain the constant, got: {}",
-            output
-        );
+        assert!(output.contains("42"), "Should contain the constant, got: {}", output);
     }
 }

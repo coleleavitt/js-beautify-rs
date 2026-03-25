@@ -33,16 +33,16 @@ impl<'a> Traverse<'a, DeobfuscateState> for VoidReplacer {
                 return;
             }
 
-            if let Expression::NumericLiteral(num) = &unary.argument {
-                if num.value == 0.0 {
-                    eprintln!("[AST] Converting void 0 -> undefined");
-                    self.changed = true;
-                    *expr = Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                        span: SPAN,
-                        name: ctx.ast.atom("undefined").into(),
-                        reference_id: Default::default(),
-                    }));
-                }
+            if let Expression::NumericLiteral(num) = &unary.argument
+                && num.value == 0.0
+            {
+                eprintln!("[AST] Converting void 0 -> undefined");
+                self.changed = true;
+                *expr = Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                    span: SPAN,
+                    name: ctx.ast.atom("undefined").into(),
+                    reference_id: Default::default(),
+                }));
             }
         }
     }
@@ -57,7 +57,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_void_replacer(code: &str) -> String {
         let allocator = Allocator::default();
@@ -67,10 +67,7 @@ mod tests {
 
         let mut replacer = VoidReplacer::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut replacer, &mut program, &mut ctx);
@@ -81,23 +78,15 @@ mod tests {
     #[test]
     fn test_void_zero_to_undefined() {
         let output = run_void_replacer("var x = void 0;");
-        eprintln!("Output: {}", output);
-        assert!(
-            output.contains("undefined"),
-            "Expected undefined, got: {}",
-            output
-        );
-        assert!(
-            !output.contains("void"),
-            "Should not contain void, got: {}",
-            output
-        );
+        eprintln!("Output: {output}");
+        assert!(output.contains("undefined"), "Expected undefined, got: {}", output);
+        assert!(!output.contains("void"), "Should not contain void, got: {}", output);
     }
 
     #[test]
     fn test_preserve_void_other() {
         let output = run_void_replacer("var x = void 5;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("void 5") || output.contains("void(5)"),
             "Should preserve void 5, got: {}",
@@ -108,13 +97,8 @@ mod tests {
     #[test]
     fn test_multiple_void_zero() {
         let output = run_void_replacer("var x = void 0, y = void 0;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         let count = output.matches("undefined").count();
-        assert!(
-            count >= 2,
-            "Expected two undefined, got {} in: {}",
-            count,
-            output
-        );
+        assert!(count >= 2, "Expected two undefined, got {} in: {}", count, output);
     }
 }

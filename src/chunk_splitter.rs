@@ -44,18 +44,10 @@ pub enum ChunkSplitterError {
     },
 
     #[error("chunk {chunk_id} has invalid bounds: start={start}, end={end}")]
-    InvalidChunkBounds {
-        chunk_id: usize,
-        start: usize,
-        end: usize,
-    },
+    InvalidChunkBounds { chunk_id: usize, start: usize, end: usize },
 
     #[error("chunk {chunk_id} bounds exceed token stream length: end={end}, len={len}")]
-    ChunkBoundsOutOfRange {
-        chunk_id: usize,
-        end: usize,
-        len: usize,
-    },
+    ChunkBoundsOutOfRange { chunk_id: usize, end: usize, len: usize },
 }
 
 pub struct ChunkSplitter {
@@ -64,23 +56,13 @@ pub struct ChunkSplitter {
 
 impl ChunkSplitter {
     pub fn new(detector: ChunkDetector) -> Self {
-        assert!(
-            detector.chunk_count() > 0,
-            "detector must have detected chunks"
-        );
-        trace_split!(
-            "initializing ChunkSplitter with {} chunks",
-            detector.chunk_count()
-        );
+        assert!(detector.chunk_count() > 0, "detector must have detected chunks");
+        trace_split!("initializing ChunkSplitter with {} chunks", detector.chunk_count());
 
         Self { detector }
     }
 
-    pub fn split_and_write(
-        &self,
-        tokens: &[Token],
-        options: &Options,
-    ) -> Result<ChunkManifest, ChunkSplitterError> {
+    pub fn split_and_write(&self, tokens: &[Token], options: &Options) -> Result<ChunkManifest, ChunkSplitterError> {
         assert!(!tokens.is_empty(), "token stream must not be empty");
         assert!(options.split_chunks, "split_chunks option must be enabled");
 
@@ -97,11 +79,7 @@ impl ChunkSplitter {
             trace_split!("processing chunk {}: {}", chunk_id, chunk.name);
 
             let chunk_tokens = self.extract_chunk_tokens(tokens, chunk)?;
-            trace_split!(
-                "extracted {} tokens for chunk {}",
-                chunk_tokens.len(),
-                chunk_id
-            );
+            trace_split!("extracted {} tokens for chunk {}", chunk_tokens.len(), chunk_id);
 
             let output_path = options.chunk_dir.join(&chunk.filename);
             self.write_chunk_file(&chunk_tokens, &output_path, chunk)?;
@@ -113,15 +91,12 @@ impl ChunkSplitter {
 
             manifest.add_chunk(*chunk_id, chunk.clone());
 
-            written_count = written_count.checked_add(1).ok_or_else(|| {
-                ChunkSplitterError::ChunkWriteFailed {
+            written_count = written_count
+                .checked_add(1)
+                .ok_or_else(|| ChunkSplitterError::ChunkWriteFailed {
                     path: output_path.clone(),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "written count overflow",
-                    ),
-                }
-            })?;
+                    source: std::io::Error::other("written count overflow"),
+                })?;
 
             trace_split!(
                 "✓ wrote chunk {} ({}/{})",
@@ -140,11 +115,7 @@ impl ChunkSplitter {
         trace_split!("=== CHUNK SPLITTING COMPLETE ===");
         trace_split!("wrote {} chunk files", written_count);
 
-        debug_assert_eq!(
-            written_count,
-            self.detector.chunk_count(),
-            "must write all chunks"
-        );
+        debug_assert_eq!(written_count, self.detector.chunk_count(), "must write all chunks");
 
         Ok(manifest)
     }
@@ -152,22 +123,16 @@ impl ChunkSplitter {
     fn create_chunk_directory(&self, options: &Options) -> Result<(), ChunkSplitterError> {
         trace_split!("creating chunk directory: {}", options.chunk_dir.display());
 
-        fs::create_dir_all(&options.chunk_dir).map_err(|source| {
-            ChunkSplitterError::DirectoryCreationFailed {
-                path: options.chunk_dir.clone(),
-                source,
-            }
+        fs::create_dir_all(&options.chunk_dir).map_err(|source| ChunkSplitterError::DirectoryCreationFailed {
+            path: options.chunk_dir.clone(),
+            source,
         })?;
 
         trace_split!("✓ chunk directory ready");
         Ok(())
     }
 
-    fn extract_chunk_tokens(
-        &self,
-        tokens: &[Token],
-        chunk: &ChunkMetadata,
-    ) -> Result<Vec<Token>, ChunkSplitterError> {
+    fn extract_chunk_tokens(&self, tokens: &[Token], chunk: &ChunkMetadata) -> Result<Vec<Token>, ChunkSplitterError> {
         trace_split!(
             "extracting tokens for chunk {} ({}..{})",
             chunk.id,
@@ -211,39 +176,35 @@ impl ChunkSplitter {
         assert!(!tokens.is_empty(), "tokens must not be empty");
         trace_split!("writing chunk file: {}", path.display());
 
-        let mut file =
-            fs::File::create(path).map_err(|source| ChunkSplitterError::ChunkWriteFailed {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        let mut file = fs::File::create(path).map_err(|source| ChunkSplitterError::ChunkWriteFailed {
+            path: path.to_path_buf(),
+            source,
+        })?;
 
         let mut written_bytes: usize = 0;
         let mut written_tokens: usize = 0;
 
         for token in tokens {
-            let bytes = file.write(token.text.as_bytes()).map_err(|source| {
-                ChunkSplitterError::ChunkWriteFailed {
+            let bytes = file
+                .write(token.text.as_bytes())
+                .map_err(|source| ChunkSplitterError::ChunkWriteFailed {
                     path: path.to_path_buf(),
                     source,
-                }
-            })?;
+                })?;
 
-            written_bytes = written_bytes.checked_add(bytes).ok_or_else(|| {
-                ChunkSplitterError::ChunkWriteFailed {
+            written_bytes = written_bytes
+                .checked_add(bytes)
+                .ok_or_else(|| ChunkSplitterError::ChunkWriteFailed {
                     path: path.to_path_buf(),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "byte counter overflow"),
-                }
-            })?;
+                    source: std::io::Error::other("byte counter overflow"),
+                })?;
 
-            written_tokens = written_tokens.checked_add(1).ok_or_else(|| {
-                ChunkSplitterError::ChunkWriteFailed {
+            written_tokens = written_tokens
+                .checked_add(1)
+                .ok_or_else(|| ChunkSplitterError::ChunkWriteFailed {
                     path: path.to_path_buf(),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "token counter overflow",
-                    ),
-                }
-            })?;
+                    source: std::io::Error::other("token counter overflow"),
+                })?;
         }
 
         debug_assert_eq!(written_tokens, tokens.len(), "must write all tokens");
@@ -252,18 +213,12 @@ impl ChunkSplitter {
         Ok(())
     }
 
-    fn write_chunk_map(
-        &self,
-        manifest: &ChunkManifest,
-        path: &Path,
-    ) -> Result<(), ChunkSplitterError> {
+    fn write_chunk_map(&self, manifest: &ChunkManifest, path: &Path) -> Result<(), ChunkSplitterError> {
         trace_split!("writing chunk map to {}", path.display());
 
-        let json = serde_json::to_string_pretty(manifest).map_err(|e| {
-            ChunkSplitterError::ChunkMapWriteFailed {
-                path: path.to_path_buf(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-            }
+        let json = serde_json::to_string_pretty(manifest).map_err(|e| ChunkSplitterError::ChunkMapWriteFailed {
+            path: path.to_path_buf(),
+            source: std::io::Error::other(e.to_string()),
         })?;
 
         let _json_len = json.len();
@@ -294,7 +249,7 @@ impl ChunkSplitter {
             .checked_add(1)
             .ok_or_else(|| ChunkSplitterError::ChunkWriteFailed {
                 path: chunk_path.to_path_buf(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, "line count overflow"),
+                source: std::io::Error::other("line count overflow"),
             })?;
 
         let source_map = SourceMap::for_chunk(&chunk.name, &chunk.filename, line_count);
@@ -302,23 +257,17 @@ impl ChunkSplitter {
         let map_filename = format!("{}.map", chunk.filename);
         let map_path = options.chunk_dir.join(&map_filename);
 
-        let json = source_map
-            .to_json()
-            .map_err(|e| ChunkSplitterError::ChunkWriteFailed {
-                path: map_path.clone(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-            })?;
+        let json = source_map.to_json().map_err(|e| ChunkSplitterError::ChunkWriteFailed {
+            path: map_path.clone(),
+            source: std::io::Error::other(e.to_string()),
+        })?;
 
         fs::write(&map_path, &json).map_err(|source| ChunkSplitterError::ChunkWriteFailed {
             path: map_path.clone(),
             source,
         })?;
 
-        trace_split!(
-            "✓ wrote source map: {} ({} bytes)",
-            map_filename,
-            json.len()
-        );
+        trace_split!("✓ wrote source map: {} ({} bytes)", map_filename, json.len());
         Ok(())
     }
 }
@@ -354,23 +303,15 @@ impl ChunkManifest {
         assert!(!self.chunks.contains_key(&id), "duplicate chunk ID: {}", id);
 
         self.chunks.insert(id, metadata);
-        self.total_chunks = self
-            .total_chunks
-            .checked_add(1)
-            .expect("chunk count overflow");
+        self.total_chunks = self.total_chunks.checked_add(1).expect("chunk count overflow");
 
-        debug_assert_eq!(
-            self.chunks.len(),
-            self.total_chunks,
-            "count must match map size"
-        );
+        debug_assert_eq!(self.chunks.len(), self.total_chunks, "count must match map size");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::TokenType;
 
     #[test]
     fn test_chunk_manifest_creation() {

@@ -30,13 +30,8 @@ impl ChunkMetadata {
         assert!(!name.is_empty(), "chunk name must not be empty");
         assert!(!hash.is_empty(), "chunk hash must not be empty");
 
-        let filename = format!("{}.chunk.{}.js", name, hash);
-        trace_chunk!(
-            "created ChunkMetadata: id={}, name={}, hash={}",
-            id,
-            name,
-            hash
-        );
+        let filename = format!("{name}.chunk.{hash}.js");
+        trace_chunk!("created ChunkMetadata: id={}, name={}, hash={}", id, name, hash);
 
         Self {
             id,
@@ -61,12 +56,7 @@ impl ChunkMetadata {
     }
 
     pub fn set_bounds(&mut self, start: usize, end: usize) {
-        assert!(
-            start < end,
-            "invalid bounds: start={} >= end={}",
-            start,
-            end
-        );
+        assert!(start < end, "invalid bounds: start={} >= end={}", start, end);
         self.start_pos = start;
         self.end_pos = end;
         trace_chunk!("set bounds for chunk {}: {}..{}", self.id, start, end);
@@ -119,11 +109,7 @@ impl ChunkDetector {
         trace_chunk!("step 2: detecting chunk boundaries (webpack push patterns)");
         self.detect_chunk_boundaries(tokens)?;
 
-        let chunks_with_bounds = self
-            .chunks
-            .values()
-            .filter(|c| c.start_pos < c.end_pos)
-            .count();
+        let chunks_with_bounds = self.chunks.values().filter(|c| c.start_pos < c.end_pos).count();
 
         debug_assert!(
             chunks_with_bounds <= self.chunks.len(),
@@ -160,27 +146,20 @@ impl ChunkDetector {
         trace_chunk!("search limit: {}", search_limit);
 
         debug_assert!(!tokens.is_empty(), "tokens must not be empty");
-        debug_assert!(
-            search_limit <= tokens.len(),
-            "search_limit must be <= tokens.len()"
-        );
+        debug_assert!(search_limit <= tokens.len(), "search_limit must be <= tokens.len()");
 
         let mut checked_positions: usize = 0;
         for i in 0..search_limit {
-            assert!(
-                i < tokens.len(),
-                "index {} out of bounds (len={})",
-                i,
-                tokens.len()
-            );
+            assert!(i < tokens.len(), "index {} out of bounds (len={})", i, tokens.len());
 
-            checked_positions = checked_positions.checked_add(1).ok_or_else(|| {
-                ChunkDetectorError::BoundaryDetectionFailed {
-                    reason: "position counter overflow".to_string(),
-                }
-            })?;
+            checked_positions =
+                checked_positions
+                    .checked_add(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
+                        reason: "position counter overflow".to_string(),
+                    })?;
 
-            if checked_positions % 10000 == 0 {
+            if checked_positions.is_multiple_of(10000) {
                 trace_chunk!("checked {} positions so far...", checked_positions);
             }
 
@@ -192,10 +171,7 @@ impl ChunkDetector {
             }
         }
 
-        trace_chunk!(
-            "✗ no chunk map found after checking {} positions",
-            checked_positions
-        );
+        trace_chunk!("✗ no chunk map found after checking {} positions", checked_positions);
         Err(ChunkDetectorError::NoChunkMapFound)
     }
 
@@ -207,11 +183,7 @@ impl ChunkDetector {
         trace_chunk!("token count: {}", tokens.len());
 
         if tokens.len() < MIN_TOKENS_REQUIRED {
-            trace_chunk!(
-                "not enough tokens: {} < {}",
-                tokens.len(),
-                MIN_TOKENS_REQUIRED
-            );
+            trace_chunk!("not enough tokens: {} < {}", tokens.len(), MIN_TOKENS_REQUIRED);
             return false;
         }
 
@@ -263,11 +235,7 @@ impl ChunkDetector {
                 pos
             }
             Some(_pos) => {
-                trace_chunk!(
-                    "expected '(' at position {}, found '{}'",
-                    _pos,
-                    tokens[_pos].text
-                );
+                trace_chunk!("expected '(' at position {}, found '{}'", _pos, tokens[_pos].text);
                 return false;
             }
             None => {
@@ -287,11 +255,7 @@ impl ChunkDetector {
                 pos
             }
             Some(_pos) => {
-                trace_chunk!(
-                    "expected '{{' at position {}, found '{}'",
-                    _pos,
-                    tokens[_pos].text
-                );
+                trace_chunk!("expected '{{' at position {}, found '{}'", _pos, tokens[_pos].text);
                 return false;
             }
             None => {
@@ -310,15 +274,9 @@ impl ChunkDetector {
             .any(|t| t.text.contains(".chunk."));
 
         if has_chunk {
-            trace_chunk!(
-                "✓ found '.chunk.' string literal after position {}",
-                brace_pos
-            );
+            trace_chunk!("✓ found '.chunk.' string literal after position {}", brace_pos);
         } else {
-            trace_chunk!(
-                "'.chunk.' not found in next 200 tokens after position {}",
-                brace_pos
-            );
+            trace_chunk!("'.chunk.' not found in next 200 tokens after position {}", brace_pos);
         }
 
         let result = has_chunk;
@@ -348,11 +306,7 @@ impl ChunkDetector {
         debug_assert!(!hash_map.is_empty(), "hash map must not be empty");
 
         trace_chunk!("step 4: validating map sizes");
-        trace_chunk!(
-            "name_map.len()={}, hash_map.len()={}",
-            name_map.len(),
-            hash_map.len()
-        );
+        trace_chunk!("name_map.len()={}, hash_map.len()={}", name_map.len(), hash_map.len());
 
         // Hash map is authoritative - all chunks have hashes
         // Name map is optional - only named chunks have entries
@@ -367,10 +321,7 @@ impl ChunkDetector {
                     reason: "size difference calculation overflow".to_string(),
                 }
             })?;
-            trace_chunk!(
-                "⚠ {} unnamed chunks detected (hash entries without names)",
-                _diff
-            );
+            trace_chunk!("⚠ {} unnamed chunks detected (hash entries without names)", _diff);
         } else {
             trace_chunk!("✓ all chunks have names");
         }
@@ -389,21 +340,13 @@ impl ChunkDetector {
                 debug_assert!(!friendly_name.is_empty(), "name must not be empty");
                 friendly_name.clone()
             } else {
-                let generated_name = format!("chunk_{}", chunk_id);
+                let generated_name = format!("chunk_{chunk_id}");
                 trace_chunk!("⚠ no friendly name, using: '{}'", generated_name);
-                debug_assert!(
-                    !generated_name.is_empty(),
-                    "generated name must not be empty"
-                );
+                debug_assert!(!generated_name.is_empty(), "generated name must not be empty");
                 generated_name
             };
 
-            trace_chunk!(
-                "creating metadata: id={}, name='{}', hash='{}'",
-                chunk_id,
-                name,
-                hash
-            );
+            trace_chunk!("creating metadata: id={}, name='{}', hash='{}'", chunk_id, name, hash);
 
             let metadata = ChunkMetadata::new(*chunk_id, name, hash.clone());
 
@@ -413,34 +356,25 @@ impl ChunkDetector {
 
             if self.chunks.insert(*chunk_id, metadata).is_some() {
                 trace_chunk!("✗ duplicate chunk_id: {}", chunk_id);
-                return Err(ChunkDetectorError::DuplicateChunkId {
-                    chunk_id: *chunk_id,
-                });
+                return Err(ChunkDetectorError::DuplicateChunkId { chunk_id: *chunk_id });
             }
 
-            created_count = created_count.checked_add(1).ok_or_else(|| {
-                ChunkDetectorError::BoundaryDetectionFailed {
-                    reason: "created count overflow".to_string(),
-                }
-            })?;
+            created_count =
+                created_count
+                    .checked_add(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
+                        reason: "created count overflow".to_string(),
+                    })?;
 
             debug_assert!(
                 created_count <= hash_map.len(),
                 "created count must not exceed hash map size"
             );
 
-            trace_chunk!(
-                "✓ created chunk metadata {}/{}",
-                created_count,
-                hash_map.len()
-            );
+            trace_chunk!("✓ created chunk metadata {}/{}", created_count, hash_map.len());
         }
 
-        debug_assert_eq!(
-            created_count,
-            hash_map.len(),
-            "must create metadata for all chunks"
-        );
+        debug_assert_eq!(created_count, hash_map.len(), "must create metadata for all chunks");
         debug_assert_eq!(
             self.chunks.len(),
             hash_map.len(),
@@ -488,17 +422,17 @@ impl ChunkDetector {
                 "max iterations {} exceeded",
                 MAX_ITERATIONS
             );
-            iterations = iterations.checked_add(1).ok_or_else(|| {
-                ChunkDetectorError::BoundaryDetectionFailed {
+            iterations = iterations
+                .checked_add(1)
+                .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                     reason: "iteration counter overflow".to_string(),
-                }
-            })?;
+                })?;
 
             debug_assert!(i < tokens.len(), "i must be < tokens.len() in loop");
 
             let token = &tokens[i];
 
-            if iterations <= 10 || iterations % 100 == 0 {
+            if iterations <= 10 || iterations.is_multiple_of(100) {
                 trace_chunk!(
                     "iter {}: pos={}, token='{}', depth={}",
                     iterations,
@@ -509,28 +443,23 @@ impl ChunkDetector {
             }
 
             if token.text == "{" {
-                trace_chunk!(
-                    "found opening brace at pos {}, depth {} -> {}",
-                    i,
-                    depth,
-                    depth + 1
-                );
-                depth = depth.checked_add(1).ok_or_else(|| {
-                    ChunkDetectorError::BoundaryDetectionFailed {
+                trace_chunk!("found opening brace at pos {}, depth {} -> {}", i, depth, depth + 1);
+                depth = depth
+                    .checked_add(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                         reason: "depth counter overflow".to_string(),
-                    }
-                })?;
+                    })?;
             } else if token.text == "}" {
                 trace_chunk!("found closing brace at pos {}, depth={}", i, depth);
                 if depth == 0 {
                     trace_chunk!("depth already 0, breaking");
                     break;
                 }
-                depth = depth.checked_sub(1).ok_or_else(|| {
-                    ChunkDetectorError::BoundaryDetectionFailed {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                         reason: "depth counter underflow".to_string(),
-                    }
-                })?;
+                    })?;
                 trace_chunk!("depth after decrement: {}", depth);
                 if depth == 0 {
                     trace_chunk!("depth reached 0, breaking");
@@ -541,26 +470,22 @@ impl ChunkDetector {
             if depth == 1 {
                 let has_next_3 = i
                     .checked_add(3)
-                    .ok_or_else(|| ChunkDetectorError::InvalidIdMapFormat { pos: i })?
+                    .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?
                     < tokens.len();
 
                 if has_next_3 {
                     let next_i = i
                         .checked_add(1)
-                        .ok_or_else(|| ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
+                        .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
                     let next2_i = i
                         .checked_add(2)
-                        .ok_or_else(|| ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
+                        .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
 
                     debug_assert!(next_i < tokens.len(), "next_i must be in bounds");
                     debug_assert!(next2_i < tokens.len(), "next2_i must be in bounds");
 
                     if tokens[next_i].text == ":" {
-                        trace_chunk!(
-                            "found colon at pos {}, checking if '{}' is numeric",
-                            next_i,
-                            token.text
-                        );
+                        trace_chunk!("found colon at pos {}, checking if '{}' is numeric", next_i, token.text);
                         if let Ok(key) = token.text.parse::<usize>() {
                             let value = tokens[next2_i].text.trim_matches('"').to_string();
                             trace_chunk!("✓ extracted mapping: {} -> '{}'", key, &value);
@@ -593,11 +518,7 @@ impl ChunkDetector {
         trace_chunk!("final result size: {}", result.len());
         trace_chunk!("final depth: {}", depth);
 
-        assert_eq!(
-            extracted_count,
-            result.len(),
-            "extracted count must match result size"
-        );
+        assert_eq!(extracted_count, result.len(), "extracted count must match result size");
 
         Ok(result)
     }
@@ -610,12 +531,7 @@ impl ChunkDetector {
         trace_chunk!("search limit: {}", search_limit);
 
         for i in 0..search_limit {
-            assert!(
-                i < tokens.len(),
-                "index {} out of bounds (len={})",
-                i,
-                tokens.len()
-            );
+            assert!(i < tokens.len(), "index {} out of bounds (len={})", i, tokens.len());
 
             if tokens[i].text.contains(".chunk.") {
                 trace_chunk!("found '.chunk.' string at position {}", i);
@@ -623,7 +539,7 @@ impl ChunkDetector {
                 if let Some(next_brace) = tokens[i..].iter().position(|t| t.text == "{") {
                     let result = i
                         .checked_add(next_brace)
-                        .ok_or_else(|| ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
+                        .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
 
                     debug_assert!(result < tokens.len(), "result position must be in bounds");
                     trace_chunk!(
@@ -667,19 +583,12 @@ impl ChunkDetector {
         let mut found_boundaries: usize = 0;
 
         for i in 0..search_limit {
-            assert!(
-                i < tokens.len(),
-                "index {} out of bounds (len={})",
-                i,
-                tokens.len()
-            );
+            assert!(i < tokens.len(), "index {} out of bounds (len={})", i, tokens.len());
 
             if self.is_webpack_push_pattern(&tokens[i..]) {
                 trace_chunk!("found webpack push pattern at position {}", i);
 
-                if let Some((chunk_id, start, end)) =
-                    self.extract_chunk_boundary(&tokens[i..], i)?
-                {
+                if let Some((chunk_id, start, end)) = self.extract_chunk_boundary(&tokens[i..], i)? {
                     trace_chunk!(
                         "✓ extracted chunk boundary: id={}, start={}, end={}",
                         chunk_id,
@@ -701,11 +610,8 @@ impl ChunkDetector {
                 }
             }
 
-            if found_boundaries % 10 == 0 && found_boundaries > 0 {
-                trace_chunk!(
-                    "progress: found {} chunk boundaries so far",
-                    found_boundaries
-                );
+            if found_boundaries > 0 && found_boundaries.is_multiple_of(10) {
+                trace_chunk!("progress: found {} chunk boundaries so far", found_boundaries);
             }
         }
 
@@ -722,10 +628,7 @@ impl ChunkDetector {
         }
 
         let has_self_or_window = tokens[0].text == "self" || tokens[0].text == "window";
-        let has_webpack_chunk = tokens
-            .iter()
-            .take(6)
-            .any(|t| t.text.contains("webpackChunk"));
+        let has_webpack_chunk = tokens.iter().take(6).any(|t| t.text.contains("webpackChunk"));
         let has_push = tokens.iter().take(10).any(|t| t.text == "push");
 
         has_self_or_window && has_webpack_chunk && has_push
@@ -741,8 +644,8 @@ impl ChunkDetector {
         const MAX_SEARCH: usize = 100;
         let mut push_pos = None;
 
-        for i in 0..MAX_SEARCH.min(tokens.len()) {
-            if tokens[i].text == "push" {
+        for (i, token) in tokens.iter().enumerate().take(MAX_SEARCH) {
+            if token.text == "push" {
                 push_pos = Some(i);
                 trace_chunk!("found 'push' at offset {}", i);
                 break;
@@ -757,34 +660,33 @@ impl ChunkDetector {
             }
         };
 
-        let array_start =
-            push_pos
-                .checked_add(2)
-                .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
-                    reason: "position overflow while finding array start".to_string(),
-                })?;
+        let array_start = push_pos
+            .checked_add(2)
+            .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
+                reason: "position overflow while finding array start".to_string(),
+            })?;
 
         if array_start >= tokens.len() || tokens[array_start].text != "[" {
             trace_chunk!("expected '[' at position {}, skipping", array_start);
             return Ok(None);
         }
 
-        let chunk_id_pos = array_start.checked_add(1).ok_or_else(|| {
-            ChunkDetectorError::BoundaryDetectionFailed {
+        let chunk_id_pos = array_start
+            .checked_add(1)
+            .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                 reason: "position overflow while finding chunk ID".to_string(),
-            }
-        })?;
+            })?;
 
         if chunk_id_pos >= tokens.len() || tokens[chunk_id_pos].text != "[" {
             trace_chunk!("expected nested '[' at position {}, skipping", chunk_id_pos);
             return Ok(None);
         }
 
-        let id_pos = chunk_id_pos.checked_add(1).ok_or_else(|| {
-            ChunkDetectorError::BoundaryDetectionFailed {
+        let id_pos = chunk_id_pos
+            .checked_add(1)
+            .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                 reason: "position overflow while finding ID value".to_string(),
-            }
-        })?;
+            })?;
 
         if id_pos >= tokens.len() {
             return Ok(None);
@@ -805,46 +707,35 @@ impl ChunkDetector {
         let obj_end = self.find_object_end(tokens, modules_obj_pos)?;
 
         let start = base_pos;
-        let end = base_pos.checked_add(obj_end).ok_or_else(|| {
-            ChunkDetectorError::BoundaryDetectionFailed {
+        let end = base_pos
+            .checked_add(obj_end)
+            .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                 reason: "position overflow calculating chunk end".to_string(),
-            }
-        })?;
+            })?;
 
         debug_assert!(start < end, "chunk start must be before end");
-        trace_chunk!(
-            "chunk boundary: start={}, end={} (size={})",
-            start,
-            end,
-            end - start
-        );
+        trace_chunk!("chunk boundary: start={}, end={} (size={})", start, end, end - start);
 
         Ok(Some((chunk_id, start, end)))
     }
 
-    fn find_modules_object(
-        &self,
-        tokens: &[Token],
-        start: usize,
-    ) -> Result<usize, ChunkDetectorError> {
+    fn find_modules_object(&self, tokens: &[Token], start: usize) -> Result<usize, ChunkDetectorError> {
         const MAX_SEARCH: usize = 20;
-        let search_limit = tokens
-            .len()
-            .min(start.checked_add(MAX_SEARCH).ok_or_else(|| {
-                ChunkDetectorError::BoundaryDetectionFailed {
-                    reason: "overflow calculating search limit".to_string(),
-                }
-            })?);
+        let search_limit = tokens.len().min(start.checked_add(MAX_SEARCH).ok_or_else(|| {
+            ChunkDetectorError::BoundaryDetectionFailed {
+                reason: "overflow calculating search limit".to_string(),
+            }
+        })?);
 
-        for i in start..search_limit {
-            if tokens[i].text == "{" {
+        for (i, token) in tokens.iter().enumerate().take(search_limit).skip(start) {
+            if token.text == "{" {
                 trace_chunk!("found modules object at position {}", i);
                 return Ok(i);
             }
         }
 
         Err(ChunkDetectorError::BoundaryDetectionFailed {
-            reason: format!("modules object not found after position {}", start),
+            reason: format!("modules object not found after position {start}"),
         })
     }
 
@@ -856,32 +747,29 @@ impl ChunkDetector {
 
         while i < tokens.len() {
             assert!(iterations < MAX_ITERATIONS, "max iterations exceeded");
-            iterations = iterations.checked_add(1).ok_or_else(|| {
-                ChunkDetectorError::BoundaryDetectionFailed {
+            iterations = iterations
+                .checked_add(1)
+                .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                     reason: "iteration counter overflow".to_string(),
-                }
-            })?;
+                })?;
 
             if tokens[i].text == "{" {
-                depth = depth.checked_add(1).ok_or_else(|| {
-                    ChunkDetectorError::BoundaryDetectionFailed {
+                depth = depth
+                    .checked_add(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                         reason: "depth overflow".to_string(),
-                    }
-                })?;
+                    })?;
             } else if tokens[i].text == "}" {
                 if depth == 0 {
                     break;
                 }
-                depth = depth.checked_sub(1).ok_or_else(|| {
-                    ChunkDetectorError::BoundaryDetectionFailed {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
                         reason: "depth underflow".to_string(),
-                    }
-                })?;
+                    })?;
                 if depth == 0 {
-                    trace_chunk!(
-                        "found object end at position {} (relative to start)",
-                        i - start
-                    );
+                    trace_chunk!("found object end at position {} (relative to start)", i - start);
                     return Ok(i);
                 }
             }
@@ -894,7 +782,7 @@ impl ChunkDetector {
         }
 
         Err(ChunkDetectorError::BoundaryDetectionFailed {
-            reason: format!("object end not found starting from position {}", start),
+            reason: format!("object end not found starting from position {start}"),
         })
     }
 }

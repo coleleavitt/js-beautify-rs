@@ -27,9 +27,7 @@ impl Default for IifeUnwrap {
     }
 }
 
-fn extract_zero_arg_arrow_iife<'a, 'b>(
-    expr: &'b Expression<'a>,
-) -> Option<&'b ArrowFunctionExpression<'a>> {
+fn extract_zero_arg_arrow_iife<'a, 'b>(expr: &'b Expression<'a>) -> Option<&'b ArrowFunctionExpression<'a>> {
     let Expression::CallExpression(call) = expr else {
         return None;
     };
@@ -55,19 +53,17 @@ fn extract_zero_arg_arrow_iife<'a, 'b>(
 }
 
 fn has_iife_candidate(stmt: &Statement<'_>) -> bool {
-    if let Statement::ExpressionStatement(expr_stmt) = stmt {
-        if extract_zero_arg_arrow_iife(&expr_stmt.expression).is_some() {
-            return true;
-        }
+    if let Statement::ExpressionStatement(expr_stmt) = stmt
+        && extract_zero_arg_arrow_iife(&expr_stmt.expression).is_some()
+    {
+        return true;
     }
-    if let Statement::VariableDeclaration(var_decl) = stmt {
-        if var_decl.declarations.len() == 1 {
-            if let Some(init) = &var_decl.declarations[0].init {
-                if extract_zero_arg_arrow_iife(init).is_some() {
-                    return true;
-                }
-            }
-        }
+    if let Statement::VariableDeclaration(var_decl) = stmt
+        && var_decl.declarations.len() == 1
+        && let Some(init) = &var_decl.declarations[0].init
+        && extract_zero_arg_arrow_iife(init).is_some()
+    {
+        return true;
     }
     false
 }
@@ -96,10 +92,10 @@ fn contains_return(stmt: &Statement<'_>) -> bool {
             if contains_return(&if_stmt.consequent) {
                 return true;
             }
-            if let Some(alt) = &if_stmt.alternate {
-                if contains_return(alt) {
-                    return true;
-                }
+            if let Some(alt) = &if_stmt.alternate
+                && contains_return(alt)
+            {
+                return true;
             }
             false
         }
@@ -109,23 +105,20 @@ fn contains_return(stmt: &Statement<'_>) -> bool {
         Statement::ForOfStatement(f) => contains_return(&f.body),
         Statement::WhileStatement(w) => contains_return(&w.body),
         Statement::DoWhileStatement(d) => contains_return(&d.body),
-        Statement::SwitchStatement(sw) => sw
-            .cases
-            .iter()
-            .any(|c| c.consequent.iter().any(|s| contains_return(s))),
+        Statement::SwitchStatement(sw) => sw.cases.iter().any(|c| c.consequent.iter().any(|s| contains_return(s))),
         Statement::TryStatement(t) => {
             if t.block.body.iter().any(|s| contains_return(s)) {
                 return true;
             }
-            if let Some(handler) = &t.handler {
-                if handler.body.body.iter().any(|s| contains_return(s)) {
-                    return true;
-                }
+            if let Some(handler) = &t.handler
+                && handler.body.body.iter().any(|s| contains_return(s))
+            {
+                return true;
             }
-            if let Some(finalizer) = &t.finalizer {
-                if finalizer.body.iter().any(|s| contains_return(s)) {
-                    return true;
-                }
+            if let Some(finalizer) = &t.finalizer
+                && finalizer.body.iter().any(|s| contains_return(s))
+            {
+                return true;
             }
             false
         }
@@ -174,7 +167,9 @@ fn try_unwrap_assigned<'a>(
     let new_declarator = VariableDeclarator {
         span: SPAN,
         kind: var_decl.kind,
-        id: var_decl.declarations[0].id.clone_in_with_semantic_ids(ctx.ast.allocator),
+        id: var_decl.declarations[0]
+            .id
+            .clone_in_with_semantic_ids(ctx.ast.allocator),
         type_annotation: None,
         init: Some(new_init),
         definite: false,
@@ -235,10 +230,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
     }
 
     fn exit_function_body(&mut self, body: &mut FunctionBody<'a>, ctx: &mut Ctx<'a>) {
-        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent() {
-            if *arrow.expression() {
-                return;
-            }
+        if let Ancestor::ArrowFunctionExpressionBody(arrow) = ctx.parent()
+            && *arrow.expression()
+        {
+            return;
         }
 
         let has_candidate = body.statements.iter().any(|s| has_iife_candidate(s));
@@ -271,7 +266,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_unwrap(code: &str) -> (String, usize) {
         let allocator = Allocator::default();
@@ -281,73 +276,39 @@ mod tests {
 
         let mut unwrapper = IifeUnwrap::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut unwrapper, &mut program, &mut ctx);
 
-        (
-            Codegen::new().build(&program).code,
-            unwrapper.unwrapped_count(),
-        )
+        (Codegen::new().build(&program).code, unwrapper.unwrapped_count())
     }
 
     #[test]
     fn test_unwrap_standalone_iife() {
         let (output, count) = run_unwrap("(() => { doA(); doB(); })();");
-        assert!(
-            count >= 1,
-            "Should have unwrapped at least 1 IIFE, got: {}",
-            count
-        );
-        assert!(
-            output.contains("doA()"),
-            "Should contain 'doA()', got: {}",
-            output
-        );
-        assert!(
-            output.contains("doB()"),
-            "Should contain 'doB()', got: {}",
-            output
-        );
-        assert!(
-            !output.contains("=>"),
-            "Should NOT contain '=>', got: {}",
-            output
-        );
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
+        assert!(output.contains("doA()"), "Should contain 'doA()', got: {}", output);
+        assert!(output.contains("doB()"), "Should contain 'doB()', got: {}", output);
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
     }
 
     #[test]
     fn test_unwrap_assigned_iife_single_return() {
         let (output, count) = run_unwrap("let x = (() => { return 42; })();");
-        assert!(
-            count >= 1,
-            "Should have unwrapped at least 1 IIFE, got: {}",
-            count
-        );
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
         assert!(
             output.contains("let x = 42"),
             "Should contain 'let x = 42', got: {}",
             output
         );
-        assert!(
-            !output.contains("=>"),
-            "Should NOT contain '=>', got: {}",
-            output
-        );
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
     }
 
     #[test]
     fn test_unwrap_assigned_iife_with_body() {
         let (output, count) = run_unwrap("let x = (() => { let q = 1; return q + 2; })();");
-        assert!(
-            count >= 1,
-            "Should have unwrapped at least 1 IIFE, got: {}",
-            count
-        );
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
         assert!(
             output.contains("let q = 1"),
             "Should contain 'let q = 1', got: {}",
@@ -358,51 +319,27 @@ mod tests {
             "Should contain 'let x = q + 2', got: {}",
             output
         );
-        assert!(
-            !output.contains("=>"),
-            "Should NOT contain '=>', got: {}",
-            output
-        );
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
     }
 
     #[test]
     fn test_preserve_iife_with_args() {
         let (output, count) = run_unwrap("let x = ((a) => { return a + 1; })(5);");
-        assert_eq!(
-            count, 0,
-            "Should NOT unwrap IIFE with parameters, got: {}",
-            count
-        );
-        assert!(
-            output.contains("=>"),
-            "Should still contain '=>', got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT unwrap IIFE with parameters, got: {}", count);
+        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
     }
 
     #[test]
     fn test_preserve_iife_with_early_return() {
         let (output, count) = run_unwrap("let x = (() => { if (true) return 1; return 2; })();");
-        assert_eq!(
-            count, 0,
-            "Should NOT unwrap IIFE with early return, got: {}",
-            count
-        );
-        assert!(
-            output.contains("=>"),
-            "Should still contain '=>', got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT unwrap IIFE with early return, got: {}", count);
+        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
     }
 
     #[test]
     fn test_preserve_non_iife_arrow() {
         let (output, count) = run_unwrap("const f = () => { return 1; };");
         assert_eq!(count, 0, "Should NOT unwrap non-IIFE arrow, got: {}", count);
-        assert!(
-            output.contains("=>"),
-            "Should still contain '=>', got: {}",
-            output
-        );
+        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
     }
 }

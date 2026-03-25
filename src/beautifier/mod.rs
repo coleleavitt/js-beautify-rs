@@ -46,17 +46,11 @@ pub fn beautify(code: &str, options: &Options) -> Result<String> {
                     if detector.has_boundaries() {
                         let splitter = ChunkSplitter::new(detector);
 
-                        eprintln!(
-                            "[BEAUTIFY] Splitting chunks to: {}",
-                            options.chunk_dir.display()
-                        );
+                        eprintln!("[BEAUTIFY] Splitting chunks to: {}", options.chunk_dir.display());
 
                         let manifest = splitter.split_and_write(&tokens, options)?;
 
-                        eprintln!(
-                            "[BEAUTIFY] ✓ Successfully wrote {} chunk files",
-                            manifest.total_chunks
-                        );
+                        eprintln!("[BEAUTIFY] ✓ Successfully wrote {} chunk files", manifest.total_chunks);
 
                         if let Some(ref map_path) = options.chunk_map_output {
                             eprintln!("[BEAUTIFY] ✓ Chunk map written to: {}", map_path.display());
@@ -83,34 +77,23 @@ pub fn beautify(code: &str, options: &Options) -> Result<String> {
 
                             let manifest = ChunkManifest::from_detector(&detector);
                             let json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-                                BeautifyError::BeautificationFailed(format!(
-                                    "failed to serialize manifest: {}",
-                                    e
-                                ))
+                                BeautifyError::BeautificationFailed(format!("failed to serialize manifest: {e}"))
                             })?;
                             fs::write(map_path, json).map_err(|e| {
-                                BeautifyError::BeautificationFailed(format!(
-                                    "failed to write manifest: {}",
-                                    e
-                                ))
+                                BeautifyError::BeautificationFailed(format!("failed to write manifest: {e}"))
                             })?;
 
-                            eprintln!(
-                                "[BEAUTIFY] ✓ Chunk metadata written to: {}",
-                                map_path.display()
-                            );
+                            eprintln!("[BEAUTIFY] ✓ Chunk metadata written to: {}", map_path.display());
                         }
 
                         eprintln!("[BEAUTIFY] Proceeding with Oxc beautification");
                     }
                 } else {
-                    eprintln!(
-                        "[BEAUTIFY] ⚠ No chunks detected, proceeding with Oxc beautification"
-                    );
+                    eprintln!("[BEAUTIFY] ⚠ No chunks detected, proceeding with Oxc beautification");
                 }
             }
             Err(e) => {
-                eprintln!("[BEAUTIFY] ⚠ Chunk detection failed: {}", e);
+                eprintln!("[BEAUTIFY] ⚠ Chunk detection failed: {e}");
                 eprintln!("[BEAUTIFY] Falling back to Oxc beautification");
             }
         }

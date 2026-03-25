@@ -20,9 +20,7 @@ fn test_nested_blocks_indentation() {
     let lines: Vec<&str> = result.lines().collect();
     assert!(lines.len() > 1, "Should have multiple lines");
     assert!(
-        lines
-            .iter()
-            .any(|l| l.starts_with('\t') || l.starts_with("  ")),
+        lines.iter().any(|l| l.starts_with('\t') || l.starts_with("  ")),
         "Should have indentation"
     );
 }
@@ -52,11 +50,11 @@ fn test_array_literals() {
     let options = Options::default();
     let result = beautify(code, &options).unwrap();
 
-    assert!(result.contains("1"));
-    assert!(result.contains("2"));
-    assert!(result.contains("3"));
-    assert!(result.contains("["));
-    assert!(result.contains("]"));
+    assert!(result.contains('1'));
+    assert!(result.contains('2'));
+    assert!(result.contains('3'));
+    assert!(result.contains('['));
+    assert!(result.contains(']'));
 }
 
 #[test]
@@ -65,8 +63,8 @@ fn test_object_literals() {
     let options = Options::default();
     let result = beautify(code, &options).unwrap();
 
-    assert!(result.contains("{"));
-    assert!(result.contains("}"));
+    assert!(result.contains('{'));
+    assert!(result.contains('}'));
 }
 
 #[test]
@@ -94,6 +92,6 @@ fn test_ternary_operator() {
     let options = Options::default();
     let result = beautify(code, &options).unwrap();
 
-    assert!(result.contains("?"));
-    assert!(result.contains(":"));
+    assert!(result.contains('?'));
+    assert!(result.contains(':'));
 }

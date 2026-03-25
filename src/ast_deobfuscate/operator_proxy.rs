@@ -55,15 +55,13 @@ impl OperatorProxyCollector {
             return None;
         }
 
-        let param1 = if let BindingPattern::BindingIdentifier(ident) = &func.params.items[0].pattern
-        {
+        let param1 = if let BindingPattern::BindingIdentifier(ident) = &func.params.items[0].pattern {
             ident.name.as_str().to_string()
         } else {
             return None;
         };
 
-        let param2 = if let BindingPattern::BindingIdentifier(ident) = &func.params.items[1].pattern
-        {
+        let param2 = if let BindingPattern::BindingIdentifier(ident) = &func.params.items[1].pattern {
             ident.name.as_str().to_string()
         } else {
             return None;
@@ -80,10 +78,7 @@ impl OperatorProxyCollector {
             return None;
         }
 
-        eprintln!(
-            "[AST] Found operator proxy: {} -> {:?}",
-            name, binary.operator
-        );
+        eprintln!("[AST] Found operator proxy: {} -> {:?}", name, binary.operator);
 
         Some((
             name,
@@ -127,11 +122,7 @@ impl OperatorProxyInliner {
         self.changed
     }
 
-    fn try_inline_call<'a>(
-        &mut self,
-        call: &CallExpression<'a>,
-        ctx: &mut Ctx<'a>,
-    ) -> Option<Expression<'a>> {
+    fn try_inline_call<'a>(&mut self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         let name = if let Expression::Identifier(ident) = &call.callee {
             ident.name.as_str()
         } else {
@@ -147,20 +138,15 @@ impl OperatorProxyInliner {
         let arg1 = call.arguments[0].as_expression()?;
         let arg2 = call.arguments[1].as_expression()?;
 
-        eprintln!(
-            "[AST] Inlining operator proxy: {} -> {:?}",
-            name, proxy.operator
-        );
+        eprintln!("[AST] Inlining operator proxy: {} -> {:?}", name, proxy.operator);
         self.changed = true;
 
-        Some(Expression::BinaryExpression(ctx.ast.alloc(
-            BinaryExpression {
-                span: SPAN,
-                left: Self::clone_expression(arg1, ctx),
-                operator: proxy.operator,
-                right: Self::clone_expression(arg2, ctx),
-            },
-        )))
+        Some(Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+            span: SPAN,
+            left: Self::clone_expression(arg1, ctx),
+            operator: proxy.operator,
+            right: Self::clone_expression(arg2, ctx),
+        })))
     }
 
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
@@ -170,22 +156,22 @@ impl OperatorProxyInliner {
 
 impl<'a> Traverse<'a, DeobfuscateState> for OperatorProxyInliner {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
-        if let Expression::CallExpression(call) = expr {
-            if let Some(inlined) = self.try_inline_call(call, ctx) {
-                *expr = inlined;
-            }
+        if let Expression::CallExpression(call) = expr
+            && let Some(inlined) = self.try_inline_call(call, ctx)
+        {
+            *expr = inlined;
         }
     }
 
     fn exit_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
-        if let Statement::FunctionDeclaration(func) = stmt {
-            if let Some(id) = &func.id {
-                let name = id.name.as_str();
-                if self.proxies.contains_key(name) {
-                    eprintln!("[AST] Removing operator proxy function: {}", name);
-                    self.changed = true;
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
-                }
+        if let Statement::FunctionDeclaration(func) = stmt
+            && let Some(id) = &func.id
+        {
+            let name = id.name.as_str();
+            if self.proxies.contains_key(name) {
+                eprintln!("[AST] Removing operator proxy function: {name}");
+                self.changed = true;
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
             }
         }
     }
@@ -200,7 +186,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_operator_proxy(code: &str) -> String {
         let allocator = Allocator::default();
@@ -210,10 +196,7 @@ mod tests {
 
         let mut collector = OperatorProxyCollector::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
@@ -224,10 +207,7 @@ mod tests {
         if !proxies.is_empty() {
             let mut inliner = OperatorProxyInliner::new(proxies);
             let state = DeobfuscateState::new();
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
@@ -238,9 +218,8 @@ mod tests {
 
     #[test]
     fn test_detect_add_proxy() {
-        let output =
-            run_operator_proxy("function _0xadd(a, b) { return a + b; } var x = _0xadd(5, 10);");
-        eprintln!("Output: {}", output);
+        let output = run_operator_proxy("function _0xadd(a, b) { return a + b; } var x = _0xadd(5, 10);");
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function _0xadd"),
             "Proxy function should be removed, got: {}",
@@ -255,9 +234,8 @@ mod tests {
 
     #[test]
     fn test_detect_multiply_proxy() {
-        let output =
-            run_operator_proxy("function _mul(a, b) { return a * b; } var x = _mul(3, 4);");
-        eprintln!("Output: {}", output);
+        let output = run_operator_proxy("function _mul(a, b) { return a * b; } var x = _mul(3, 4);");
+        eprintln!("Output: {output}");
         assert!(
             !output.contains("function _mul"),
             "Proxy function should be removed, got: {}",
@@ -275,7 +253,7 @@ mod tests {
         let output = run_operator_proxy(
             "function _add(a, b) { return a + b; } function _mul(a, b) { return a * b; } var x = _add(1, 2); var y = _mul(3, 4);",
         );
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("1 + 2") || output.contains("1+2"),
             "Add should be inlined, got: {}",
@@ -291,7 +269,7 @@ mod tests {
     #[test]
     fn test_comparison_operator() {
         let output = run_operator_proxy("function _lt(a, b) { return a < b; } var x = _lt(5, 10);");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("5 < 10") || output.contains("5<10"),
             "Call should be inlined to comparison, got: {}",

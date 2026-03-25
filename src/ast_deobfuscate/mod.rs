@@ -74,7 +74,7 @@ use oxc_codegen::Codegen;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
 use crate::Result;
 
@@ -153,10 +153,7 @@ impl AstDeobfuscator {
         let mut program = parse_result.program;
 
         eprintln!("[DEOBFUSCATE] Phase 1: SemanticBuilder for control_flow_unflattener");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
 
         eprintln!("[DEOBFUSCATE] Phase 1: Running control_flow_unflattener");
@@ -164,10 +161,7 @@ impl AstDeobfuscator {
         eprintln!("[DEOBFUSCATE] Phase 1: control_flow_unflattener DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 2: SemanticBuilder for string_array_rotation");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
 
         eprintln!("[DEOBFUSCATE] Phase 2: Running string_array_rotation");
@@ -178,10 +172,7 @@ impl AstDeobfuscator {
         self.string_array_rotation.finalize(&mut state);
 
         eprintln!("[DEOBFUSCATE] Phase 3: SemanticBuilder for decoder/string_array/dispatcher");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         eprintln!("[DEOBFUSCATE] Phase 3: Running decoder_inliner");
@@ -193,50 +184,35 @@ impl AstDeobfuscator {
         eprintln!("[DEOBFUSCATE] Phase 3: DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 4: SemanticBuilder for call_proxy");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         let mut call_proxy_collector = CallProxyCollector::new();
         eprintln!("[DEOBFUSCATE] Phase 4: Running call_proxy_collector");
         traverse_mut_with_ctx(&mut call_proxy_collector, &mut program, &mut ctx);
         let call_proxies = call_proxy_collector.get_single_use_proxies();
         if !call_proxies.is_empty() {
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
             let mut inliner = CallProxyInliner::new(call_proxies);
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
         }
 
         eprintln!("[DEOBFUSCATE] Phase 5: SemanticBuilder for operator_proxy");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         let mut op_proxy_collector = OperatorProxyCollector::new();
         eprintln!("[DEOBFUSCATE] Phase 5: Running operator_proxy_collector");
         traverse_mut_with_ctx(&mut op_proxy_collector, &mut program, &mut ctx);
         let op_proxies = op_proxy_collector.get_proxies();
         if !op_proxies.is_empty() {
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
             let mut inliner = OperatorProxyInliner::new(op_proxies);
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
         }
 
         eprintln!("[DEOBFUSCATE] Phase 6: SemanticBuilder for simplification passes");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 6: Running expression_simplifier");
         traverse_mut_with_ctx(&mut self.expression_simplifier, &mut program, &mut ctx);
@@ -249,60 +225,42 @@ impl AstDeobfuscator {
         eprintln!("[DEOBFUSCATE] Phase 6: DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 7: SemanticBuilder for dead_code_eliminator");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 7: Running dead_code_eliminator");
         traverse_mut_with_ctx(&mut self.dead_code_eliminator, &mut program, &mut ctx);
         eprintln!("[DEOBFUSCATE] Phase 7: DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 8: SemanticBuilder for dead_var");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         let mut collector = DeadVarCollector::new();
         eprintln!("[DEOBFUSCATE] Phase 8: Running dead_var_collector");
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
         let dead_vars = collector.get_dead_vars();
         if !dead_vars.is_empty() {
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
             let mut eliminator = DeadVarEliminator::new(dead_vars);
             traverse_mut_with_ctx(&mut eliminator, &mut program, &mut ctx);
         }
 
         eprintln!("[DEOBFUSCATE] Phase 9: SemanticBuilder for function_inline");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         let mut func_collector = FunctionCollector::new();
         eprintln!("[DEOBFUSCATE] Phase 9: Running function_collector");
         traverse_mut_with_ctx(&mut func_collector, &mut program, &mut ctx);
         let single_use = func_collector.get_single_use_functions();
         if !single_use.is_empty() {
-            let scoping = SemanticBuilder::new()
-                .build(&program)
-                .semantic
-                .into_scoping();
+            let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
             let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
             let mut inliner = FunctionInliner::new(single_use);
             traverse_mut_with_ctx(&mut inliner, &mut program, &mut ctx);
         }
 
         eprintln!("[DEOBFUSCATE] Phase 10: SemanticBuilder for array/dynamic/ternary/try_catch");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 10: Running array_unpacker");
         traverse_mut_with_ctx(&mut self.array_unpacker, &mut program, &mut ctx);
@@ -316,9 +274,7 @@ impl AstDeobfuscator {
 
         // Rebuild scoping after try_catch_remover and dead_code_eliminator
         // which create new BlockStatement nodes during traversal.
-        eprintln!(
-            "[DEOBFUSCATE] Phase 11: SemanticBuilder for unicode/boolean/void/object_sparsing"
-        );
+        eprintln!("[DEOBFUSCATE] Phase 11: SemanticBuilder for unicode/boolean/void/object_sparsing");
         let semantic_result = SemanticBuilder::new().build(&program);
         eprintln!(
             "[DEOBFUSCATE] Phase 11: SemanticBuilder completed, errors: {}",
@@ -337,28 +293,18 @@ impl AstDeobfuscator {
         eprintln!("[DEOBFUSCATE] Phase 11: Running void_replacer");
         traverse_mut_with_ctx(&mut self.void_replacer, &mut program, &mut ctx);
         eprintln!("[DEOBFUSCATE] Phase 11: Running object_sparsing_consolidator");
-        traverse_mut_with_ctx(
-            &mut self.object_sparsing_consolidator,
-            &mut program,
-            &mut ctx,
-        );
+        traverse_mut_with_ctx(&mut self.object_sparsing_consolidator, &mut program, &mut ctx);
         eprintln!("[DEOBFUSCATE] Phase 11: DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 12: SemanticBuilder for variable_renamer");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 12: Running variable_renamer");
         traverse_mut_with_ctx(&mut self.variable_renamer, &mut program, &mut ctx);
         eprintln!("[DEOBFUSCATE] Phase 12: DONE");
 
         eprintln!("[DEOBFUSCATE] Phase 13: SemanticBuilder for empty_statement_cleanup");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 13: Running empty_statement_cleanup");
         traverse_mut_with_ctx(&mut self.empty_statement_cleanup, &mut program, &mut ctx);
@@ -368,27 +314,17 @@ impl AstDeobfuscator {
         );
 
         eprintln!("[DEOBFUSCATE] Phase 14: SemanticBuilder for sequence_expression_split");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 14: Running sequence_expression_splitter");
-        traverse_mut_with_ctx(
-            &mut self.sequence_expression_splitter,
-            &mut program,
-            &mut ctx,
-        );
+        traverse_mut_with_ctx(&mut self.sequence_expression_splitter, &mut program, &mut ctx);
         eprintln!(
             "[DEOBFUSCATE] Phase 14: Split {} sequence expressions",
             self.sequence_expression_splitter.split_count()
         );
 
         eprintln!("[DEOBFUSCATE] Phase 15: SemanticBuilder for multi_var_split");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 15: Running multi_var_splitter");
         traverse_mut_with_ctx(&mut self.multi_var_splitter, &mut program, &mut ctx);
@@ -398,10 +334,7 @@ impl AstDeobfuscator {
         );
 
         eprintln!("[DEOBFUSCATE] Phase 16: SemanticBuilder for ternary_to_if_else");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 16: Running ternary_to_if_else");
         traverse_mut_with_ctx(&mut self.ternary_to_if_else, &mut program, &mut ctx);
@@ -411,10 +344,7 @@ impl AstDeobfuscator {
         );
 
         eprintln!("[DEOBFUSCATE] Phase 17: SemanticBuilder for short_circuit_to_if");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 17: Running short_circuit_to_if");
         traverse_mut_with_ctx(&mut self.short_circuit_to_if, &mut program, &mut ctx);
@@ -424,10 +354,7 @@ impl AstDeobfuscator {
         );
 
         eprintln!("[DEOBFUSCATE] Phase 18: SemanticBuilder for iife_unwrap");
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
         eprintln!("[DEOBFUSCATE] Phase 18: Running iife_unwrap");
         traverse_mut_with_ctx(&mut self.iife_unwrap, &mut program, &mut ctx);
@@ -453,21 +380,17 @@ fn annotate_webpack_modules(code: &str) -> String {
 
     for line in code.lines() {
         let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("var ") {
-            if let Some(name_end) = rest.find(" = v(() =>") {
-                let module_name = &rest[..name_end];
-                if !module_name.is_empty()
-                    && module_name
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
-                {
-                    result.push_str("// ═══════════════════════════════════════\n");
-                    result.push_str("// Webpack Module: ");
-                    result.push_str(module_name);
-                    result.push('\n');
-                    result.push_str("// ═══════════════════════════════════════\n");
-                    count = count.wrapping_add(1);
-                }
+        if let Some(rest) = trimmed.strip_prefix("var ")
+            && let Some(name_end) = rest.find(" = v(() =>")
+        {
+            let module_name = &rest[..name_end];
+            if !module_name.is_empty() && module_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+                result.push_str("// ═══════════════════════════════════════\n");
+                result.push_str("// Webpack Module: ");
+                result.push_str(module_name);
+                result.push('\n');
+                result.push_str("// ═══════════════════════════════════════\n");
+                count = count.wrapping_add(1);
             }
         }
         result.push_str(line);
@@ -475,10 +398,7 @@ fn annotate_webpack_modules(code: &str) -> String {
     }
 
     if count > 0 {
-        eprintln!(
-            "[DEOBFUSCATE] Phase 19: Annotated {} webpack modules",
-            count
-        );
+        eprintln!("[DEOBFUSCATE] Phase 19: Annotated {count} webpack modules");
     }
 
     result

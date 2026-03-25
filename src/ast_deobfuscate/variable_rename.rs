@@ -58,8 +58,7 @@ impl VariableRenamer {
             new_name.clone()
         } else {
             let new_name = self.generate_name(var_type);
-            self.rename_map
-                .insert(old_name.to_string(), new_name.clone());
+            self.rename_map.insert(old_name.to_string(), new_name.clone());
             new_name
         }
     }
@@ -81,20 +80,16 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
         let old_name = ident.name.as_str();
         if Self::should_rename(old_name) {
             let new_name = self.get_or_create_rename(old_name, VarType::Variable);
-            eprintln!("[AST] Renaming binding: {} → {}", old_name, new_name);
+            eprintln!("[AST] Renaming binding: {old_name} → {new_name}");
             ident.name = ctx.ast.atom(&new_name).into();
             self.changed = true;
         }
     }
 
-    fn enter_identifier_reference(
-        &mut self,
-        ident: &mut IdentifierReference<'a>,
-        ctx: &mut Ctx<'a>,
-    ) {
+    fn enter_identifier_reference(&mut self, ident: &mut IdentifierReference<'a>, ctx: &mut Ctx<'a>) {
         let old_name = ident.name.as_str();
         if let Some(new_name) = self.rename_map.get(old_name) {
-            eprintln!("[AST] Renaming reference: {} → {}", old_name, new_name);
+            eprintln!("[AST] Renaming reference: {old_name} → {new_name}");
             ident.name = ctx.ast.atom(new_name).into();
             self.changed = true;
         }
@@ -105,7 +100,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
             let old_name = ident.name.as_str();
             if Self::should_rename(old_name) {
                 let new_name = self.get_or_create_rename(old_name, VarType::Function);
-                eprintln!("[AST] Renaming function: {} → {}", old_name, new_name);
+                eprintln!("[AST] Renaming function: {old_name} → {new_name}");
                 ident.name = ctx.ast.atom(&new_name).into();
                 self.changed = true;
             }
@@ -122,7 +117,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_rename(code: &str) -> String {
         let allocator = Allocator::default();
@@ -132,10 +127,7 @@ mod tests {
 
         let mut renamer = VariableRenamer::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut renamer, &mut program, &mut ctx);
@@ -147,7 +139,7 @@ mod tests {
     fn test_rename_hex_var() {
         let code = "var _0x1234 = 42; console.log(_0x1234);";
         let output = run_rename(code);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
 
         assert!(output.contains("var_1"));
         assert!(!output.contains("_0x1234"));
@@ -157,7 +149,7 @@ mod tests {
     fn test_rename_hex_function() {
         let code = "function _0xabcd() { return 42; } _0xabcd();";
         let output = run_rename(code);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
 
         assert!(output.contains("func_1"));
         assert!(!output.contains("_0xabcd"));
@@ -167,7 +159,7 @@ mod tests {
     fn test_no_rename_normal_var() {
         let code = "var normalVar = 42; console.log(normalVar);";
         let output = run_rename(code);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
 
         assert!(output.contains("normalVar"));
         assert!(!output.contains("var_1"));
@@ -177,7 +169,7 @@ mod tests {
     fn test_rename_multiple_vars() {
         let code = "var _0x1234 = 1; var _0x5678 = 2; console.log(_0x1234 + _0x5678);";
         let output = run_rename(code);
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
 
         assert!(output.contains("var_1"));
         assert!(output.contains("var_2"));

@@ -37,32 +37,25 @@ impl Default for TernarySimplifier {
 
 impl<'a> Traverse<'a, DeobfuscateState> for TernarySimplifier {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut Ctx<'a>) {
-        if let Expression::ConditionalExpression(cond) = expr {
-            if let Some(condition_value) = self.get_constant_boolean(&cond.test) {
-                eprintln!(
-                    "[AST] Simplifying ternary with constant condition: {}",
-                    condition_value
-                );
-                self.changed = true;
+        if let Expression::ConditionalExpression(cond) = expr
+            && let Some(condition_value) = self.get_constant_boolean(&cond.test)
+        {
+            eprintln!("[AST] Simplifying ternary with constant condition: {condition_value}");
+            self.changed = true;
 
-                let branch = if condition_value {
-                    std::mem::replace(
-                        &mut cond.consequent,
-                        Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral {
-                            span: oxc_span::SPAN,
-                        })),
-                    )
-                } else {
-                    std::mem::replace(
-                        &mut cond.alternate,
-                        Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral {
-                            span: oxc_span::SPAN,
-                        })),
-                    )
-                };
+            let branch = if condition_value {
+                std::mem::replace(
+                    &mut cond.consequent,
+                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral { span: oxc_span::SPAN })),
+                )
+            } else {
+                std::mem::replace(
+                    &mut cond.alternate,
+                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral { span: oxc_span::SPAN })),
+                )
+            };
 
-                *expr = branch;
-            }
+            *expr = branch;
         }
     }
 }
@@ -76,7 +69,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_ternary_simplifier(code: &str) -> String {
         let allocator = Allocator::default();
@@ -86,10 +79,7 @@ mod tests {
 
         let mut simplifier = TernarySimplifier::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut simplifier, &mut program, &mut ctx);
@@ -100,39 +90,31 @@ mod tests {
     #[test]
     fn test_simplify_true_ternary() {
         let output = run_ternary_simplifier("var x = true ? 1 : 2;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("= 1") || output.contains("=1"),
             "Should keep true branch, got: {}",
             output
         );
-        assert!(
-            !output.contains("?"),
-            "Should remove ternary, got: {}",
-            output
-        );
+        assert!(!output.contains('?'), "Should remove ternary, got: {}", output);
     }
 
     #[test]
     fn test_simplify_false_ternary() {
         let output = run_ternary_simplifier("var x = false ? 1 : 2;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("= 2") || output.contains("=2"),
             "Should keep false branch, got: {}",
             output
         );
-        assert!(
-            !output.contains("?"),
-            "Should remove ternary, got: {}",
-            output
-        );
+        assert!(!output.contains('?'), "Should remove ternary, got: {}", output);
     }
 
     #[test]
     fn test_simplify_truthy_number() {
         let output = run_ternary_simplifier("var x = 1 ? 'yes' : 'no';");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("yes"),
             "Should keep true branch for truthy number, got: {}",
@@ -143,7 +125,7 @@ mod tests {
     #[test]
     fn test_simplify_falsy_zero() {
         let output = run_ternary_simplifier("var x = 0 ? 'yes' : 'no';");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
             output.contains("no"),
             "Should keep false branch for falsy zero, got: {}",
@@ -154,9 +136,9 @@ mod tests {
     #[test]
     fn test_preserve_non_constant() {
         let output = run_ternary_simplifier("var x = condition ? 1 : 2;");
-        eprintln!("Output: {}", output);
+        eprintln!("Output: {output}");
         assert!(
-            output.contains("?"),
+            output.contains('?'),
             "Should preserve non-constant ternary, got: {}",
             output
         );

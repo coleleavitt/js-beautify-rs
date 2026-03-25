@@ -64,29 +64,26 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in program.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::SequenceExpression(seq) = &expr_stmt.expression {
-                    eprintln!(
-                        "[SEQ_SPLIT] Splitting sequence with {} expressions in program body",
-                        seq.expressions.len()
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::SequenceExpression(seq) = &expr_stmt.expression
+            {
+                eprintln!(
+                    "[SEQ_SPLIT] Splitting sequence with {} expressions in program body",
+                    seq.expressions.len()
+                );
+                for expr in seq.expressions.iter() {
+                    new_body.push(
+                        ctx.ast
+                            .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                     );
-                    for expr in seq.expressions.iter() {
-                        new_body.push(
-                            ctx.ast
-                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
-                        );
-                    }
-                    self.split_count += 1;
-                    continue;
                 }
+                self.split_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!(
-            "[SEQ_SPLIT] Program body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[SEQ_SPLIT] Program body: {before} -> {after} statements");
         program.body = new_body;
     }
 
@@ -105,26 +102,26 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
         for stmt in block.body.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::SequenceExpression(seq) = &expr_stmt.expression {
-                    eprintln!(
-                        "[SEQ_SPLIT] Splitting sequence with {} expressions in block",
-                        seq.expressions.len()
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::SequenceExpression(seq) = &expr_stmt.expression
+            {
+                eprintln!(
+                    "[SEQ_SPLIT] Splitting sequence with {} expressions in block",
+                    seq.expressions.len()
+                );
+                for expr in seq.expressions.iter() {
+                    new_body.push(
+                        ctx.ast
+                            .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                     );
-                    for expr in seq.expressions.iter() {
-                        new_body.push(
-                            ctx.ast
-                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
-                        );
-                    }
-                    self.split_count += 1;
-                    continue;
                 }
+                self.split_count += 1;
+                continue;
             }
             new_body.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_body.len();
-        eprintln!("[SEQ_SPLIT] Block body: {} -> {} statements", before, after);
+        eprintln!("[SEQ_SPLIT] Block body: {before} -> {after} statements");
         block.body = new_body;
     }
 
@@ -143,29 +140,26 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
         for stmt in body.statements.iter() {
-            if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                if let Expression::SequenceExpression(seq) = &expr_stmt.expression {
-                    eprintln!(
-                        "[SEQ_SPLIT] Splitting sequence with {} expressions in function body",
-                        seq.expressions.len()
+            if let Statement::ExpressionStatement(expr_stmt) = stmt
+                && let Expression::SequenceExpression(seq) = &expr_stmt.expression
+            {
+                eprintln!(
+                    "[SEQ_SPLIT] Splitting sequence with {} expressions in function body",
+                    seq.expressions.len()
+                );
+                for expr in seq.expressions.iter() {
+                    new_stmts.push(
+                        ctx.ast
+                            .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
                     );
-                    for expr in seq.expressions.iter() {
-                        new_stmts.push(
-                            ctx.ast
-                                .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
-                        );
-                    }
-                    self.split_count += 1;
-                    continue;
                 }
+                self.split_count += 1;
+                continue;
             }
             new_stmts.push(stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
         }
         let after = new_stmts.len();
-        eprintln!(
-            "[SEQ_SPLIT] Function body: {} -> {} statements",
-            before, after
-        );
+        eprintln!("[SEQ_SPLIT] Function body: {before} -> {after} statements");
         body.statements = new_stmts;
     }
 }
@@ -179,7 +173,7 @@ mod tests {
     use oxc_parser::Parser;
     use oxc_semantic::SemanticBuilder;
     use oxc_span::SourceType;
-    use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx};
+    use oxc_traverse::{ReusableTraverseCtx, traverse_mut_with_ctx};
 
     fn run_split(code: &str) -> (String, usize) {
         let allocator = Allocator::default();
@@ -189,10 +183,7 @@ mod tests {
 
         let mut splitter = SequenceExpressionSplitter::new();
         let state = DeobfuscateState::new();
-        let scoping = SemanticBuilder::new()
-            .build(&program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, &allocator);
 
         traverse_mut_with_ctx(&mut splitter, &mut program, &mut ctx);
@@ -203,11 +194,7 @@ mod tests {
     #[test]
     fn test_split_simple_sequence() {
         let (output, count) = run_split("a = 1, b = 2, c = 3;");
-        assert!(
-            count >= 1,
-            "Should have split at least 1 sequence, got: {}",
-            count
-        );
+        assert!(count >= 1, "Should have split at least 1 sequence, got: {}", count);
         assert!(
             output.contains("a = 1;\n"),
             "Should have 'a = 1;' as separate statement, got: {}",
@@ -228,16 +215,8 @@ mod tests {
     #[test]
     fn test_no_split_for_init() {
         let (output, count) = run_split("for (a = 0, b = 1;;) {}");
-        assert_eq!(
-            count, 0,
-            "Should NOT split sequence in for-init, got: {}",
-            count
-        );
-        assert!(
-            output.contains("for"),
-            "Should preserve for loop, got: {}",
-            output
-        );
+        assert_eq!(count, 0, "Should NOT split sequence in for-init, got: {}", count);
+        assert!(output.contains("for"), "Should preserve for loop, got: {}", output);
     }
 
     #[test]
@@ -258,21 +237,13 @@ mod tests {
     #[test]
     fn test_no_split_single_expression() {
         let (_output, count) = run_split("a = 1;");
-        assert_eq!(
-            count, 0,
-            "Should not split single expression statement, got: {}",
-            count
-        );
+        assert_eq!(count, 0, "Should not split single expression statement, got: {}", count);
     }
 
     #[test]
     fn test_preserve_return_sequence() {
         let (output, count) = run_split("function f() { return a = 1, b; }");
-        assert_eq!(
-            count, 0,
-            "Should NOT split sequence inside return, got: {}",
-            count
-        );
+        assert_eq!(count, 0, "Should NOT split sequence inside return, got: {}", count);
         assert!(
             output.contains("return"),
             "Should preserve return statement, got: {}",

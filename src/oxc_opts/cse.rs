@@ -7,7 +7,7 @@ use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::*;
 use oxc_semantic::SemanticBuilder;
 
-use oxc_traverse::{traverse_mut_with_ctx, ReusableTraverseCtx, Traverse, TraverseCtx};
+use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
 use rustc_hash::FxHashMap;
 
 use crate::oxc_opts::state::OptimizationState;
@@ -35,10 +35,7 @@ impl CommonSubexpressionElimination {
         self.var_counter = 0;
 
         let state = OptimizationState::new();
-        let scoping = SemanticBuilder::new()
-            .build(program)
-            .semantic
-            .into_scoping();
+        let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(state, scoping, allocator);
 
         traverse_mut_with_ctx(self, program, &mut ctx);
@@ -59,7 +56,7 @@ impl CommonSubexpressionElimination {
                 let left = self.expression_to_string(&bin.left)?;
                 let op = format!("{:?}", bin.operator);
                 let right = self.expression_to_string(&bin.right)?;
-                Some(format!("({} {} {})", left, op, right))
+                Some(format!("({left} {op} {right})"))
             }
             Expression::CallExpression(call) => {
                 let callee = self.expression_to_string(&call.callee)?;
@@ -77,7 +74,7 @@ impl CommonSubexpressionElimination {
             Expression::ComputedMemberExpression(computed) => {
                 let obj = self.expression_to_string(&computed.object)?;
                 let prop = self.expression_to_string(&computed.expression)?;
-                Some(format!("{}[{}]", obj, prop))
+                Some(format!("{obj}[{prop}]"))
             }
             Expression::Identifier(ident) => Some(ident.name.to_string()),
             Expression::NumericLiteral(lit) => Some(lit.value.to_string()),
@@ -86,7 +83,7 @@ impl CommonSubexpressionElimination {
             Expression::UnaryExpression(unary) => {
                 let operand = self.expression_to_string(&unary.argument)?;
                 let op = format!("{:?}", unary.operator);
-                Some(format!("({} {})", op, operand))
+                Some(format!("({op} {operand})"))
             }
             _ => None,
         }
@@ -103,7 +100,7 @@ impl CommonSubexpressionElimination {
                 let left = self.expression_to_string(&bin.left)?;
                 let op = format!("{:?}", bin.operator);
                 let right = self.expression_to_string(&bin.right)?;
-                Some(format!("({} {} {})", left, op, right))
+                Some(format!("({left} {op} {right})"))
             }
             _ => None,
         }
@@ -119,11 +116,7 @@ impl CommonSubexpressionElimination {
         )
     }
 
-    fn process_block_for_cse<'a>(
-        &mut self,
-        statements: &mut oxc_allocator::Vec<'a, Statement<'a>>,
-        ctx: &mut Ctx<'a>,
-    ) {
+    fn process_block_for_cse<'a>(&mut self, statements: &mut oxc_allocator::Vec<'a, Statement<'a>>, ctx: &mut Ctx<'a>) {
         let mut new_statements = ctx.ast.vec();
         let mut expr_map: FxHashMap<String, String> = FxHashMap::default();
 
@@ -131,9 +124,7 @@ impl CommonSubexpressionElimination {
             match stmt {
                 Statement::ExpressionStatement(expr_stmt) => {
                     if let Some(expr_str) = self.expression_to_string(&expr_stmt.expression) {
-                        if self.is_complex_expression(&expr_stmt.expression)
-                            && expr_map.contains_key(&expr_str)
-                        {
+                        if self.is_complex_expression(&expr_stmt.expression) && expr_map.contains_key(&expr_str) {
                             self.changed = true;
                             continue;
                         } else if self.is_complex_expression(&expr_stmt.expression) {
@@ -144,15 +135,18 @@ impl CommonSubexpressionElimination {
                 }
                 Statement::VariableDeclaration(var_decl) => {
                     for declarator in &var_decl.declarations {
-                        if let Some(init) = &declarator.init {
-                            if let Some(expr_str) = self.expression_to_string(init) {
-                                if self.is_complex_expression(init) {
-                                    if expr_map.contains_key(&expr_str) {
-                                        self.changed = true;
-                                    } else if let BindingPattern::BindingIdentifier(ident) =
-                                        &declarator.id
-                                    {
-                                        expr_map.insert(expr_str, ident.name.to_string());
+                        if let Some(init) = &declarator.init
+                            && let Some(expr_str) = self.expression_to_string(init)
+                            && self.is_complex_expression(init)
+                        {
+                            use std::collections::hash_map::Entry;
+                            match expr_map.entry(expr_str) {
+                                Entry::Occupied(_) => {
+                                    self.changed = true;
+                                }
+                                Entry::Vacant(e) => {
+                                    if let BindingPattern::BindingIdentifier(ident) = &declarator.id {
+                                        e.insert(ident.name.to_string());
                                     }
                                 }
                             }
@@ -203,37 +197,29 @@ impl CommonSubexpressionElimination {
 
     fn clone_expression<'a>(&self, expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
         match expr {
-            Expression::Identifier(ident) => {
-                Expression::Identifier(ctx.ast.alloc(IdentifierReference {
-                    span: ident.span,
-                    name: ctx.ast.atom(ident.name.as_str()).into(),
-                    reference_id: None.into(),
-                }))
-            }
-            Expression::NumericLiteral(lit) => {
-                Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
-                    span: lit.span,
-                    value: lit.value,
-                    raw: lit.raw,
-                    base: lit.base,
-                }))
-            }
-            Expression::StringLiteral(lit) => {
-                Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
-                    span: lit.span,
-                    value: ctx.ast.atom(lit.value.as_str()),
-                    raw: None,
-                    lone_surrogates: false,
-                }))
-            }
-            Expression::BinaryExpression(bin) => {
-                Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
-                    span: bin.span,
-                    left: self.clone_expression(&bin.left, ctx),
-                    operator: bin.operator,
-                    right: self.clone_expression(&bin.right, ctx),
-                }))
-            }
+            Expression::Identifier(ident) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                span: ident.span,
+                name: ctx.ast.atom(ident.name.as_str()).into(),
+                reference_id: None.into(),
+            })),
+            Expression::NumericLiteral(lit) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                span: lit.span,
+                value: lit.value,
+                raw: lit.raw,
+                base: lit.base,
+            })),
+            Expression::StringLiteral(lit) => Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                span: lit.span,
+                value: ctx.ast.atom(lit.value.as_str()),
+                raw: None,
+                lone_surrogates: false,
+            })),
+            Expression::BinaryExpression(bin) => Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                span: bin.span,
+                left: self.clone_expression(&bin.left, ctx),
+                operator: bin.operator,
+                right: self.clone_expression(&bin.right, ctx),
+            })),
             _ => expr.clone_in(ctx.ast.allocator),
         }
     }
@@ -273,7 +259,7 @@ mod tests {
 
         if changed {
             let output = Codegen::new().build(&program).code;
-            println!("CSE output: {}", output);
+            println!("CSE output: {output}");
         }
     }
 
@@ -289,9 +275,6 @@ mod tests {
 
     #[test]
     fn test_cse_complex_expression() {
-        test_cse(
-            "{ const a = expensive(x, y); const b = expensive(x, y); }",
-            true,
-        );
+        test_cse("{ const a = expensive(x, y); const b = expensive(x, y); }", true);
     }
 }
