@@ -62,12 +62,7 @@ impl Token {
         }
     }
 
-    pub fn with_position(
-        token_type: TokenType,
-        text: impl Into<String>,
-        line: usize,
-        column: usize,
-    ) -> Self {
+    pub fn with_position(token_type: TokenType, text: impl Into<String>, line: usize, column: usize) -> Self {
         Self {
             token_type,
             text: text.into(),

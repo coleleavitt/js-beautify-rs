@@ -19,6 +19,7 @@ pub mod decoder_inline;
 pub mod dispatcher_inline;
 pub mod dynamic_property;
 pub mod empty_statement_cleanup;
+pub mod encrypted_eval;
 pub mod expression_simplify;
 pub mod function_inline;
 pub mod iife_unwrap;
@@ -138,10 +139,20 @@ impl AstDeobfuscator {
     }
 
     pub fn deobfuscate(&mut self, code: &str) -> Result<String> {
+        let code = if let Some(decrypted) = encrypted_eval::decrypt_encrypted_evals(code) {
+            eprintln!(
+                "[DEOBFUSCATE] Phase 0: Decrypted encrypted eval payload ({} bytes)",
+                decrypted.len()
+            );
+            decrypted
+        } else {
+            code.to_string()
+        };
+
         let allocator = Allocator::default();
         let source_type = SourceType::mjs();
 
-        let parse_result = Parser::new(&allocator, code, source_type).parse();
+        let parse_result = Parser::new(&allocator, &code, source_type).parse();
 
         if !parse_result.errors.is_empty() {
             return Err(crate::BeautifyError::BeautificationFailed(format!(

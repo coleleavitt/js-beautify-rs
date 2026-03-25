@@ -14,7 +14,8 @@
 //! This pass runs as Phase 0 (before AST parsing) because the encrypted blob
 //! is not valid JavaScript — it must be decrypted at the source level.
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use regex::Regex;
 
 /// Regex pattern for the colon-delimited encrypted blob inside a string literal.
@@ -126,9 +127,7 @@ fn decrypt_payload(payload_b64: &str, counter_str: &str, seed_b64: &str) -> Opti
         || trimmed.contains("if(");
 
     if !has_js_indicator {
-        eprintln!(
-            "[DEOBFUSCATE] Phase 0: Decrypted payload does not look like JavaScript, skipping"
-        );
+        eprintln!("[DEOBFUSCATE] Phase 0: Decrypted payload does not look like JavaScript, skipping");
         return None;
     }
 
@@ -245,12 +244,7 @@ mod tests {
 
     /// Builds a synthetic encrypted source string with the given plaintext,
     /// padded to at least `min_bytes` to meet the 200-char base64 minimum.
-    fn build_encrypted_source(
-        plaintext: &[u8],
-        counter: u64,
-        seed_bytes: &[u8],
-        split_variant: &str,
-    ) -> String {
+    fn build_encrypted_source(plaintext: &[u8], counter: u64, seed_bytes: &[u8], split_variant: &str) -> String {
         let min_bytes = 200;
         let mut padded = vec![b' '; min_bytes.max(plaintext.len())];
         padded[..plaintext.len()].copy_from_slice(plaintext);
@@ -303,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_detect_dot_split() {
-        let source = build_encrypted_source(b"var x = 42;", 100, b"test", r".split(':')");
+        let source = build_encrypted_source(b"var x = 42;", 100, b"test", r#".split(":")"#);
         let result = decrypt_encrypted_evals(&source);
         assert!(result.is_some(), "Should detect .split(\":\") pattern");
         assert!(result.as_deref().unwrap_or("").starts_with("var x = 42;"));
@@ -318,12 +312,7 @@ mod tests {
 
     #[test]
     fn test_detect_join_split() {
-        let source = build_encrypted_source(
-            b"let z = null;",
-            75,
-            b"XY",
-            r#"[["s","p","l","i","t"].join("")](":")"#,
-        );
+        let source = build_encrypted_source(b"let z = null;", 75, b"XY", r#"[["s","p","l","i","t"].join("")](":")"#);
         let result = decrypt_encrypted_evals(&source);
         assert!(result.is_some());
     }
