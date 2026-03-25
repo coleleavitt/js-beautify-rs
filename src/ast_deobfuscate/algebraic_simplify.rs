@@ -1,5 +1,7 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BinaryExpression, BinaryOperator, BooleanLiteral, Expression, LogicalExpression, LogicalOperator, NumericLiteral,
+};
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -13,11 +15,13 @@ pub struct AlgebraicSimplifier {
 }
 
 impl AlgebraicSimplifier {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -362,72 +366,72 @@ mod tests {
     #[test]
     fn test_self_subtract() {
         let output = run_simplify("var r = x - x;");
-        assert!(output.contains("= 0"), "Should simplify x - x to 0, got: {}", output);
+        assert!(output.contains("= 0"), "Should simplify x - x to 0, got: {output}");
     }
 
     #[test]
     fn test_multiply_zero_left() {
         let output = run_simplify("var r = 0 * y;");
-        assert!(output.contains("= 0"), "Should simplify 0 * y to 0, got: {}", output);
+        assert!(output.contains("= 0"), "Should simplify 0 * y to 0, got: {output}");
     }
 
     #[test]
     fn test_multiply_zero_right() {
         let output = run_simplify("var r = x * 0;");
-        assert!(output.contains("= 0"), "Should simplify x * 0 to 0, got: {}", output);
+        assert!(output.contains("= 0"), "Should simplify x * 0 to 0, got: {output}");
     }
 
     #[test]
     fn test_self_divide() {
         let output = run_simplify("var r = z / z;");
-        assert!(output.contains("= 1"), "Should simplify z / z to 1, got: {}", output);
+        assert!(output.contains("= 1"), "Should simplify z / z to 1, got: {output}");
     }
 
     #[test]
     fn test_self_modulo() {
         let output = run_simplify("var r = a % a;");
-        assert!(output.contains("= 0"), "Should simplify a % a to 0, got: {}", output);
+        assert!(output.contains("= 0"), "Should simplify a % a to 0, got: {output}");
     }
 
     #[test]
     fn test_self_xor() {
         let output = run_simplify("var r = b ^ b;");
-        assert!(output.contains("= 0"), "Should simplify b ^ b to 0, got: {}", output);
+        assert!(output.contains("= 0"), "Should simplify b ^ b to 0, got: {output}");
     }
 
     #[test]
     fn test_add_zero_left() {
         let output = run_simplify("var r = 0 + x;");
-        assert!(output.contains("= x"), "Should simplify 0 + x to x, got: {}", output);
+        assert!(output.contains("= x"), "Should simplify 0 + x to x, got: {output}");
     }
 
     #[test]
     fn test_add_zero_right() {
         let output = run_simplify("var r = x + 0;");
-        assert!(output.contains("= x"), "Should simplify x + 0 to x, got: {}", output);
+        assert!(output.contains("= x"), "Should simplify x + 0 to x, got: {output}");
     }
 
     #[test]
     fn test_multiply_one_left() {
         let output = run_simplify("var r = 1 * x;");
-        assert!(output.contains("= x"), "Should simplify 1 * x to x, got: {}", output);
+        assert!(output.contains("= x"), "Should simplify 1 * x to x, got: {output}");
     }
 
     #[test]
     fn test_multiply_one_right() {
         let output = run_simplify("var r = x * 1;");
-        assert!(output.contains("= x"), "Should simplify x * 1 to x, got: {}", output);
+        assert!(output.contains("= x"), "Should simplify x * 1 to x, got: {output}");
     }
 
     #[test]
     fn test_divide_one() {
         let output = run_simplify("var r = x / 1;");
-        assert!(output.contains("= x"), "Should simplify x / 1 to x, got: {}", output);
+        assert!(output.contains("= x"), "Should simplify x / 1 to x, got: {output}");
     }
 
     #[test]
     fn test_no_simplification() {
         let output = run_simplify("var r = x - y;");
-        assert!(output.contains("x - y"), "Should not simplify x - y, got: {}", output);
+        assert!(output.contains("x - y"), "Should not simplify x - y, got: {output}");
     }
 }

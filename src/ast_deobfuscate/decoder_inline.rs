@@ -7,7 +7,10 @@
 //! console.log(_0xdec(291)); // Inlined to: console.log("hello");
 //! ```
 
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, AssignmentTarget, BinaryExpression, BinaryOperator, BindingPattern, CallExpression, Expression, Function,
+    Statement, StringLiteral,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
@@ -27,6 +30,7 @@ pub struct DecoderInliner {
 }
 
 impl DecoderInliner {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             detected_decoders: FxHashMap::default(),
@@ -34,7 +38,8 @@ impl DecoderInliner {
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -54,15 +59,12 @@ impl DecoderInliner {
             return None;
         }
 
-        let param_name = match &func.params.items[0].pattern {
-            BindingPattern::BindingIdentifier(ident) => {
-                eprintln!("[AST]   Parameter: {}", ident.name);
-                ident.name.as_str()
-            }
-            _ => {
-                eprintln!("[AST]   Parameter is not simple identifier");
-                return None;
-            }
+        let param_name = if let BindingPattern::BindingIdentifier(ident) = &func.params.items[0].pattern {
+            eprintln!("[AST]   Parameter: {}", ident.name);
+            ident.name.as_str()
+        } else {
+            eprintln!("[AST]   Parameter is not simple identifier");
+            return None;
         };
 
         let body = func.body.as_ref()?;
@@ -72,8 +74,7 @@ impl DecoderInliner {
             self.analyze_function_body(&body.statements, param_name, ctx)?;
 
         eprintln!(
-            "[AST] ✓ Detected decoder: {} for array {} (offset: {:?} {}, type: {:?})",
-            func_name, array_name, offset_op, offset, decoder_type
+            "[AST] ✓ Detected decoder: {func_name} for array {array_name} (offset: {offset_op:?} {offset}, type: {decoder_type:?})"
         );
 
         Some(DecoderInfo {
@@ -107,8 +108,7 @@ impl DecoderInliner {
                             self.extract_array_access_with_decoder(arg, param_name, ctx)
                     {
                         eprintln!(
-                            "[AST]       extract_array_access returned: array={}, offset={}, op={:?}, decoder={:?}",
-                            arr, off, op, dec_type
+                            "[AST]       extract_array_access returned: array={arr}, offset={off}, op={op:?}, decoder={dec_type:?}"
                         );
                         array_name = Some(arr);
                         decoder_type = dec_type;
@@ -118,8 +118,7 @@ impl DecoderInliner {
                             offset_op = op;
                         } else {
                             eprintln!(
-                                "[AST]       Already have assignment offset ({:?} {}), keeping it",
-                                offset_op, offset
+                                "[AST]       Already have assignment offset ({offset_op:?} {offset}), keeping it"
                             );
                         }
                     }
@@ -129,7 +128,7 @@ impl DecoderInliner {
                     if let Some((off, op)) = self.extract_offset_assignment(&expr_stmt.expression, param_name) {
                         offset = off;
                         offset_op = op;
-                        eprintln!("[AST]       Extracted offset assignment: {:?} {}", op, off);
+                        eprintln!("[AST]       Extracted offset assignment: {op:?} {off}");
                     }
                 }
                 _ => {
@@ -138,18 +137,21 @@ impl DecoderInliner {
             }
         }
 
-        if let Some(arr) = array_name {
-            if ctx.state.string_arrays.contains_key(&arr) {
-                eprintln!("[AST]     Array {arr} is a known string array");
-                Some((arr, offset, offset_op, decoder_type))
-            } else {
-                eprintln!("[AST]     Array {arr} not found in string arrays");
+        array_name.map_or_else(
+            || {
+                eprintln!("[AST]     No array access found");
                 None
-            }
-        } else {
-            eprintln!("[AST]     No array access found");
-            None
-        }
+            },
+            |arr| {
+                if ctx.state.string_arrays.contains_key(&arr) {
+                    eprintln!("[AST]     Array {arr} is a known string array");
+                    Some((arr, offset, offset_op, decoder_type))
+                } else {
+                    eprintln!("[AST]     Array {arr} not found in string arrays");
+                    None
+                }
+            },
+        )
     }
 
     fn extract_array_access_with_decoder<'a>(
@@ -159,7 +161,7 @@ impl DecoderInliner {
         _ctx: &Ctx<'a>,
     ) -> Option<(String, i32, OffsetOperation, DecoderType)> {
         if let Some(decoder_type) = self.detect_decoder_call(expr) {
-            eprintln!("[AST]       Detected decoder call: {:?}", decoder_type);
+            eprintln!("[AST]       Detected decoder call: {decoder_type:?}");
             if let Expression::CallExpression(call) = expr
                 && let Some(arg) = call.arguments.first()
                 && let Some(arg_expr) = arg.as_expression()
@@ -190,21 +192,19 @@ impl DecoderInliner {
                 if func_name.contains("xor") || func_name.contains("XOR") {
                     eprintln!("[AST]         Function contains 'xor', trying to extract key");
                     if let Some(key) = self.extract_xor_key(call) {
-                        eprintln!("[AST]         Extracted XOR key: {:?}", key);
+                        eprintln!("[AST]         Extracted XOR key: {key:?}");
                         return Some(DecoderType::Xor { key });
-                    } else {
-                        eprintln!("[AST]         Failed to extract XOR key");
                     }
+                    eprintln!("[AST]         Failed to extract XOR key");
                 }
 
                 if func_name.contains("rc4") || func_name.contains("RC4") {
                     eprintln!("[AST]         Function contains 'rc4', trying to extract key");
                     if let Some(key) = self.extract_rc4_key(call) {
-                        eprintln!("[AST]         Extracted RC4 key: {:?}", key);
+                        eprintln!("[AST]         Extracted RC4 key: {key:?}");
                         return Some(DecoderType::Rc4 { key });
-                    } else {
-                        eprintln!("[AST]         Failed to extract RC4 key");
                     }
+                    eprintln!("[AST]         Failed to extract RC4 key");
                 }
 
                 eprintln!("[AST]         No decoder pattern matched for function: {func_name}");
@@ -226,12 +226,12 @@ impl DecoderInliner {
                     eprintln!("[AST]           Argument is expression");
                     if let Expression::StringLiteral(lit) = expr {
                         let key = lit.value.as_bytes().to_vec();
-                        eprintln!("[AST]           String literal key: {:?}", key);
+                        eprintln!("[AST]           String literal key: {key:?}");
                         return Some(key);
                     }
                     if let Expression::NumericLiteral(lit) = expr {
                         let key = vec![lit.value as u8];
-                        eprintln!("[AST]           Numeric literal key: {:?}", key);
+                        eprintln!("[AST]           Numeric literal key: {key:?}");
                         return Some(key);
                     }
                     eprintln!("[AST]           Argument is not string or numeric literal");
@@ -259,32 +259,29 @@ impl DecoderInliner {
     }
 
     fn apply_decoder(&self, value: &str, decoder_type: &DecoderType) -> Option<String> {
-        eprintln!(
-            "[AST]   apply_decoder called with value: {:?}, type: {:?}",
-            value, decoder_type
-        );
+        eprintln!("[AST]   apply_decoder called with value: {value:?}, type: {decoder_type:?}");
         let result = match decoder_type {
             DecoderType::Simple => Some(value.to_string()),
             DecoderType::Base64 => self.decode_base64(value),
             DecoderType::Xor { key } => self.decode_xor(value, key),
             DecoderType::Rc4 { key } => self.decode_rc4(value, key),
         };
-        eprintln!("[AST]   apply_decoder result: {:?}", result);
+        eprintln!("[AST]   apply_decoder result: {result:?}");
         result
     }
 
     fn decode_base64(&self, value: &str) -> Option<String> {
-        eprintln!("[AST]     decode_base64 input: {:?}", value);
+        eprintln!("[AST]     decode_base64 input: {value:?}");
         let result = BASE64_STANDARD
             .decode(value.as_bytes())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok());
-        eprintln!("[AST]     decode_base64 output: {:?}", result);
+        eprintln!("[AST]     decode_base64 output: {result:?}");
         result
     }
 
     fn decode_xor(&self, value: &str, key: &[u8]) -> Option<String> {
-        eprintln!("[AST]     decode_xor input: {:?}, key: {:?}", value, key);
+        eprintln!("[AST]     decode_xor input: {value:?}, key: {key:?}");
         if key.is_empty() {
             eprintln!("[AST]     decode_xor: empty key, returning None");
             return None;
@@ -298,7 +295,7 @@ impl DecoderInliner {
             .collect();
 
         let result = String::from_utf8(decoded).ok();
-        eprintln!("[AST]     decode_xor output: {:?}", result);
+        eprintln!("[AST]     decode_xor output: {result:?}");
         result
     }
 
@@ -310,7 +307,7 @@ impl DecoderInliner {
         }
 
         let mut data = BASE64_STANDARD.decode(value.as_bytes()).ok()?;
-        eprintln!("[AST]     decode_rc4 base64-decoded bytes: {:?}", data);
+        eprintln!("[AST]     decode_rc4 base64-decoded bytes: {data:?}");
 
         match key.len() {
             8 => {
@@ -337,54 +334,51 @@ impl DecoderInliner {
             }
         }
 
-        eprintln!("[AST]     decode_rc4 output bytes: {:?}", data);
+        eprintln!("[AST]     decode_rc4 output bytes: {data:?}");
         let result = String::from_utf8(data).ok();
-        eprintln!("[AST]     decode_rc4 output: {:?}", result);
+        eprintln!("[AST]     decode_rc4 output: {result:?}");
         result
     }
 
-    fn extract_simple_array_access<'a>(
+    fn extract_simple_array_access(
         &self,
-        expr: &Expression<'a>,
+        expr: &Expression<'_>,
         param_name: &str,
     ) -> Option<(String, i32, OffsetOperation)> {
-        match expr {
-            Expression::ComputedMemberExpression(member) => {
-                eprintln!("[AST]       Found computed member expression");
+        if let Expression::ComputedMemberExpression(member) = expr {
+            eprintln!("[AST]       Found computed member expression");
 
-                let array_name = match &member.object {
-                    Expression::Identifier(ident) => {
-                        eprintln!("[AST]         Array: {}", ident.name);
-                        ident.name.to_string()
-                    }
-                    _ => return None,
-                };
+            let array_name = match &member.object {
+                Expression::Identifier(ident) => {
+                    eprintln!("[AST]         Array: {}", ident.name);
+                    ident.name.to_string()
+                }
+                _ => return None,
+            };
 
-                let (offset, offset_op) = match &member.expression {
-                    Expression::Identifier(ident) if ident.name.as_str() == param_name => {
-                        eprintln!("[AST]         Index: {param_name} (no offset)");
-                        (0, OffsetOperation::None)
-                    }
-                    Expression::BinaryExpression(bin) => {
-                        eprintln!("[AST]         Index is binary expression");
-                        self.extract_offset_from_binary(bin, param_name)?
-                    }
-                    _ => {
-                        eprintln!("[AST]         Index is not identifier or binary");
-                        return None;
-                    }
-                };
+            let (offset, offset_op) = match &member.expression {
+                Expression::Identifier(ident) if ident.name.as_str() == param_name => {
+                    eprintln!("[AST]         Index: {param_name} (no offset)");
+                    (0, OffsetOperation::None)
+                }
+                Expression::BinaryExpression(bin) => {
+                    eprintln!("[AST]         Index is binary expression");
+                    self.extract_offset_from_binary(bin, param_name)?
+                }
+                _ => {
+                    eprintln!("[AST]         Index is not identifier or binary");
+                    return None;
+                }
+            };
 
-                Some((array_name, offset, offset_op))
-            }
-            _ => {
-                eprintln!("[AST]       Return expression is not array access");
-                None
-            }
+            Some((array_name, offset, offset_op))
+        } else {
+            eprintln!("[AST]       Return expression is not array access");
+            None
         }
     }
 
-    fn extract_offset_assignment<'a>(&self, expr: &Expression<'a>, param_name: &str) -> Option<(i32, OffsetOperation)> {
+    fn extract_offset_assignment(&self, expr: &Expression<'_>, param_name: &str) -> Option<(i32, OffsetOperation)> {
         if let Expression::AssignmentExpression(assign) = expr
             && let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left
             && target.name.as_str() == param_name
@@ -395,9 +389,9 @@ impl DecoderInliner {
         None
     }
 
-    fn extract_offset_from_binary<'a>(
+    fn extract_offset_from_binary(
         &self,
-        bin: &BinaryExpression<'a>,
+        bin: &BinaryExpression<'_>,
         param_name: &str,
     ) -> Option<(i32, OffsetOperation)> {
         let left_is_param = matches!(&bin.left, Expression::Identifier(id) if id.name.as_str() == param_name);
@@ -407,15 +401,12 @@ impl DecoderInliner {
             return None;
         }
 
-        let offset = match &bin.right {
-            Expression::NumericLiteral(lit) => {
-                eprintln!("[AST]           Right side is number: {}", lit.value);
-                lit.value as i32
-            }
-            _ => {
-                eprintln!("[AST]           Right side is not numeric literal");
-                return None;
-            }
+        let offset = if let Expression::NumericLiteral(lit) = &bin.right {
+            eprintln!("[AST]           Right side is number: {}", lit.value);
+            lit.value as i32
+        } else {
+            eprintln!("[AST]           Right side is not numeric literal");
+            return None;
         };
 
         let offset_op = match bin.operator {
@@ -439,15 +430,12 @@ impl DecoderInliner {
     fn try_inline_decoder_call<'a>(&mut self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
         eprintln!("[AST] Checking call for decoder inlining");
 
-        let func_name = match &call.callee {
-            Expression::Identifier(ident) => {
-                eprintln!("[AST]   Function: {}", ident.name);
-                ident.name.as_str()
-            }
-            _ => {
-                eprintln!("[AST]   Callee is not identifier");
-                return None;
-            }
+        let func_name = if let Expression::Identifier(ident) = &call.callee {
+            eprintln!("[AST]   Function: {}", ident.name);
+            ident.name.as_str()
+        } else {
+            eprintln!("[AST]   Callee is not identifier");
+            return None;
         };
 
         let decoder = self.detected_decoders.get(func_name)?;
@@ -458,15 +446,12 @@ impl DecoderInliner {
             return None;
         }
 
-        let arg_value = match &call.arguments[0] {
-            Argument::NumericLiteral(lit) => {
-                eprintln!("[AST]   Argument: {}", lit.value);
-                lit.value as i32
-            }
-            _ => {
-                eprintln!("[AST]   Argument is not numeric literal");
-                return None;
-            }
+        let arg_value = if let Argument::NumericLiteral(lit) = &call.arguments[0] {
+            eprintln!("[AST]   Argument: {}", lit.value);
+            lit.value as i32
+        } else {
+            eprintln!("[AST]   Argument is not numeric literal");
+            return None;
         };
 
         eprintln!(
@@ -518,7 +503,7 @@ impl DecoderInliner {
         }
 
         let raw_value = &array_info.strings[actual_index];
-        eprintln!("[AST]   Raw value from array: {:?}", raw_value);
+        eprintln!("[AST]   Raw value from array: {raw_value:?}");
         eprintln!("[AST]   Decoder type: {:?}", decoder.decoder_type);
 
         let decoded_value = self.apply_decoder(raw_value, &decoder.decoder_type)?;
@@ -550,7 +535,7 @@ impl Default for DecoderInliner {
 impl<'a> Traverse<'a, DeobfuscateState> for DecoderInliner {
     fn enter_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
         if let Statement::FunctionDeclaration(func_decl) = stmt {
-            let func_name = func_decl.id.as_ref().map(|id| id.name.as_str()).unwrap_or("");
+            let func_name = func_decl.id.as_ref().map_or("", |id| id.name.as_str());
 
             if !func_name.is_empty()
                 && let Some(decoder) = self.detect_decoder_function(func_decl, func_name, ctx)
@@ -730,13 +715,12 @@ mod tests {
 
         let code = format!(
             r#"
-            var _0xstr = ["{}"];
+            var _0xstr = ["{encoded}"];
             function _0xdec(a) {{
                 return atob(_0xstr[a]);
             }}
             console.log(_0xdec(0));
-            "#,
-            encoded
+            "#
         );
 
         let (output, decoder) = run_decoder_inline(&code);
@@ -764,13 +748,12 @@ mod tests {
 
         let code = format!(
             r#"
-            var _0xstr = ["{}"];
+            var _0xstr = ["{encoded}"];
             function _0xdec(a) {{
                 return xorDecode(_0xstr[a], "\x01");
             }}
             console.log(_0xdec(0));
-            "#,
-            encoded
+            "#
         );
 
         let (output, decoder) = run_decoder_inline(&code);
@@ -802,13 +785,12 @@ mod tests {
 
         let code = format!(
             r#"
-            var _0xstr = ["{}"];
+            var _0xstr = ["{encoded_b64}"];
             function _0xdec(a) {{
                 return rc4Decode(_0xstr[a], "password");
             }}
             console.log(_0xdec(0));
-            "#,
-            encoded_b64
+            "#
         );
 
         let (output, decoder) = run_decoder_inline(&code);

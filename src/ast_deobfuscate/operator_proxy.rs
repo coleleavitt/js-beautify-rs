@@ -1,5 +1,7 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BinaryExpression, BinaryOperator, BindingPattern, CallExpression, EmptyStatement, Expression, Function, Statement,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
@@ -20,12 +22,14 @@ pub struct OperatorProxyCollector {
 }
 
 impl OperatorProxyCollector {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             proxies: FxHashMap::default(),
         }
     }
 
+    #[must_use]
     pub fn get_proxies(&self) -> FxHashMap<String, OperatorProxyInfo> {
         self.proxies.clone()
     }
@@ -111,14 +115,16 @@ pub struct OperatorProxyInliner {
 }
 
 impl OperatorProxyInliner {
-    pub fn new(proxies: FxHashMap<String, OperatorProxyInfo>) -> Self {
+    #[must_use]
+    pub const fn new(proxies: FxHashMap<String, OperatorProxyInfo>) -> Self {
         Self {
             proxies,
             changed: false,
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -222,13 +228,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function _0xadd"),
-            "Proxy function should be removed, got: {}",
-            output
+            "Proxy function should be removed, got: {output}"
         );
         assert!(
             output.contains("5 + 10") || output.contains("5+10"),
-            "Call should be inlined to binary op, got: {}",
-            output
+            "Call should be inlined to binary op, got: {output}"
         );
     }
 
@@ -238,13 +242,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function _mul"),
-            "Proxy function should be removed, got: {}",
-            output
+            "Proxy function should be removed, got: {output}"
         );
         assert!(
             output.contains("3 * 4") || output.contains("3*4"),
-            "Call should be inlined to binary op, got: {}",
-            output
+            "Call should be inlined to binary op, got: {output}"
         );
     }
 
@@ -256,13 +258,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("1 + 2") || output.contains("1+2"),
-            "Add should be inlined, got: {}",
-            output
+            "Add should be inlined, got: {output}"
         );
         assert!(
             output.contains("3 * 4") || output.contains("3*4"),
-            "Mul should be inlined, got: {}",
-            output
+            "Mul should be inlined, got: {output}"
         );
     }
 
@@ -272,8 +272,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("5 < 10") || output.contains("5<10"),
-            "Call should be inlined to comparison, got: {}",
-            output
+            "Call should be inlined to comparison, got: {output}"
         );
     }
 }

@@ -2,6 +2,28 @@
 name = "js-beautify-rs"
 version = "0.1.0"
 edition = "2024"
+description = "A fast JavaScript beautifier and deobfuscator powered by oxc"
+license = "MIT"
+repository = "https://github.com/coleleavitt/js-beautify-rs"
+keywords = ["javascript", "beautifier", "deobfuscator", "webpack", "oxc"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lints.rust]
+rust_2018_idioms = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+needless_pass_by_ref_mut = "allow"
+needless_lifetimes = "allow"
+unused_self = "allow"
+multiple_crate_versions = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_lossless = "allow"
+float_cmp = "allow"
+significant_drop_tightening = "allow"
 
 [dependencies]
 regex = "1"
@@ -12,8 +34,6 @@ rc4 = "0.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustc-hash = "2"
-
-# Oxc dependencies (upstream GitHub, pinned to main)
 oxc_allocator = { git = "https://github.com/oxc-project/oxc.git", rev = "367f730a7" }
 oxc_ast = { git = "https://github.com/oxc-project/oxc.git", rev = "367f730a7" }
 oxc_parser = { git = "https://github.com/oxc-project/oxc.git", rev = "367f730a7" }

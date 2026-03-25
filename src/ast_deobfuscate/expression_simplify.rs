@@ -1,8 +1,13 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BinaryExpression, BinaryOperator, BooleanLiteral, ComputedMemberExpression, EmptyStatement, Expression,
+    IdentifierName, IdentifierReference, NumericLiteral, Statement, StaticMemberExpression, StringLiteral,
+    UnaryExpression, UnaryOperator,
+};
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -13,11 +18,13 @@ pub struct ExpressionSimplifier {
 }
 
 impl ExpressionSimplifier {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -120,7 +127,7 @@ impl ExpressionSimplifier {
         Some(Expression::Identifier(ctx.ast.alloc(IdentifierReference {
             span: SPAN,
             name: ctx.ast.atom("undefined").into(),
-            reference_id: Default::default(),
+            reference_id: Cell::default(),
         })))
     }
 
@@ -240,13 +247,13 @@ impl<'a> Traverse<'a, DeobfuscateState> for ExpressionSimplifier {
         }
     }
 
-    fn exit_statement(&mut self, stmt: &mut Statement<'a>, _ctx: &mut Ctx<'a>) {
+    fn exit_statement(&mut self, stmt: &mut Statement<'a>, ctx: &mut Ctx<'a>) {
         if let Statement::DebuggerStatement(_) = stmt {
             eprintln!("[AST] Removing debugger statement");
             self.changed = true;
             *stmt = Statement::EmptyStatement(oxc_allocator::Box::new_in(
                 EmptyStatement { span: SPAN },
-                _ctx.ast.allocator,
+                ctx.ast.allocator,
             ));
         }
     }
@@ -282,37 +289,37 @@ mod tests {
     #[test]
     fn test_not_zero_to_true() {
         let output = run_simplify("var x = !0;");
-        assert!(output.contains("true"), "Should convert !0 to true, got: {}", output);
+        assert!(output.contains("true"), "Should convert !0 to true, got: {output}");
     }
 
     #[test]
     fn test_not_one_to_false() {
         let output = run_simplify("var x = !1;");
-        assert!(output.contains("false"), "Should convert !1 to false, got: {}", output);
+        assert!(output.contains("false"), "Should convert !1 to false, got: {output}");
     }
 
     #[test]
     fn test_double_not_array_to_true() {
         let output = run_simplify("var x = !![];");
-        assert!(output.contains("true"), "Should convert !![] to true, got: {}", output);
+        assert!(output.contains("true"), "Should convert !![] to true, got: {output}");
     }
 
     #[test]
     fn test_double_not_zero_to_false() {
         let output = run_simplify("var x = !!0;");
-        assert!(output.contains("false"), "Should convert !!0 to false, got: {}", output);
+        assert!(output.contains("false"), "Should convert !!0 to false, got: {output}");
     }
 
     #[test]
     fn test_plus_array_to_zero() {
         let output = run_simplify("var x = +[];");
-        assert!(output.contains('0'), "Should convert +[] to 0, got: {}", output);
+        assert!(output.contains('0'), "Should convert +[] to 0, got: {output}");
     }
 
     #[test]
     fn test_plus_not_array_to_one() {
         let output = run_simplify("var x = +![];");
-        assert!(output.contains('1'), "Should convert +![] to 1, got: {}", output);
+        assert!(output.contains('1'), "Should convert +![] to 1, got: {output}");
     }
 
     #[test]
@@ -320,8 +327,7 @@ mod tests {
         let output = run_simplify("var x = void 0;");
         assert!(
             output.contains("undefined"),
-            "Should convert void 0 to undefined, got: {}",
-            output
+            "Should convert void 0 to undefined, got: {output}"
         );
     }
 
@@ -330,8 +336,7 @@ mod tests {
         let output = run_simplify("obj[\"property\"];");
         assert!(
             output.contains(".property"),
-            "Should convert bracket to dot notation, got: {}",
-            output
+            "Should convert bracket to dot notation, got: {output}"
         );
     }
 
@@ -340,15 +345,14 @@ mod tests {
         let output = run_simplify("obj[\"some-property\"];");
         assert!(
             output.contains("[\"some-property\"]"),
-            "Should preserve bracket notation for invalid identifiers, got: {}",
-            output
+            "Should preserve bracket notation for invalid identifiers, got: {output}"
         );
     }
 
     #[test]
     fn test_string_concat() {
         let output = run_simplify("var x = \"Hel\" + \"lo\";");
-        assert!(output.contains("Hello"), "Should concatenate strings, got: {}", output);
+        assert!(output.contains("Hello"), "Should concatenate strings, got: {output}");
     }
 
     #[test]
@@ -356,8 +360,7 @@ mod tests {
         let output = run_simplify("var x = 1; debugger; var y = 2;");
         assert!(
             !output.contains("debugger"),
-            "Should remove debugger statement, got: {}",
-            output
+            "Should remove debugger statement, got: {output}"
         );
     }
 }

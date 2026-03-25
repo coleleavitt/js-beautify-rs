@@ -4,7 +4,10 @@
 //! Currently detects common subexpressions; full rewriting deferred to future work.
 
 use oxc_allocator::{Allocator, CloneIn};
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, BinaryExpression, BindingPattern, Expression, ExpressionStatement, IdentifierReference, NumericLiteral,
+    Program, Statement, StringLiteral, VariableDeclaration, VariableDeclarator,
+};
 use oxc_semantic::SemanticBuilder;
 
 use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
@@ -21,6 +24,7 @@ pub struct CommonSubexpressionElimination {
 }
 
 impl CommonSubexpressionElimination {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             changed: false,
@@ -50,7 +54,7 @@ impl CommonSubexpressionElimination {
         var_name
     }
 
-    fn expression_to_string(&self, expr: &Expression) -> Option<String> {
+    fn expression_to_string(&self, expr: &Expression<'_>) -> Option<String> {
         match expr {
             Expression::BinaryExpression(bin) => {
                 let left = self.expression_to_string(&bin.left)?;
@@ -89,9 +93,8 @@ impl CommonSubexpressionElimination {
         }
     }
 
-    fn argument_to_string(&self, arg: &Argument) -> Option<String> {
+    fn argument_to_string(&self, arg: &Argument<'_>) -> Option<String> {
         match arg {
-            Argument::SpreadElement(_) => None,
             Argument::Identifier(ident) => Some(ident.name.to_string()),
             Argument::NumericLiteral(lit) => Some(lit.value.to_string()),
             Argument::StringLiteral(lit) => Some(format!("\"{}\"", lit.value)),
@@ -106,7 +109,7 @@ impl CommonSubexpressionElimination {
         }
     }
 
-    fn is_complex_expression(&self, expr: &Expression) -> bool {
+    const fn is_complex_expression(&self, expr: &Expression<'_>) -> bool {
         matches!(
             expr,
             Expression::BinaryExpression(_)
@@ -168,7 +171,7 @@ impl CommonSubexpressionElimination {
             Statement::ExpressionStatement(expr_stmt) => {
                 Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
                     span: expr_stmt.span,
-                    expression: self.clone_expression(&expr_stmt.expression, ctx),
+                    expression: Self::clone_expression(&expr_stmt.expression, ctx),
                 }))
             }
             Statement::VariableDeclaration(var_decl) => {
@@ -180,7 +183,7 @@ impl CommonSubexpressionElimination {
                         kind: var_decl.kind,
                         id: new_id,
                         type_annotation: None,
-                        init: decl.init.as_ref().map(|e| self.clone_expression(e, ctx)),
+                        init: decl.init.as_ref().map(|e| Self::clone_expression(e, ctx)),
                         definite: decl.definite,
                     });
                 }
@@ -195,7 +198,7 @@ impl CommonSubexpressionElimination {
         }
     }
 
-    fn clone_expression<'a>(&self, expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
+    fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
         match expr {
             Expression::Identifier(ident) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: ident.span,
@@ -216,9 +219,9 @@ impl CommonSubexpressionElimination {
             })),
             Expression::BinaryExpression(bin) => Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
                 span: bin.span,
-                left: self.clone_expression(&bin.left, ctx),
+                left: Self::clone_expression(&bin.left, ctx),
                 operator: bin.operator,
-                right: self.clone_expression(&bin.right, ctx),
+                right: Self::clone_expression(&bin.right, ctx),
             })),
             _ => expr.clone_in(ctx.ast.allocator),
         }

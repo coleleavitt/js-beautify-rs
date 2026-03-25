@@ -55,6 +55,9 @@ pub struct ChunkSplitter {
 }
 
 impl ChunkSplitter {
+    /// # Panics
+    /// Panics if detector has no detected chunks.
+    #[must_use]
     pub fn new(detector: ChunkDetector) -> Self {
         assert!(detector.chunk_count() > 0, "detector must have detected chunks");
         trace_split!("initializing ChunkSplitter with {} chunks", detector.chunk_count());
@@ -62,6 +65,11 @@ impl ChunkSplitter {
         Self { detector }
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
+    ///
+    /// # Panics
+    /// Panics if `tokens` is empty or `split_chunks` is not enabled.
     pub fn split_and_write(&self, tokens: &[Token], options: &Options) -> Result<ChunkManifest, ChunkSplitterError> {
         assert!(!tokens.is_empty(), "token stream must not be empty");
         assert!(options.split_chunks, "split_chunks option must be enabled");
@@ -221,14 +229,14 @@ impl ChunkSplitter {
             source: std::io::Error::other(e.to_string()),
         })?;
 
-        let _json_len = json.len();
+        let json_len = json.len();
 
         fs::write(path, &json).map_err(|source| ChunkSplitterError::ChunkMapWriteFailed {
             path: path.to_path_buf(),
             source,
         })?;
 
-        trace_split!("✓ wrote chunk map ({} bytes)", _json_len);
+        trace_split!("✓ wrote chunk map ({} bytes)", json_len);
         Ok(())
     }
 
@@ -288,6 +296,7 @@ impl ChunkManifest {
         }
     }
 
+    #[must_use]
     pub fn from_detector(detector: &ChunkDetector) -> Self {
         let total_chunks = detector.chunk_count();
         debug_assert_eq!(detector.chunks.len(), total_chunks, "chunk count mismatch");
@@ -300,7 +309,7 @@ impl ChunkManifest {
     }
 
     fn add_chunk(&mut self, id: usize, metadata: ChunkMetadata) {
-        assert!(!self.chunks.contains_key(&id), "duplicate chunk ID: {}", id);
+        assert!(!self.chunks.contains_key(&id), "duplicate chunk ID: {id}");
 
         self.chunks.insert(id, metadata);
         self.total_chunks = self.total_chunks.checked_add(1).expect("chunk count overflow");

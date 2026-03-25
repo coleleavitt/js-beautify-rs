@@ -17,6 +17,7 @@ pub struct OxcOptimizer {
 }
 
 impl OxcOptimizer {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             loop_unroller: LoopUnroller::new(),
@@ -24,6 +25,8 @@ impl OxcOptimizer {
         }
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn optimize(&mut self, code: &str) -> Result<String, String> {
         let allocator = Allocator::default();
         let source_type = SourceType::mjs();

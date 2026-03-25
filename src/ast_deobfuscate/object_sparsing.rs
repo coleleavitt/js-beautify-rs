@@ -11,7 +11,13 @@
 //! var obj = {a: 1, b: 2};
 //! ```
 
-use oxc_ast::ast::*;
+use std::cell::Cell;
+
+use oxc_ast::ast::{
+    AssignmentOperator, AssignmentTarget, BindingPattern, BooleanLiteral, Expression, IdentifierName,
+    IdentifierReference, NullLiteral, NumericLiteral, ObjectExpression, ObjectProperty, ObjectPropertyKind,
+    PropertyKey, PropertyKind, Statement, StringLiteral,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -40,11 +46,13 @@ pub struct ObjectSparsingConsolidator {
 }
 
 impl ObjectSparsingConsolidator {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -138,7 +146,7 @@ impl ObjectSparsingConsolidator {
             PropertyValue::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: SPAN,
                 name: ctx.ast.atom(name).into(),
-                reference_id: Default::default(),
+                reference_id: Cell::default(),
             })),
         }
     }
@@ -267,8 +275,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("a:") && output.contains("b:"),
-            "Expected consolidated object, got: {}",
-            output
+            "Expected consolidated object, got: {output}"
         );
     }
 
@@ -284,8 +291,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("name:") && output.contains("value:"),
-            "Expected consolidated object, got: {}",
-            output
+            "Expected consolidated object, got: {output}"
         );
     }
 
@@ -300,8 +306,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("obj.a = 1"),
-            "Should preserve non-empty object assignment, got: {}",
-            output
+            "Should preserve non-empty object assignment, got: {output}"
         );
     }
 
@@ -317,8 +322,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("obj.a = 1"),
-            "Should preserve assignment after gap, got: {}",
-            output
+            "Should preserve assignment after gap, got: {output}"
         );
     }
 }

@@ -15,12 +15,12 @@
 //! var c = 3;  // three separate VariableDeclarations
 //! ```
 //!
-//! Only splits VariableDeclarations that are direct children of program body,
+//! Only splits `VariableDeclarations` that are direct children of program body,
 //! block body, or function body. For-loop variable declarations (e.g.
 //! `for (var i = 0, j = 10; ...)`) are left untouched.
 
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BlockStatement, FunctionBody, Program, Statement, VariableDeclaration};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -33,11 +33,13 @@ pub struct MultiVarSplitter {
 }
 
 impl MultiVarSplitter {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { split_count: 0 }
     }
 
-    pub fn split_count(&self) -> usize {
+    #[must_use]
+    pub const fn split_count(&self) -> usize {
         self.split_count
     }
 }
@@ -63,7 +65,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
 
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if let Statement::VariableDeclaration(var_decl) = stmt
                 && var_decl.declarations.len() > 1
             {
@@ -72,7 +74,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     var_decl.kind,
                     var_decl.declarations.len()
                 );
-                for declarator in var_decl.declarations.iter() {
+                for declarator in &var_decl.declarations {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
@@ -106,7 +108,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
 
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if let Statement::VariableDeclaration(var_decl) = stmt
                 && var_decl.declarations.len() > 1
             {
@@ -115,7 +117,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     var_decl.kind,
                     var_decl.declarations.len()
                 );
-                for declarator in var_decl.declarations.iter() {
+                for declarator in &var_decl.declarations {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
@@ -149,7 +151,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
 
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if let Statement::VariableDeclaration(var_decl) = stmt
                 && var_decl.declarations.len() > 1
             {
@@ -158,7 +160,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     var_decl.kind,
                     var_decl.declarations.len()
                 );
-                for declarator in var_decl.declarations.iter() {
+                for declarator in &var_decl.declarations {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_stmts.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
@@ -209,36 +211,34 @@ mod tests {
     #[test]
     fn test_split_var() {
         let (output, count) = run_split("var a = 1, b = 2, c = 3;");
-        assert!(count >= 1, "Should have split at least 1 declaration, got: {}", count);
+        assert!(count >= 1, "Should have split at least 1 declaration, got: {count}");
         let var_count = output.matches("var ").count();
         assert_eq!(
             var_count, 3,
-            "Should have 3 separate var declarations, got {} in: {}",
-            var_count, output
+            "Should have 3 separate var declarations, got {var_count} in: {output}"
         );
-        assert!(output.contains("a = 1"), "Should contain 'a = 1', got: {}", output);
-        assert!(output.contains("b = 2"), "Should contain 'b = 2', got: {}", output);
-        assert!(output.contains("c = 3"), "Should contain 'c = 3', got: {}", output);
+        assert!(output.contains("a = 1"), "Should contain 'a = 1', got: {output}");
+        assert!(output.contains("b = 2"), "Should contain 'b = 2', got: {output}");
+        assert!(output.contains("c = 3"), "Should contain 'c = 3', got: {output}");
     }
 
     #[test]
     fn test_split_let() {
         let (output, count) = run_split("let x = 1, y = 2;");
-        assert!(count >= 1, "Should have split at least 1 declaration, got: {}", count);
+        assert!(count >= 1, "Should have split at least 1 declaration, got: {count}");
         let let_count = output.matches("let ").count();
         assert_eq!(
             let_count, 2,
-            "Should have 2 separate let declarations, got {} in: {}",
-            let_count, output
+            "Should have 2 separate let declarations, got {let_count} in: {output}"
         );
-        assert!(output.contains("x = 1"), "Should contain 'x = 1', got: {}", output);
-        assert!(output.contains("y = 2"), "Should contain 'y = 2', got: {}", output);
+        assert!(output.contains("x = 1"), "Should contain 'x = 1', got: {output}");
+        assert!(output.contains("y = 2"), "Should contain 'y = 2', got: {output}");
     }
 
     #[test]
     fn test_no_split_single() {
         let (_output, count) = run_split("var a = 1;");
-        assert_eq!(count, 0, "Should not split single-declarator var, got: {}", count);
+        assert_eq!(count, 0, "Should not split single-declarator var, got: {count}");
     }
 
     #[test]
@@ -246,26 +246,23 @@ mod tests {
         let (output, count) = run_split("function f() { var a = 1, b = 2; }");
         assert!(
             count >= 1,
-            "Should have split declaration in function body, got: {}",
-            count
+            "Should have split declaration in function body, got: {count}"
         );
         let var_count = output.matches("var ").count();
         assert_eq!(
             var_count, 2,
-            "Should have 2 separate var declarations in function, got {} in: {}",
-            var_count, output
+            "Should have 2 separate var declarations in function, got {var_count} in: {output}"
         );
         assert!(
             output.contains("a = 1") && output.contains("b = 2"),
-            "Should contain both declarations, got: {}",
-            output
+            "Should contain both declarations, got: {output}"
         );
     }
 
     #[test]
     fn test_no_split_for_var() {
         let (output, count) = run_split("for (var i = 0, j = 10; i < j; i++) {}");
-        assert_eq!(count, 0, "Should NOT split for-loop var declaration, got: {}", count);
-        assert!(output.contains("for"), "Should preserve for loop, got: {}", output);
+        assert_eq!(count, 0, "Should NOT split for-loop var declaration, got: {count}");
+        assert!(output.contains("for"), "Should preserve for loop, got: {output}");
     }
 }

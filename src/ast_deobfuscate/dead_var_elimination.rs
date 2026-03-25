@@ -1,5 +1,10 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    ArrayExpressionElement, AssignmentExpression, AssignmentTarget, BindingPattern, EmptyStatement,
+    ExportDefaultDeclaration, ExportDefaultDeclarationKind, ExportNamedDeclaration, Expression, FormalParameter,
+    IdentifierReference, ModuleExportName, ObjectPropertyKind, SimpleAssignmentTarget, Statement, UnaryOperator,
+    UpdateExpression, VariableDeclaration, VariableDeclarator,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -18,7 +23,7 @@ struct VarInfo {
 }
 
 impl VarInfo {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             declaration_count: 0,
             read_count: 0,
@@ -28,7 +33,7 @@ impl VarInfo {
         }
     }
 
-    fn is_dead(&self) -> bool {
+    const fn is_dead(&self) -> bool {
         self.declaration_count > 0 && self.read_count == 0 && !self.is_function_param && !self.is_exported
     }
 }
@@ -41,6 +46,7 @@ pub struct DeadVarCollector {
 }
 
 impl DeadVarCollector {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             variables: FxHashMap::default(),
@@ -50,6 +56,7 @@ impl DeadVarCollector {
         }
     }
 
+    #[must_use]
     pub fn get_dead_vars(&self) -> FxHashSet<String> {
         self.variables
             .iter()
@@ -186,14 +193,16 @@ pub struct DeadVarEliminator {
 }
 
 impl DeadVarEliminator {
-    pub fn new(dead_vars: FxHashSet<String>) -> Self {
+    #[must_use]
+    pub const fn new(dead_vars: FxHashSet<String>) -> Self {
         Self {
             dead_vars,
             changed: false,
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -219,18 +228,14 @@ impl DeadVarEliminator {
             | Expression::BooleanLiteral(_)
             | Expression::NullLiteral(_)
             | Expression::Identifier(_)
-            | Expression::ThisExpression(_) => false,
+            | Expression::ThisExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::FunctionExpression(_) => false,
 
             Expression::ArrayExpression(arr) => arr.elements.iter().any(|el| match el {
                 ArrayExpressionElement::SpreadElement(spread) => Self::has_side_effects(&spread.argument),
                 ArrayExpressionElement::Elision(_) => false,
-                _ => {
-                    if let Some(expr) = el.as_expression() {
-                        Self::has_side_effects(expr)
-                    } else {
-                        true
-                    }
-                }
+                _ => el.as_expression().is_none_or(Self::has_side_effects),
             }),
 
             Expression::ObjectExpression(obj) => obj.properties.iter().any(|prop| match prop {
@@ -244,8 +249,6 @@ impl DeadVarEliminator {
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => Self::has_side_effects(&spread.argument),
             }),
-
-            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => false,
 
             Expression::UnaryExpression(unary) => {
                 matches!(unary.operator, UnaryOperator::Delete) || Self::has_side_effects(&unary.argument)
@@ -268,14 +271,6 @@ impl DeadVarEliminator {
             Expression::SequenceExpression(seq) => seq.expressions.iter().any(|e| Self::has_side_effects(e)),
 
             Expression::ParenthesizedExpression(paren) => Self::has_side_effects(&paren.expression),
-
-            Expression::CallExpression(_)
-            | Expression::NewExpression(_)
-            | Expression::AssignmentExpression(_)
-            | Expression::UpdateExpression(_)
-            | Expression::YieldExpression(_)
-            | Expression::AwaitExpression(_)
-            | Expression::TaggedTemplateExpression(_) => true,
 
             _ => true,
         }
@@ -301,7 +296,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
             let has_dead = var_decl.declarations.iter().any(|d| self.should_remove_declarator(d));
             if has_dead {
                 let mut new_declarations = ctx.ast.vec();
-                for decl in var_decl.declarations.iter() {
+                for decl in &var_decl.declarations {
                     if !self.should_remove_declarator(decl) {
                         new_declarations.push(Self::clone_declarator(decl, ctx));
                     } else if let BindingPattern::BindingIdentifier(ident) = &decl.id {
@@ -356,7 +351,7 @@ mod tests {
         traverse_mut_with_ctx(&mut collector, &mut program, &mut ctx);
 
         let dead_vars = collector.get_dead_vars();
-        eprintln!("Dead vars: {:?}", dead_vars);
+        eprintln!("Dead vars: {dead_vars:?}");
 
         if !dead_vars.is_empty() {
             let mut eliminator = DeadVarEliminator::new(dead_vars);
@@ -376,19 +371,14 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("unused"),
-            "Should remove unused variable, got: {}",
-            output
+            "Should remove unused variable, got: {output}"
         );
     }
 
     #[test]
     fn test_preserve_used_var() {
         let output = run_elimination("var used = 5; console.log(used);");
-        assert!(
-            output.contains("used"),
-            "Should preserve used variable, got: {}",
-            output
-        );
+        assert!(output.contains("used"), "Should preserve used variable, got: {output}");
     }
 
     #[test]
@@ -396,8 +386,7 @@ mod tests {
         let output = run_elimination("var a = 1; var b = 2;");
         assert!(
             !output.contains('a') && !output.contains('b'),
-            "Should remove multiple unused variables, got: {}",
-            output
+            "Should remove multiple unused variables, got: {output}"
         );
     }
 
@@ -406,8 +395,7 @@ mod tests {
         let output = run_elimination("var x = someFunction();");
         assert!(
             output.contains("someFunction"),
-            "Should preserve declaration with side effects, got: {}",
-            output
+            "Should preserve declaration with side effects, got: {output}"
         );
     }
 
@@ -416,8 +404,7 @@ mod tests {
         let output = run_elimination("function f(param) { return 1; }");
         assert!(
             output.contains("param"),
-            "Should preserve function parameters, got: {}",
-            output
+            "Should preserve function parameters, got: {output}"
         );
     }
 
@@ -425,11 +412,7 @@ mod tests {
     fn test_mixed_declarations() {
         let output = run_elimination("var used = 1, unused = 2; console.log(used);");
         eprintln!("Mixed output: {output}");
-        assert!(
-            output.contains("used"),
-            "Should preserve used variable, got: {}",
-            output
-        );
+        assert!(output.contains("used"), "Should preserve used variable, got: {output}");
     }
 
     #[test]
@@ -438,8 +421,7 @@ mod tests {
         eprintln!("Written not read output: {output}");
         assert!(
             !output.contains("var x"),
-            "Should remove variable that is only written, got: {}",
-            output
+            "Should remove variable that is only written, got: {output}"
         );
     }
 
@@ -448,8 +430,7 @@ mod tests {
         let output = run_elimination("var x = 1; x = 2; console.log(x);");
         assert!(
             output.contains("var x"),
-            "Should preserve variable that is read, got: {}",
-            output
+            "Should preserve variable that is read, got: {output}"
         );
     }
 }

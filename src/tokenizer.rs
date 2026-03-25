@@ -11,7 +11,8 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(input: &'a str) -> Self {
+    #[must_use]
+    pub const fn new(input: &'a str) -> Self {
         Self {
             input,
             pos: 0,
@@ -22,6 +23,10 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// Tokenize the input string into a vector of tokens.
+    ///
+    /// # Errors
+    /// Returns an error if tokenization encounters an invalid token (e.g., unterminated regex).
     pub fn tokenize(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
 
@@ -59,7 +64,7 @@ impl<'a> Tokenizer<'a> {
             ',' => TokenType::Comma,
             '.' => {
                 if self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
-                    return self.read_number();
+                    return Ok(Some(self.read_number()));
                 }
                 TokenType::Dot
             }
@@ -102,30 +107,29 @@ impl<'a> Tokenizer<'a> {
                 TokenType::Equals
             }
             '+' | '-' | '*' | '%' | '&' | '|' | '^' | '~' | '<' | '>' | '!' => {
-                return self.read_operator(ch, start_column);
+                return Ok(Some(self.read_operator(ch, start_column)));
             }
             '/' => {
                 if self.peek_char() == Some('/') {
-                    return self.read_line_comment();
+                    return Ok(Some(self.read_line_comment()));
                 } else if self.peek_char() == Some('*') {
-                    return self.read_block_comment();
+                    return Ok(Some(self.read_block_comment()));
                 } else if self.should_be_regex() {
                     return self.read_regex();
-                } else {
-                    return self.read_operator(ch, start_column);
                 }
+                return Ok(Some(self.read_operator(ch, start_column)));
             }
             '"' | '\'' => {
-                return self.read_string(ch);
+                return Ok(Some(self.read_string(ch)));
             }
             '`' => {
-                return self.read_template_literal();
+                return Ok(Some(self.read_template_literal()));
             }
             _ if ch.is_ascii_digit() => {
-                return self.read_number();
+                return Ok(Some(self.read_number()));
             }
             _ if ch.is_alphabetic() || ch == '_' || ch == '$' => {
-                return self.read_word();
+                return Ok(Some(self.read_word()));
             }
             _ => TokenType::Unknown,
         };
@@ -141,24 +145,12 @@ impl<'a> Tokenizer<'a> {
         )))
     }
 
-    fn read_operator(&mut self, first_char: char, start_column: usize) -> Result<Option<Token>> {
+    fn read_operator(&mut self, first_char: char, start_column: usize) -> Token {
         let start_pos = self.pos;
         self.advance();
 
         let second = self.current_char();
         let operator_text = match (first_char, second) {
-            ('+', '+') | ('-', '-') => {
-                self.advance();
-                &self.input[start_pos..self.pos]
-            }
-            ('+', '=') | ('-', '=') | ('*', '=') | ('/', '=') | ('%', '=') => {
-                self.advance();
-                &self.input[start_pos..self.pos]
-            }
-            ('&', '&') | ('|', '|') => {
-                self.advance();
-                &self.input[start_pos..self.pos]
-            }
             ('<', '<') | ('>', '>') => {
                 self.advance();
                 if self.current_char() == '>' && first_char == '>' {
@@ -166,30 +158,30 @@ impl<'a> Tokenizer<'a> {
                 }
                 &self.input[start_pos..self.pos]
             }
-            ('<', '=') | ('>', '=') | ('!', '=') => {
+            ('<' | '>' | '!', '=') => {
                 self.advance();
                 if self.current_char() == '=' {
                     self.advance();
                 }
                 &self.input[start_pos..self.pos]
             }
-            ('=', '>') => {
+            ('+', '+') | ('-', '-') | ('+' | '-' | '*' | '/' | '%', '=') | ('&', '&') | ('|', '|') | ('=', '>') => {
                 self.advance();
                 &self.input[start_pos..self.pos]
             }
             _ => &self.input[start_pos..self.pos],
         };
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::Operator,
             operator_text,
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
-    fn read_number(&mut self) -> Result<Option<Token>> {
+    fn read_number(&mut self) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
 
@@ -218,16 +210,16 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::Number,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
-    fn read_template_literal(&mut self) -> Result<Option<Token>> {
+    fn read_template_literal(&mut self) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
         self.advance();
@@ -238,26 +230,22 @@ impl<'a> Tokenizer<'a> {
                 self.advance();
                 break;
             }
-            if ch == '\\' {
-                self.advance();
-                if self.pos < self.input.len() {
-                    self.advance();
-                }
-            } else {
+            self.advance();
+            if ch == '\\' && self.pos < self.input.len() {
                 self.advance();
             }
         }
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::TemplateLiteral,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
-    fn read_word(&mut self) -> Result<Option<Token>> {
+    fn read_word(&mut self) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
 
@@ -277,16 +265,10 @@ impl<'a> Tokenizer<'a> {
             TokenType::Word
         };
 
-        Ok(Some(Token::with_newlines(
-            token_type,
-            text,
-            self.line,
-            start_column,
-            self.newlines_before_current,
-        )))
+        Token::with_newlines(token_type, text, self.line, start_column, self.newlines_before_current)
     }
 
-    fn read_string(&mut self, quote: char) -> Result<Option<Token>> {
+    fn read_string(&mut self, quote: char) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
         self.advance();
@@ -297,26 +279,22 @@ impl<'a> Tokenizer<'a> {
                 self.advance();
                 break;
             }
-            if ch == '\\' {
-                self.advance();
-                if self.pos < self.input.len() {
-                    self.advance();
-                }
-            } else {
+            self.advance();
+            if ch == '\\' && self.pos < self.input.len() {
                 self.advance();
             }
         }
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::String,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
-    fn read_line_comment(&mut self) -> Result<Option<Token>> {
+    fn read_line_comment(&mut self) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
 
@@ -324,16 +302,16 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::Comment,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
-    fn read_block_comment(&mut self) -> Result<Option<Token>> {
+    fn read_block_comment(&mut self) -> Token {
         let start_pos = self.pos;
         let start_column = self.column;
         self.advance();
@@ -348,13 +326,13 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        Ok(Some(Token::with_newlines(
+        Token::with_newlines(
             TokenType::BlockComment,
             &self.input[start_pos..self.pos],
             self.line,
             start_column,
             self.newlines_before_current,
-        )))
+        )
     }
 
     fn skip_whitespace(&mut self) {
@@ -437,7 +415,7 @@ impl<'a> Tokenizer<'a> {
         )
     }
 
-    fn should_be_regex(&self) -> bool {
+    const fn should_be_regex(&self) -> bool {
         matches!(
             self.last_token_type,
             TokenType::Equals

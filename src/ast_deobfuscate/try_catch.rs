@@ -1,5 +1,5 @@
 use oxc_allocator::Vec as OxcVec;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{CatchClause, EmptyStatement, Statement};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -13,11 +13,13 @@ pub struct TryCatchRemover {
 }
 
 impl TryCatchRemover {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -69,10 +71,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
                 }
             } else {
                 let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());
-                eprintln!(
-                    "[TRY_CATCH] Multi-stmt try body -> BlockStatement with scope_id: {:?}",
-                    scope_id
-                );
+                eprintln!("[TRY_CATCH] Multi-stmt try body -> BlockStatement with scope_id: {scope_id:?}");
                 *stmt = ctx
                     .ast
                     .statement_block_with_scope_id(SPAN, try_body_statements, scope_id);
@@ -112,16 +111,11 @@ mod tests {
     fn test_remove_empty_catch() {
         let output = run_try_catch_remover("try { var x = 1; } catch(e) {}");
         eprintln!("Output: {output}");
-        assert!(!output.contains("try"), "Should remove try keyword, got: {}", output);
-        assert!(
-            !output.contains("catch"),
-            "Should remove catch keyword, got: {}",
-            output
-        );
+        assert!(!output.contains("try"), "Should remove try keyword, got: {output}");
+        assert!(!output.contains("catch"), "Should remove catch keyword, got: {output}");
         assert!(
             output.contains("var x = 1") || output.contains("var x=1"),
-            "Should keep try body, got: {}",
-            output
+            "Should keep try body, got: {output}"
         );
     }
 
@@ -131,10 +125,9 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("try"),
-            "Should keep try with non-empty catch, got: {}",
-            output
+            "Should keep try with non-empty catch, got: {output}"
         );
-        assert!(output.contains("catch"), "Should keep non-empty catch, got: {}", output);
+        assert!(output.contains("catch"), "Should keep non-empty catch, got: {output}");
     }
 
     #[test]
@@ -143,8 +136,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("try"),
-            "Should preserve try with finally, got: {}",
-            output
+            "Should preserve try with finally, got: {output}"
         );
     }
 }

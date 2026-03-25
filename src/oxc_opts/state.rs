@@ -3,7 +3,8 @@ pub struct OptimizationState {
 }
 
 impl OptimizationState {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 }

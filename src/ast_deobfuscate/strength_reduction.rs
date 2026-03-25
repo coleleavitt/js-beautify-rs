@@ -1,5 +1,5 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression, NumericLiteral};
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -13,11 +13,13 @@ pub struct StrengthReducer {
 }
 
 impl StrengthReducer {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -85,7 +87,7 @@ impl StrengthReducer {
         None
     }
 
-    fn is_power_of_two(n: u32) -> bool {
+    const fn is_power_of_two(n: u32) -> bool {
         n > 0 && (n & (n.wrapping_sub(1))) == 0
     }
 
@@ -182,56 +184,56 @@ mod tests {
     #[test]
     fn test_multiply_by_2() {
         let output = run_reduce("var r = x * 2;");
-        assert!(output.contains("<<"), "Should reduce x * 2 to x << 1, got: {}", output);
-        assert!(output.contains('1'), "Shift amount should be 1, got: {}", output);
+        assert!(output.contains("<<"), "Should reduce x * 2 to x << 1, got: {output}");
+        assert!(output.contains('1'), "Shift amount should be 1, got: {output}");
     }
 
     #[test]
     fn test_multiply_by_4() {
         let output = run_reduce("var r = x * 4;");
-        assert!(output.contains("<<"), "Should reduce x * 4 to x << 2, got: {}", output);
-        assert!(output.contains('2'), "Shift amount should be 2, got: {}", output);
+        assert!(output.contains("<<"), "Should reduce x * 4 to x << 2, got: {output}");
+        assert!(output.contains('2'), "Shift amount should be 2, got: {output}");
     }
 
     #[test]
     fn test_multiply_by_8() {
         let output = run_reduce("var r = x * 8;");
-        assert!(output.contains("<<"), "Should reduce x * 8 to x << 3, got: {}", output);
-        assert!(output.contains('3'), "Shift amount should be 3, got: {}", output);
+        assert!(output.contains("<<"), "Should reduce x * 8 to x << 3, got: {output}");
+        assert!(output.contains('3'), "Shift amount should be 3, got: {output}");
     }
 
     #[test]
     fn test_divide_by_2() {
         let output = run_reduce("var r = x / 2;");
-        assert!(output.contains(">>"), "Should reduce x / 2 to x >> 1, got: {}", output);
-        assert!(output.contains('1'), "Shift amount should be 1, got: {}", output);
+        assert!(output.contains(">>"), "Should reduce x / 2 to x >> 1, got: {output}");
+        assert!(output.contains('1'), "Shift amount should be 1, got: {output}");
     }
 
     #[test]
     fn test_divide_by_4() {
         let output = run_reduce("var r = x / 4;");
-        assert!(output.contains(">>"), "Should reduce x / 4 to x >> 2, got: {}", output);
-        assert!(output.contains('2'), "Shift amount should be 2, got: {}", output);
+        assert!(output.contains(">>"), "Should reduce x / 4 to x >> 2, got: {output}");
+        assert!(output.contains('2'), "Shift amount should be 2, got: {output}");
     }
 
     #[test]
     fn test_modulo_by_2() {
         let output = run_reduce("var r = x % 2;");
-        assert!(output.contains('&'), "Should reduce x % 2 to x & 1, got: {}", output);
-        assert!(output.contains('1'), "Mask should be 1, got: {}", output);
+        assert!(output.contains('&'), "Should reduce x % 2 to x & 1, got: {output}");
+        assert!(output.contains('1'), "Mask should be 1, got: {output}");
     }
 
     #[test]
     fn test_modulo_by_4() {
         let output = run_reduce("var r = x % 4;");
-        assert!(output.contains('&'), "Should reduce x % 4 to x & 3, got: {}", output);
-        assert!(output.contains('3'), "Mask should be 3, got: {}", output);
+        assert!(output.contains('&'), "Should reduce x % 4 to x & 3, got: {output}");
+        assert!(output.contains('3'), "Mask should be 3, got: {output}");
     }
 
     #[test]
     fn test_no_reduction_non_power_of_two() {
         let output = run_reduce("var r = x * 3;");
-        assert!(output.contains('*'), "Should NOT reduce x * 3, got: {}", output);
+        assert!(output.contains('*'), "Should NOT reduce x * 3, got: {output}");
     }
 
     #[test]

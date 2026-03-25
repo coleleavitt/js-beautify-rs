@@ -15,12 +15,12 @@
 //! c = 3;  // three separate ExpressionStatements
 //! ```
 //!
-//! Only splits when the SequenceExpression is the DIRECT child of an
-//! ExpressionStatement. Sequences inside `for` init, `return`, ternary
+//! Only splits when the `SequenceExpression` is the DIRECT child of an
+//! `ExpressionStatement`. Sequences inside `for` init, `return`, ternary
 //! conditions, etc. are left untouched.
 
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BlockStatement, Expression, FunctionBody, Program, Statement};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -33,11 +33,13 @@ pub struct SequenceExpressionSplitter {
 }
 
 impl SequenceExpressionSplitter {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { split_count: 0 }
     }
 
-    pub fn split_count(&self) -> usize {
+    #[must_use]
+    pub const fn split_count(&self) -> usize {
         self.split_count
     }
 }
@@ -63,7 +65,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
 
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::SequenceExpression(seq) = &expr_stmt.expression
             {
@@ -71,7 +73,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     "[SEQ_SPLIT] Splitting sequence with {} expressions in program body",
                     seq.expressions.len()
                 );
-                for expr in seq.expressions.iter() {
+                for expr in &seq.expressions {
                     new_body.push(
                         ctx.ast
                             .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
@@ -101,7 +103,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
 
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::SequenceExpression(seq) = &expr_stmt.expression
             {
@@ -109,7 +111,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     "[SEQ_SPLIT] Splitting sequence with {} expressions in block",
                     seq.expressions.len()
                 );
-                for expr in seq.expressions.iter() {
+                for expr in &seq.expressions {
                     new_body.push(
                         ctx.ast
                             .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
@@ -139,7 +141,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
 
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::SequenceExpression(seq) = &expr_stmt.expression
             {
@@ -147,7 +149,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for SequenceExpressionSplitter {
                     "[SEQ_SPLIT] Splitting sequence with {} expressions in function body",
                     seq.expressions.len()
                 );
-                for expr in seq.expressions.iter() {
+                for expr in &seq.expressions {
                     new_stmts.push(
                         ctx.ast
                             .statement_expression(SPAN, expr.clone_in_with_semantic_ids(ctx.ast.allocator)),
@@ -194,60 +196,51 @@ mod tests {
     #[test]
     fn test_split_simple_sequence() {
         let (output, count) = run_split("a = 1, b = 2, c = 3;");
-        assert!(count >= 1, "Should have split at least 1 sequence, got: {}", count);
+        assert!(count >= 1, "Should have split at least 1 sequence, got: {count}");
         assert!(
             output.contains("a = 1;\n"),
-            "Should have 'a = 1;' as separate statement, got: {}",
-            output
+            "Should have 'a = 1;' as separate statement, got: {output}"
         );
         assert!(
             output.contains("b = 2;\n"),
-            "Should have 'b = 2;' as separate statement, got: {}",
-            output
+            "Should have 'b = 2;' as separate statement, got: {output}"
         );
         assert!(
             output.contains("c = 3;\n"),
-            "Should have 'c = 3;' as separate statement, got: {}",
-            output
+            "Should have 'c = 3;' as separate statement, got: {output}"
         );
     }
 
     #[test]
     fn test_no_split_for_init() {
         let (output, count) = run_split("for (a = 0, b = 1;;) {}");
-        assert_eq!(count, 0, "Should NOT split sequence in for-init, got: {}", count);
-        assert!(output.contains("for"), "Should preserve for loop, got: {}", output);
+        assert_eq!(count, 0, "Should NOT split sequence in for-init, got: {count}");
+        assert!(output.contains("for"), "Should preserve for loop, got: {output}");
     }
 
     #[test]
     fn test_split_in_function_body() {
         let (output, count) = run_split("function f() { x = 1, y = 2; }");
-        assert!(
-            count >= 1,
-            "Should have split sequence in function body, got: {}",
-            count
-        );
+        assert!(count >= 1, "Should have split sequence in function body, got: {count}");
         assert!(
             output.contains("x = 1;") && output.contains("y = 2;"),
-            "Should have separate statements in function body, got: {}",
-            output
+            "Should have separate statements in function body, got: {output}"
         );
     }
 
     #[test]
     fn test_no_split_single_expression() {
         let (_output, count) = run_split("a = 1;");
-        assert_eq!(count, 0, "Should not split single expression statement, got: {}", count);
+        assert_eq!(count, 0, "Should not split single expression statement, got: {count}");
     }
 
     #[test]
     fn test_preserve_return_sequence() {
         let (output, count) = run_split("function f() { return a = 1, b; }");
-        assert_eq!(count, 0, "Should NOT split sequence inside return, got: {}", count);
+        assert_eq!(count, 0, "Should NOT split sequence inside return, got: {count}");
         assert!(
             output.contains("return"),
-            "Should preserve return statement, got: {}",
-            output
+            "Should preserve return statement, got: {output}"
         );
     }
 }

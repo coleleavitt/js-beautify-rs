@@ -10,6 +10,7 @@ use std::path::PathBuf;
 ///
 /// Beautifies minified JavaScript, deobfuscates obfuscated webpack bundles,
 /// and extracts webpack modules into separate files.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(name = "jsbeautify", version, about, long_about = None)]
 struct Cli {

@@ -26,6 +26,9 @@ pub struct ChunkMetadata {
 }
 
 impl ChunkMetadata {
+    /// # Panics
+    /// Panics if `name` or `hash` is empty.
+    #[must_use]
     pub fn new(id: usize, name: String, hash: String) -> Self {
         assert!(!name.is_empty(), "chunk name must not be empty");
         assert!(!hash.is_empty(), "chunk hash must not be empty");
@@ -44,6 +47,8 @@ impl ChunkMetadata {
         }
     }
 
+    /// # Panics
+    /// Panics if `module_id` is already in this chunk.
     pub fn add_module(&mut self, module_id: usize) {
         assert!(
             !self.modules.contains(&module_id),
@@ -55,8 +60,10 @@ impl ChunkMetadata {
         trace_chunk!("added module {} to chunk {}", module_id, self.id);
     }
 
+    /// # Panics
+    /// Panics if `start >= end`.
     pub fn set_bounds(&mut self, start: usize, end: usize) {
-        assert!(start < end, "invalid bounds: start={} >= end={}", start, end);
+        assert!(start < end, "invalid bounds: start={start} >= end={end}");
         self.start_pos = start;
         self.end_pos = end;
         trace_chunk!("set bounds for chunk {}: {}..{}", self.id, start, end);
@@ -84,6 +91,7 @@ pub struct ChunkDetector {
 }
 
 impl ChunkDetector {
+    #[must_use]
     pub fn new() -> Self {
         trace_chunk!("initializing ChunkDetector");
         Self {
@@ -92,6 +100,11 @@ impl ChunkDetector {
         }
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
+    ///
+    /// # Panics
+    /// Panics if `tokens` is empty.
     pub fn detect_chunks(&mut self, tokens: &[Token]) -> Result<(), ChunkDetectorError> {
         assert!(!tokens.is_empty(), "token stream must not be empty");
         trace_chunk!("=== STARTING CHUNK DETECTION ===");
@@ -179,22 +192,12 @@ impl ChunkDetector {
         const MIN_TOKENS_REQUIRED: usize = 30;
         const MAX_SKIP: usize = 10;
 
-        trace_chunk!("checking if chunk map starts at current position");
-        trace_chunk!("token count: {}", tokens.len());
-
-        if tokens.len() < MIN_TOKENS_REQUIRED {
-            trace_chunk!("not enough tokens: {} < {}", tokens.len(), MIN_TOKENS_REQUIRED);
-            return false;
-        }
-
-        // Helper: find next non-whitespace token position
         fn next_significant(tokens: &[Token], start: usize, max_skip: usize) -> Option<usize> {
             debug_assert!(start < tokens.len(), "start position out of bounds");
 
             for offset in 0..max_skip {
-                let pos = match start.checked_add(offset) {
-                    Some(p) => p,
-                    None => break,
+                let Some(pos) = start.checked_add(offset) else {
+                    break;
                 };
                 if pos >= tokens.len() {
                     break;
@@ -208,14 +211,22 @@ impl ChunkDetector {
             None
         }
 
+        trace_chunk!("checking if chunk map starts at current position");
+        trace_chunk!("token count: {}", tokens.len());
+
+        if tokens.len() < MIN_TOKENS_REQUIRED {
+            trace_chunk!("not enough tokens: {} < {}", tokens.len(), MIN_TOKENS_REQUIRED);
+            return false;
+        }
+
         // 1. Check for "return" at position 0 (skipping initial whitespace)
         let return_pos = match next_significant(tokens, 0, MAX_SKIP) {
             Some(pos) if tokens[pos].text == "return" => {
                 trace_chunk!("✓ found 'return' at position {}", pos);
                 pos
             }
-            Some(_pos) => {
-                trace_chunk!("token[{}] is not 'return': '{}'", _pos, tokens[_pos].text);
+            Some(pos) => {
+                trace_chunk!("token[{}] is not 'return': '{}'", pos, tokens[pos].text);
                 return false;
             }
             None => {
@@ -225,17 +236,16 @@ impl ChunkDetector {
         };
 
         // 2. Find "(" (skipping whitespace after "return")
-        let next_start = match return_pos.checked_add(1) {
-            Some(n) => n,
-            None => return false,
+        let Some(next_start) = return_pos.checked_add(1) else {
+            return false;
         };
         let paren_pos = match next_significant(tokens, next_start, MAX_SKIP) {
             Some(pos) if tokens[pos].text == "(" => {
                 trace_chunk!("✓ found '(' at position {}", pos);
                 pos
             }
-            Some(_pos) => {
-                trace_chunk!("expected '(' at position {}, found '{}'", _pos, tokens[_pos].text);
+            Some(pos) => {
+                trace_chunk!("expected '(' at position {}, found '{}'", pos, tokens[pos].text);
                 return false;
             }
             None => {
@@ -245,17 +255,16 @@ impl ChunkDetector {
         };
 
         // 3. Find "{" (skipping whitespace after "(")
-        let next_start = match paren_pos.checked_add(1) {
-            Some(n) => n,
-            None => return false,
+        let Some(next_start) = paren_pos.checked_add(1) else {
+            return false;
         };
         let brace_pos = match next_significant(tokens, next_start, MAX_SKIP) {
             Some(pos) if tokens[pos].text == "{" => {
                 trace_chunk!("✓ found '{{' at position {}", pos);
                 pos
             }
-            Some(_pos) => {
-                trace_chunk!("expected '{{' at position {}, found '{}'", _pos, tokens[_pos].text);
+            Some(pos) => {
+                trace_chunk!("expected '{{' at position {}, found '{}'", pos, tokens[pos].text);
                 return false;
             }
             None => {
@@ -316,12 +325,12 @@ impl ChunkDetector {
         );
 
         if name_map.len() < hash_map.len() {
-            let _diff = hash_map.len().checked_sub(name_map.len()).ok_or_else(|| {
+            let diff = hash_map.len().checked_sub(name_map.len()).ok_or_else(|| {
                 ChunkDetectorError::BoundaryDetectionFailed {
                     reason: "size difference calculation overflow".to_string(),
                 }
             })?;
-            trace_chunk!("⚠ {} unnamed chunks detected (hash entries without names)", _diff);
+            trace_chunk!("⚠ {} unnamed chunks detected (hash entries without names)", diff);
         } else {
             trace_chunk!("✓ all chunks have names");
         }
@@ -335,16 +344,19 @@ impl ChunkDetector {
             trace_chunk!("processing chunk_id={}, hash='{}'", chunk_id, hash);
 
             // Check if chunk has a friendly name
-            let name = if let Some(friendly_name) = name_map.get(chunk_id) {
-                trace_chunk!("✓ found friendly name: '{}'", friendly_name);
-                debug_assert!(!friendly_name.is_empty(), "name must not be empty");
-                friendly_name.clone()
-            } else {
-                let generated_name = format!("chunk_{chunk_id}");
-                trace_chunk!("⚠ no friendly name, using: '{}'", generated_name);
-                debug_assert!(!generated_name.is_empty(), "generated name must not be empty");
-                generated_name
-            };
+            let name = name_map.get(chunk_id).map_or_else(
+                || {
+                    let generated_name = format!("chunk_{chunk_id}");
+                    trace_chunk!("⚠ no friendly name, using: '{}'", generated_name);
+                    debug_assert!(!generated_name.is_empty(), "generated name must not be empty");
+                    generated_name
+                },
+                |friendly_name| {
+                    trace_chunk!("✓ found friendly name: '{}'", friendly_name);
+                    debug_assert!(!friendly_name.is_empty(), "name must not be empty");
+                    friendly_name.clone()
+                },
+            );
 
             trace_chunk!("creating metadata: id={}, name='{}', hash='{}'", chunk_id, name, hash);
 
@@ -393,11 +405,14 @@ impl ChunkDetector {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn extract_object_literal(
         &self,
         tokens: &[Token],
         start: usize,
     ) -> Result<HashMap<usize, String>, ChunkDetectorError> {
+        const MAX_ITERATIONS: usize = 10_000;
+
         assert!(
             start < tokens.len(),
             "start position {} out of bounds (len={})",
@@ -412,16 +427,11 @@ impl ChunkDetector {
         let mut result = HashMap::new();
         let mut depth: usize = 0;
         let mut i = start;
-        const MAX_ITERATIONS: usize = 10_000;
         let mut iterations: usize = 0;
         let mut extracted_count: usize = 0;
 
         while i < tokens.len() {
-            assert!(
-                iterations < MAX_ITERATIONS,
-                "max iterations {} exceeded",
-                MAX_ITERATIONS
-            );
+            assert!(iterations < MAX_ITERATIONS, "max iterations {MAX_ITERATIONS} exceeded");
             iterations = iterations
                 .checked_add(1)
                 .ok_or_else(|| ChunkDetectorError::BoundaryDetectionFailed {
@@ -474,20 +484,24 @@ impl ChunkDetector {
                     < tokens.len();
 
                 if has_next_3 {
-                    let next_i = i
+                    let colon_idx = i
                         .checked_add(1)
                         .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
-                    let next2_i = i
+                    let value_idx = i
                         .checked_add(2)
                         .ok_or(ChunkDetectorError::InvalidIdMapFormat { pos: i })?;
 
-                    debug_assert!(next_i < tokens.len(), "next_i must be in bounds");
-                    debug_assert!(next2_i < tokens.len(), "next2_i must be in bounds");
+                    debug_assert!(colon_idx < tokens.len(), "colon_idx must be in bounds");
+                    debug_assert!(value_idx < tokens.len(), "value_idx must be in bounds");
 
-                    if tokens[next_i].text == ":" {
-                        trace_chunk!("found colon at pos {}, checking if '{}' is numeric", next_i, token.text);
+                    if tokens[colon_idx].text == ":" {
+                        trace_chunk!(
+                            "found colon at pos {}, checking if '{}' is numeric",
+                            colon_idx,
+                            token.text
+                        );
                         if let Ok(key) = token.text.parse::<usize>() {
-                            let value = tokens[next2_i].text.trim_matches('"').to_string();
+                            let value = tokens[value_idx].text.trim_matches('"').to_string();
                             trace_chunk!("✓ extracted mapping: {} -> '{}'", key, &value);
 
                             extracted_count = extracted_count.checked_add(1).ok_or_else(|| {
@@ -549,9 +563,8 @@ impl ChunkDetector {
                     );
 
                     return Ok(result);
-                } else {
-                    trace_chunk!("no opening brace found after '.chunk.' at pos {}", i);
                 }
+                trace_chunk!("no opening brace found after '.chunk.' at pos {}", i);
             }
         }
 
@@ -562,23 +575,27 @@ impl ChunkDetector {
         })
     }
 
+    #[must_use]
     pub fn chunk_count(&self) -> usize {
         self.chunks.len()
     }
 
+    #[must_use]
     pub fn get_chunk(&self, id: usize) -> Option<&ChunkMetadata> {
         self.chunks.get(&id)
     }
 
-    pub fn has_boundaries(&self) -> bool {
+    #[must_use]
+    pub const fn has_boundaries(&self) -> bool {
         self.detected_boundaries
     }
 
     fn detect_chunk_boundaries(&mut self, tokens: &[Token]) -> Result<(), ChunkDetectorError> {
+        const MAX_SEARCH_TOKENS: usize = 100_000;
+
         trace_chunk!("=== DETECTING CHUNK BOUNDARIES ===");
         trace_chunk!("searching for webpack push patterns");
 
-        const MAX_SEARCH_TOKENS: usize = 100_000;
         let search_limit = tokens.len().min(MAX_SEARCH_TOKENS);
         let mut found_boundaries: usize = 0;
 
@@ -639,9 +656,9 @@ impl ChunkDetector {
         tokens: &[Token],
         base_pos: usize,
     ) -> Result<Option<(usize, usize, usize)>, ChunkDetectorError> {
-        trace_chunk!("extracting chunk boundary from position {}", base_pos);
-
         const MAX_SEARCH: usize = 100;
+
+        trace_chunk!("extracting chunk boundary from position {}", base_pos);
         let mut push_pos = None;
 
         for (i, token) in tokens.iter().enumerate().take(MAX_SEARCH) {
@@ -652,12 +669,9 @@ impl ChunkDetector {
             }
         }
 
-        let push_pos = match push_pos {
-            Some(p) => p,
-            None => {
-                trace_chunk!("no 'push' found in first {} tokens", MAX_SEARCH);
-                return Ok(None);
-            }
+        let Some(push_pos) = push_pos else {
+            trace_chunk!("no 'push' found in first {} tokens", MAX_SEARCH);
+            return Ok(None);
         };
 
         let array_start = push_pos
@@ -692,15 +706,12 @@ impl ChunkDetector {
             return Ok(None);
         }
 
-        let chunk_id = match tokens[id_pos].text.parse::<usize>() {
-            Ok(id) => {
-                trace_chunk!("parsed chunk_id: {}", id);
-                id
-            }
-            Err(_) => {
-                trace_chunk!("failed to parse chunk_id from '{}'", tokens[id_pos].text);
-                return Ok(None);
-            }
+        let chunk_id = if let Ok(id) = tokens[id_pos].text.parse::<usize>() {
+            trace_chunk!("parsed chunk_id: {}", id);
+            id
+        } else {
+            trace_chunk!("failed to parse chunk_id from '{}'", tokens[id_pos].text);
+            return Ok(None);
         };
 
         let modules_obj_pos = self.find_modules_object(tokens, id_pos)?;
@@ -740,9 +751,10 @@ impl ChunkDetector {
     }
 
     fn find_object_end(&self, tokens: &[Token], start: usize) -> Result<usize, ChunkDetectorError> {
+        const MAX_ITERATIONS: usize = 100_000;
+
         let mut depth: usize = 0;
         let mut i = start;
-        const MAX_ITERATIONS: usize = 100_000;
         let mut iterations: usize = 0;
 
         while i < tokens.len() {

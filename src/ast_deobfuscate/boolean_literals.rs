@@ -1,4 +1,4 @@
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BooleanLiteral, Expression, UnaryOperator};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -11,11 +11,13 @@ pub struct BooleanLiteralConverter {
 }
 
 impl BooleanLiteralConverter {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 }
@@ -87,27 +89,27 @@ mod tests {
     fn test_not_zero_to_true() {
         let output = run_boolean_literals("var x = !0;");
         eprintln!("Output: {output}");
-        assert!(output.contains("true"), "Expected true, got: {}", output);
+        assert!(output.contains("true"), "Expected true, got: {output}");
     }
 
     #[test]
     fn test_not_one_to_false() {
         let output = run_boolean_literals("var x = !1;");
         eprintln!("Output: {output}");
-        assert!(output.contains("false"), "Expected false, got: {}", output);
+        assert!(output.contains("false"), "Expected false, got: {output}");
     }
 
     #[test]
     fn test_preserve_other_not() {
         let output = run_boolean_literals("var x = !5;");
         eprintln!("Output: {output}");
-        assert!(output.contains("!5"), "Should preserve !5, got: {}", output);
+        assert!(output.contains("!5"), "Should preserve !5, got: {output}");
     }
 
     #[test]
     fn test_preserve_not_variable() {
         let output = run_boolean_literals("var x = !foo;");
         eprintln!("Output: {output}");
-        assert!(output.contains("!foo"), "Should preserve !foo, got: {}", output);
+        assert!(output.contains("!foo"), "Should preserve !foo, got: {output}");
     }
 }

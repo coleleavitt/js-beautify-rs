@@ -1,4 +1,6 @@
-use oxc_ast::ast::*;
+use std::cell::Cell;
+
+use oxc_ast::ast::{Expression, IdentifierReference, UnaryOperator};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -11,11 +13,13 @@ pub struct VoidReplacer {
 }
 
 impl VoidReplacer {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 }
@@ -41,7 +45,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VoidReplacer {
                 *expr = Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                     span: SPAN,
                     name: ctx.ast.atom("undefined").into(),
-                    reference_id: Default::default(),
+                    reference_id: Cell::default(),
                 }));
             }
         }
@@ -79,8 +83,8 @@ mod tests {
     fn test_void_zero_to_undefined() {
         let output = run_void_replacer("var x = void 0;");
         eprintln!("Output: {output}");
-        assert!(output.contains("undefined"), "Expected undefined, got: {}", output);
-        assert!(!output.contains("void"), "Should not contain void, got: {}", output);
+        assert!(output.contains("undefined"), "Expected undefined, got: {output}");
+        assert!(!output.contains("void"), "Should not contain void, got: {output}");
     }
 
     #[test]
@@ -89,8 +93,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("void 5") || output.contains("void(5)"),
-            "Should preserve void 5, got: {}",
-            output
+            "Should preserve void 5, got: {output}"
         );
     }
 
@@ -99,6 +102,6 @@ mod tests {
         let output = run_void_replacer("var x = void 0, y = void 0;");
         eprintln!("Output: {output}");
         let count = output.matches("undefined").count();
-        assert!(count >= 2, "Expected two undefined, got {} in: {}", count, output);
+        assert!(count >= 2, "Expected two undefined, got {count} in: {output}");
     }
 }

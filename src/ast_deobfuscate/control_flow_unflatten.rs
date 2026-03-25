@@ -20,7 +20,10 @@
 //! ```
 
 use oxc_allocator::{CloneIn, Vec as OxcVec};
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, BindingPattern, Expression, ForStatement, Program, SimpleAssignmentTarget, Statement, SwitchCase,
+    SwitchStatement, VariableDeclaration, WhileStatement,
+};
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
@@ -50,6 +53,7 @@ pub struct ControlFlowUnflattener {
 }
 
 impl ControlFlowUnflattener {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             detected_sequences: FxHashMap::default(),
@@ -58,11 +62,12 @@ impl ControlFlowUnflattener {
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
-    fn detect_sequence_declaration<'a>(&mut self, var_decl: &VariableDeclaration<'a>) {
+    fn detect_sequence_declaration(&mut self, var_decl: &VariableDeclaration<'_>) {
         for decl in &var_decl.declarations {
             let var_name = match &decl.id {
                 BindingPattern::BindingIdentifier(ident) => ident.name.as_str(),
@@ -71,7 +76,7 @@ impl ControlFlowUnflattener {
 
             if let Some(init) = &decl.init {
                 if let Some(sequence) = self.extract_split_sequence(init) {
-                    eprintln!("[AST] Found control flow sequence: {} = {:?}", var_name, sequence);
+                    eprintln!("[AST] Found control flow sequence: {var_name} = {sequence:?}");
                     self.detected_sequences.insert(var_name.to_string(), sequence);
                 }
 
@@ -85,15 +90,13 @@ impl ControlFlowUnflattener {
         }
     }
 
-    fn extract_split_sequence<'a>(&self, expr: &Expression<'a>) -> Option<Vec<String>> {
-        let call = match expr {
-            Expression::CallExpression(call) => call,
-            _ => return None,
+    fn extract_split_sequence(&self, expr: &Expression<'_>) -> Option<Vec<String>> {
+        let Expression::CallExpression(call) = expr else {
+            return None;
         };
 
-        let member = match &call.callee {
-            Expression::StaticMemberExpression(member) => member,
-            _ => return None,
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
         };
 
         if member.property.name.as_str() != "split" {
@@ -122,7 +125,7 @@ impl ControlFlowUnflattener {
         Some(sequence)
     }
 
-    fn is_zero_initializer<'a>(&self, expr: &Expression<'a>) -> bool {
+    fn is_zero_initializer(&self, expr: &Expression<'_>) -> bool {
         match expr {
             Expression::NumericLiteral(lit) => lit.value == 0.0,
             _ => false,
@@ -133,7 +136,7 @@ impl ControlFlowUnflattener {
         self.detected_sequences.keys().next().cloned()
     }
 
-    fn is_control_flow_while<'a>(&self, while_stmt: &WhileStatement<'a>) -> bool {
+    fn is_control_flow_while(&self, while_stmt: &WhileStatement<'_>) -> bool {
         let is_while_true = match &while_stmt.test {
             Expression::BooleanLiteral(lit) => {
                 eprintln!("[AST]   while test is BooleanLiteral: {}", lit.value);
@@ -158,7 +161,7 @@ impl ControlFlowUnflattener {
         has_switch
     }
 
-    fn body_contains_switch<'a>(&self, stmt: &Statement<'a>) -> bool {
+    fn body_contains_switch(&self, stmt: &Statement<'_>) -> bool {
         match stmt {
             Statement::BlockStatement(block) => block.body.iter().any(|s| matches!(s, Statement::SwitchStatement(_))),
             Statement::SwitchStatement(_) => true,
@@ -166,7 +169,7 @@ impl ControlFlowUnflattener {
         }
     }
 
-    fn is_control_flow_for<'a>(&self, for_stmt: &ForStatement<'a>) -> bool {
+    fn is_control_flow_for(&self, for_stmt: &ForStatement<'_>) -> bool {
         let is_infinite = for_stmt.init.is_none() && for_stmt.test.is_none() && for_stmt.update.is_none();
 
         if !is_infinite {
@@ -181,9 +184,8 @@ impl ControlFlowUnflattener {
     }
 
     fn extract_switch_from_for<'a, 'b>(&self, for_stmt: &'b ForStatement<'a>) -> Option<&'b SwitchStatement<'a>> {
-        let block = match &for_stmt.body {
-            Statement::BlockStatement(block) => block,
-            _ => return None,
+        let Statement::BlockStatement(block) = &for_stmt.body else {
+            return None;
         };
 
         for stmt in &block.body {
@@ -195,9 +197,8 @@ impl ControlFlowUnflattener {
     }
 
     fn extract_switch_from_while<'a, 'b>(&self, while_stmt: &'b WhileStatement<'a>) -> Option<&'b SwitchStatement<'a>> {
-        let block = match &while_stmt.body {
-            Statement::BlockStatement(block) => block,
-            _ => return None,
+        let Statement::BlockStatement(block) = &while_stmt.body else {
+            return None;
         };
 
         for stmt in &block.body {
@@ -208,40 +209,33 @@ impl ControlFlowUnflattener {
         None
     }
 
-    fn is_sequence_access<'a>(&self, expr: &Expression<'a>) -> Option<String> {
+    fn is_sequence_access(&self, expr: &Expression<'_>) -> Option<String> {
         eprintln!("[AST]   Checking discriminant: {:?}", std::mem::discriminant(expr));
 
         let array_name = match expr {
             Expression::ComputedMemberExpression(member) => {
                 eprintln!("[AST]   Discriminant is ComputedMemberExpression");
-                match &member.object {
-                    Expression::Identifier(ident) => {
-                        eprintln!("[AST]   Array name: {}", ident.name);
-                        ident.name.as_str()
-                    }
-                    _ => {
-                        eprintln!("[AST]   Member object is not Identifier");
-                        return None;
-                    }
+                if let Expression::Identifier(ident) = &member.object {
+                    eprintln!("[AST]   Array name: {}", ident.name);
+                    ident.name.as_str()
+                } else {
+                    eprintln!("[AST]   Member object is not Identifier");
+                    return None;
                 }
             }
             Expression::UpdateExpression(update) => {
                 eprintln!("[AST]   Discriminant is UpdateExpression");
-                match &update.argument {
-                    SimpleAssignmentTarget::ComputedMemberExpression(member) => match &member.object {
-                        Expression::Identifier(ident) => {
-                            eprintln!("[AST]   Array name: {}", ident.name);
-                            ident.name.as_str()
-                        }
-                        _ => {
-                            eprintln!("[AST]   Member object is not Identifier");
-                            return None;
-                        }
-                    },
-                    _ => {
-                        eprintln!("[AST]   Update argument is not ComputedMemberExpression");
+                if let SimpleAssignmentTarget::ComputedMemberExpression(member) = &update.argument {
+                    if let Expression::Identifier(ident) = &member.object {
+                        eprintln!("[AST]   Array name: {}", ident.name);
+                        ident.name.as_str()
+                    } else {
+                        eprintln!("[AST]   Member object is not Identifier");
                         return None;
                     }
+                } else {
+                    eprintln!("[AST]   Update argument is not ComputedMemberExpression");
+                    return None;
                 }
             }
             _ => {
@@ -320,7 +314,7 @@ impl ControlFlowUnflattener {
         Some(result)
     }
 
-    fn should_keep_statement<'a>(&self, stmt: &Statement<'a>) -> bool {
+    const fn should_keep_statement(&self, stmt: &Statement<'_>) -> bool {
         !matches!(stmt, Statement::ContinueStatement(_) | Statement::BreakStatement(_))
     }
 }

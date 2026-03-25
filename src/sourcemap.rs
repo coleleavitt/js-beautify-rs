@@ -13,6 +13,7 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    #[must_use]
     pub fn new(source_file: &str) -> Self {
         Self {
             version: 3,
@@ -29,7 +30,8 @@ impl SourceMap {
             return;
         }
 
-        let encoded = encode_vlq(0) + &encode_vlq(0) + &encode_vlq(original_line as i64 - 1) + &encode_vlq(0);
+        let line_offset = i64::try_from(original_line).unwrap_or(i64::MAX) - 1;
+        let encoded = encode_vlq(0) + &encode_vlq(0) + &encode_vlq(line_offset) + &encode_vlq(0);
 
         if !self.mappings.is_empty() {
             self.mappings.push(';');
@@ -37,16 +39,21 @@ impl SourceMap {
         self.mappings.push_str(&encoded);
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn to_data_url(&self) -> Result<String, serde_json::Error> {
         let json = self.to_json()?;
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json);
         Ok(format!("data:application/json;base64,{encoded}"))
     }
 
+    #[must_use]
     pub fn for_chunk(chunk_name: &str, chunk_filename: &str, line_count: usize) -> Self {
         let mut map = Self::new(chunk_name);
         map.file = Some(chunk_filename.to_string());

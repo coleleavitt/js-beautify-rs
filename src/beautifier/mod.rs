@@ -25,6 +25,8 @@ fn oxc_beautify(code: &str) -> Result<String> {
     Ok(Codegen::new().build(&parse_result.program).code)
 }
 
+/// # Errors
+/// Returns an error if the operation fails.
 pub fn beautify(code: &str, options: &Options) -> Result<String> {
     if options.deobfuscate {
         let mut deobfuscator = AstDeobfuscator::new();
@@ -61,33 +63,32 @@ pub fn beautify(code: &str, options: &Options) -> Result<String> {
                             options.chunk_dir.display(),
                             manifest.total_chunks
                         ));
-                    } else {
-                        eprintln!("[BEAUTIFY] ⚠ Chunks detected but no embedded code found");
-                        eprintln!(
-                            "[BEAUTIFY]   This appears to be a code-split bundle (chunks are already separate files)"
-                        );
-                        eprintln!(
-                            "[BEAUTIFY]   Chunk metadata extracted: {} chunks",
-                            detector.chunk_count()
-                        );
-
-                        if let Some(ref map_path) = options.chunk_map_output {
-                            use crate::chunk_splitter::ChunkManifest;
-                            use std::fs;
-
-                            let manifest = ChunkManifest::from_detector(&detector);
-                            let json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-                                BeautifyError::BeautificationFailed(format!("failed to serialize manifest: {e}"))
-                            })?;
-                            fs::write(map_path, json).map_err(|e| {
-                                BeautifyError::BeautificationFailed(format!("failed to write manifest: {e}"))
-                            })?;
-
-                            eprintln!("[BEAUTIFY] ✓ Chunk metadata written to: {}", map_path.display());
-                        }
-
-                        eprintln!("[BEAUTIFY] Proceeding with Oxc beautification");
                     }
+                    eprintln!("[BEAUTIFY] ⚠ Chunks detected but no embedded code found");
+                    eprintln!(
+                        "[BEAUTIFY]   This appears to be a code-split bundle (chunks are already separate files)"
+                    );
+                    eprintln!(
+                        "[BEAUTIFY]   Chunk metadata extracted: {} chunks",
+                        detector.chunk_count()
+                    );
+
+                    if let Some(ref map_path) = options.chunk_map_output {
+                        use crate::chunk_splitter::ChunkManifest;
+                        use std::fs;
+
+                        let manifest = ChunkManifest::from_detector(&detector);
+                        let json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+                            BeautifyError::BeautificationFailed(format!("failed to serialize manifest: {e}"))
+                        })?;
+                        fs::write(map_path, json).map_err(|e| {
+                            BeautifyError::BeautificationFailed(format!("failed to write manifest: {e}"))
+                        })?;
+
+                        eprintln!("[BEAUTIFY] ✓ Chunk metadata written to: {}", map_path.display());
+                    }
+
+                    eprintln!("[BEAUTIFY] Proceeding with Oxc beautification");
                 } else {
                     eprintln!("[BEAUTIFY] ⚠ No chunks detected, proceeding with Oxc beautification");
                 }

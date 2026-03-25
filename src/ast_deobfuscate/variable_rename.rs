@@ -1,4 +1,4 @@
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BindingIdentifier, Function, IdentifierReference};
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
@@ -14,6 +14,7 @@ pub struct VariableRenamer {
 }
 
 impl VariableRenamer {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             rename_map: FxHashMap::default(),
@@ -23,7 +24,8 @@ impl VariableRenamer {
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -40,7 +42,7 @@ impl VariableRenamer {
         false
     }
 
-    fn generate_name(&mut self, var_type: VarType) -> String {
+    fn generate_name(&mut self, var_type: &VarType) -> String {
         match var_type {
             VarType::Function => {
                 self.func_counter += 1;
@@ -53,7 +55,7 @@ impl VariableRenamer {
         }
     }
 
-    fn get_or_create_rename(&mut self, old_name: &str, var_type: VarType) -> String {
+    fn get_or_create_rename(&mut self, old_name: &str, var_type: &VarType) -> String {
         if let Some(new_name) = self.rename_map.get(old_name) {
             new_name.clone()
         } else {
@@ -79,7 +81,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
     fn enter_binding_identifier(&mut self, ident: &mut BindingIdentifier<'a>, ctx: &mut Ctx<'a>) {
         let old_name = ident.name.as_str();
         if Self::should_rename(old_name) {
-            let new_name = self.get_or_create_rename(old_name, VarType::Variable);
+            let new_name = self.get_or_create_rename(old_name, &VarType::Variable);
             eprintln!("[AST] Renaming binding: {old_name} → {new_name}");
             ident.name = ctx.ast.atom(&new_name).into();
             self.changed = true;
@@ -99,7 +101,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for VariableRenamer {
         if let Some(ident) = &mut func.id {
             let old_name = ident.name.as_str();
             if Self::should_rename(old_name) {
-                let new_name = self.get_or_create_rename(old_name, VarType::Function);
+                let new_name = self.get_or_create_rename(old_name, &VarType::Function);
                 eprintln!("[AST] Renaming function: {old_name} → {new_name}");
                 ident.name = ctx.ast.atom(&new_name).into();
                 self.changed = true;

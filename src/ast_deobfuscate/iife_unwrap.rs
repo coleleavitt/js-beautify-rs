@@ -1,5 +1,8 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    ArrowFunctionExpression, BlockStatement, Expression, FunctionBody, Program, Statement, VariableDeclaration,
+    VariableDeclarator,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
 
@@ -12,11 +15,13 @@ pub struct IifeUnwrap {
 }
 
 impl IifeUnwrap {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { unwrapped_count: 0 }
     }
 
-    pub fn unwrapped_count(&self) -> usize {
+    #[must_use]
+    pub const fn unwrapped_count(&self) -> usize {
         self.unwrapped_count
     }
 }
@@ -79,7 +84,7 @@ fn try_unwrap_standalone<'a>(
     let Some(arrow) = extract_zero_arg_arrow_iife(&expr_stmt.expression) else {
         return false;
     };
-    for inner_stmt in arrow.body.statements.iter() {
+    for inner_stmt in &arrow.body.statements {
         new_body.push(inner_stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
     }
     true
@@ -160,7 +165,7 @@ fn try_unwrap_assigned<'a>(
     if has_early_return {
         return false;
     }
-    for inner_stmt in body_stmts[..last_idx].iter() {
+    for inner_stmt in &body_stmts[..last_idx] {
         new_body.push(inner_stmt.clone_in_with_semantic_ids(ctx.ast.allocator));
     }
     let new_init = return_expr.clone_in_with_semantic_ids(ctx.ast.allocator);
@@ -194,7 +199,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
         }
 
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if try_unwrap_standalone(stmt, &mut new_body, ctx) {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
@@ -215,7 +220,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
         }
 
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if try_unwrap_standalone(stmt, &mut new_body, ctx) {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
@@ -242,7 +247,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for IifeUnwrap {
         }
 
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if try_unwrap_standalone(stmt, &mut new_stmts, ctx) {
                 self.unwrapped_count = self.unwrapped_count.wrapping_add(1);
                 continue;
@@ -287,59 +292,56 @@ mod tests {
     #[test]
     fn test_unwrap_standalone_iife() {
         let (output, count) = run_unwrap("(() => { doA(); doB(); })();");
-        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
-        assert!(output.contains("doA()"), "Should contain 'doA()', got: {}", output);
-        assert!(output.contains("doB()"), "Should contain 'doB()', got: {}", output);
-        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {count}");
+        assert!(output.contains("doA()"), "Should contain 'doA()', got: {output}");
+        assert!(output.contains("doB()"), "Should contain 'doB()', got: {output}");
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {output}");
     }
 
     #[test]
     fn test_unwrap_assigned_iife_single_return() {
         let (output, count) = run_unwrap("let x = (() => { return 42; })();");
-        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {count}");
         assert!(
             output.contains("let x = 42"),
-            "Should contain 'let x = 42', got: {}",
-            output
+            "Should contain 'let x = 42', got: {output}"
         );
-        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {output}");
     }
 
     #[test]
     fn test_unwrap_assigned_iife_with_body() {
         let (output, count) = run_unwrap("let x = (() => { let q = 1; return q + 2; })();");
-        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {}", count);
+        assert!(count >= 1, "Should have unwrapped at least 1 IIFE, got: {count}");
         assert!(
             output.contains("let q = 1"),
-            "Should contain 'let q = 1', got: {}",
-            output
+            "Should contain 'let q = 1', got: {output}"
         );
         assert!(
             output.contains("let x = q + 2"),
-            "Should contain 'let x = q + 2', got: {}",
-            output
+            "Should contain 'let x = q + 2', got: {output}"
         );
-        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {}", output);
+        assert!(!output.contains("=>"), "Should NOT contain '=>', got: {output}");
     }
 
     #[test]
     fn test_preserve_iife_with_args() {
         let (output, count) = run_unwrap("let x = ((a) => { return a + 1; })(5);");
-        assert_eq!(count, 0, "Should NOT unwrap IIFE with parameters, got: {}", count);
-        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
+        assert_eq!(count, 0, "Should NOT unwrap IIFE with parameters, got: {count}");
+        assert!(output.contains("=>"), "Should still contain '=>', got: {output}");
     }
 
     #[test]
     fn test_preserve_iife_with_early_return() {
         let (output, count) = run_unwrap("let x = (() => { if (true) return 1; return 2; })();");
-        assert_eq!(count, 0, "Should NOT unwrap IIFE with early return, got: {}", count);
-        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
+        assert_eq!(count, 0, "Should NOT unwrap IIFE with early return, got: {count}");
+        assert!(output.contains("=>"), "Should still contain '=>', got: {output}");
     }
 
     #[test]
     fn test_preserve_non_iife_arrow() {
         let (output, count) = run_unwrap("const f = () => { return 1; };");
-        assert_eq!(count, 0, "Should NOT unwrap non-IIFE arrow, got: {}", count);
-        assert!(output.contains("=>"), "Should still contain '=>', got: {}", output);
+        assert_eq!(count, 0, "Should NOT unwrap non-IIFE arrow, got: {count}");
+        assert!(output.contains("=>"), "Should still contain '=>', got: {output}");
     }
 }

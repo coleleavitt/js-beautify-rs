@@ -27,14 +27,17 @@ pub enum TokenType {
 }
 
 impl TokenType {
+    #[must_use]
     pub const fn is_start_delimiter(self) -> bool {
         matches!(self, Self::StartExpr | Self::StartBlock | Self::StartArray)
     }
 
+    #[must_use]
     pub const fn is_end_delimiter(self) -> bool {
         matches!(self, Self::EndExpr | Self::EndBlock | Self::EndArray)
     }
 
+    #[must_use]
     pub const fn is_comment(self) -> bool {
         matches!(self, Self::Comment | Self::BlockComment)
     }
@@ -90,10 +93,12 @@ impl Token {
         }
     }
 
+    #[must_use]
     pub fn is_reserved_keyword(&self, keyword: &str) -> bool {
         self.token_type == TokenType::Reserved && self.text == keyword
     }
 
+    #[must_use]
     pub fn is_word(&self, word: &str) -> bool {
         self.token_type == TokenType::Word && self.text == word
     }

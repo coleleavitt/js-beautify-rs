@@ -5,7 +5,7 @@
 //! - Valid JavaScript output (no syntax errors from token manipulation)
 //! - Access to full Oxc optimization suite
 //! - Better performance (single parse/codegen cycle)
-//! - More maintainable code following oxc_minifier patterns
+//! - More maintainable code following `oxc_minifier` patterns
 
 pub mod algebraic_simplify;
 pub mod array_unpack;
@@ -108,6 +108,7 @@ pub struct AstDeobfuscator {
 }
 
 impl AstDeobfuscator {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             control_flow_unflattener: ControlFlowUnflattener::new(),
@@ -138,16 +139,20 @@ impl AstDeobfuscator {
         }
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
+    #[allow(clippy::too_many_lines)]
     pub fn deobfuscate(&mut self, code: &str) -> Result<String> {
-        let code = if let Some(decrypted) = encrypted_eval::decrypt_encrypted_evals(code) {
-            eprintln!(
-                "[DEOBFUSCATE] Phase 0: Decrypted encrypted eval payload ({} bytes)",
-                decrypted.len()
-            );
-            decrypted
-        } else {
-            code.to_string()
-        };
+        let code = encrypted_eval::decrypt_encrypted_evals(code).map_or_else(
+            || code.to_string(),
+            |decrypted| {
+                eprintln!(
+                    "[DEOBFUSCATE] Phase 0: Decrypted encrypted eval payload ({} bytes)",
+                    decrypted.len()
+                );
+                decrypted
+            },
+        );
 
         let allocator = Allocator::default();
         let source_type = SourceType::mjs();
@@ -292,7 +297,7 @@ impl AstDeobfuscator {
             semantic_result.errors.len()
         );
         for (i, err) in semantic_result.errors.iter().enumerate().take(5) {
-            eprintln!("[DEOBFUSCATE] Phase 11: Semantic error {}: {:?}", i, err);
+            eprintln!("[DEOBFUSCATE] Phase 11: Semantic error {i}: {err:?}");
         }
         let scoping = semantic_result.semantic.into_scoping();
         let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);

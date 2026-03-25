@@ -4,7 +4,12 @@
 //! Safety constraints: numeric literal bounds, increment by 1, max 10 iterations.
 
 use oxc_allocator::{Allocator, CloneIn};
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, BinaryExpression, BinaryOperator, BindingPattern, BooleanLiteral, CallExpression,
+    ComputedMemberExpression, Expression, ExpressionStatement, ForStatement, ForStatementInit, IdentifierName,
+    IdentifierReference, NullLiteral, NumberBase, NumericLiteral, Program, Statement, StaticMemberExpression,
+    StringLiteral, UpdateOperator, VariableDeclaration, VariableDeclarator,
+};
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SPAN;
 use oxc_syntax::scope::ScopeFlags;
@@ -19,7 +24,8 @@ pub struct LoopUnroller {
 }
 
 impl LoopUnroller {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
@@ -41,9 +47,8 @@ impl LoopUnroller {
         ctx: &mut Ctx<'a>,
     ) -> Option<oxc_allocator::Vec<'a, Statement<'a>>> {
         let init = stmt.init.as_ref()?;
-        let var_decl = match init {
-            ForStatementInit::VariableDeclaration(v) => v,
-            _ => return None,
+        let ForStatementInit::VariableDeclaration(var_decl) = init else {
+            return None;
         };
 
         if var_decl.declarations.len() != 1 {
@@ -63,9 +68,8 @@ impl LoopUnroller {
         };
 
         let test = stmt.test.as_ref()?;
-        let bin = match test {
-            Expression::BinaryExpression(b) => b,
-            _ => return None,
+        let Expression::BinaryExpression(bin) = test else {
+            return None;
         };
 
         let limit = match &bin.right {
@@ -293,7 +297,6 @@ impl LoopUnroller {
         ctx: &mut Ctx<'a>,
     ) -> Option<Argument<'a>> {
         match arg {
-            Argument::SpreadElement(_) => None,
             Argument::Identifier(ident) => {
                 if ident.name.as_str() == loop_var {
                     Some(Argument::NumericLiteral(ctx.ast.alloc(NumericLiteral {
@@ -400,9 +403,7 @@ mod tests {
         for expected in expected_contains {
             assert!(
                 output.contains(expected),
-                "Expected output to contain '{}', got:\n{}",
-                expected,
-                output
+                "Expected output to contain '{expected}', got:\n{output}"
             );
         }
     }

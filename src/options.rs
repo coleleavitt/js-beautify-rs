@@ -1,6 +1,7 @@
 use std::default::Default;
 use std::path::PathBuf;
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct Options {
     pub indent_size: usize,

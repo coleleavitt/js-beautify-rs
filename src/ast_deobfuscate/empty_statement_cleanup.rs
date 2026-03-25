@@ -2,10 +2,10 @@
 //!
 //! Removes `EmptyStatement` (`;`) nodes from program body and block bodies.
 //! These are left behind by other deobfuscation passes that replace removed
-//! statements (proxy functions, dead code, etc.) with EmptyStatement.
+//! statements (proxy functions, dead code, etc.) with `EmptyStatement`.
 
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BlockStatement, FunctionBody, Program, Statement};
 use oxc_traverse::{Traverse, TraverseCtx};
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
@@ -17,11 +17,13 @@ pub struct EmptyStatementCleanup {
 }
 
 impl EmptyStatementCleanup {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { removed_count: 0 }
     }
 
-    pub fn removed_count(&self) -> usize {
+    #[must_use]
+    pub const fn removed_count(&self) -> usize {
         self.removed_count
     }
 }
@@ -36,7 +38,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
     fn exit_program(&mut self, program: &mut Program<'a>, ctx: &mut Ctx<'a>) {
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
@@ -63,7 +65,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
 
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
@@ -91,7 +93,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for EmptyStatementCleanup {
 
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if matches!(stmt, Statement::EmptyStatement(_)) {
                 self.removed_count += 1;
             } else {
@@ -141,20 +143,18 @@ mod tests {
         let (output, count) = run_cleanup("var x = 1; ; ; var y = 2;");
         assert!(
             !output.contains("\n;\n"),
-            "Should remove standalone semicolons, got: {}",
-            output
+            "Should remove standalone semicolons, got: {output}"
         );
-        assert!(count >= 2, "Should have removed at least 2, got: {}", count);
+        assert!(count >= 2, "Should have removed at least 2, got: {count}");
     }
 
     #[test]
     fn test_remove_empty_from_block() {
         let (output, count) = run_cleanup("{ var x = 1; ; var y = 2; }");
-        assert!(count >= 1, "Should have removed at least 1, got: {}", count);
+        assert!(count >= 1, "Should have removed at least 1, got: {count}");
         assert!(
             output.contains('x') && output.contains('y'),
-            "Should preserve non-empty statements, got: {}",
-            output
+            "Should preserve non-empty statements, got: {output}"
         );
     }
 
@@ -163,13 +163,11 @@ mod tests {
         let (output, count) = run_cleanup("function foo() { var x = 1; ; ; var y = 2; }");
         assert!(
             count >= 2,
-            "Should have removed at least 2 from function body, got: {}",
-            count
+            "Should have removed at least 2 from function body, got: {count}"
         );
         assert!(
             output.contains('x') && output.contains('y'),
-            "Should preserve non-empty statements, got: {}",
-            output
+            "Should preserve non-empty statements, got: {output}"
         );
     }
 
@@ -177,6 +175,6 @@ mod tests {
     fn test_preserve_for_empty() {
         // for(;;) uses empty statements legitimately — but those are in ForStatement, not blocks
         let (output, _count) = run_cleanup("for (;;) { break; }");
-        assert!(output.contains("for"), "Should preserve for loop, got: {}", output);
+        assert!(output.contains("for"), "Should preserve for loop, got: {output}");
     }
 }

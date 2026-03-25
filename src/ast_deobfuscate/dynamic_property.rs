@@ -1,5 +1,7 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BinaryOperator, ComputedMemberExpression, Expression, IdentifierName, MemberExpression, StaticMemberExpression,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -12,11 +14,13 @@ pub struct DynamicPropertyConverter {
 }
 
 impl DynamicPropertyConverter {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -25,7 +29,7 @@ impl DynamicPropertyConverter {
         computed: &ComputedMemberExpression<'a>,
         ctx: &mut Ctx<'a>,
     ) -> Option<Expression<'a>> {
-        let property_name = self.try_extract_property_name(&computed.expression)?;
+        let property_name = Self::try_extract_property_name(&computed.expression)?;
 
         if !is_valid_identifier(&property_name) {
             return None;
@@ -49,7 +53,7 @@ impl DynamicPropertyConverter {
         )))
     }
 
-    fn try_extract_property_name(&self, expr: &Expression<'_>) -> Option<String> {
+    fn try_extract_property_name(expr: &Expression<'_>) -> Option<String> {
         match expr {
             Expression::StringLiteral(s) => Some(s.value.as_str().to_string()),
             Expression::NumericLiteral(n) => {
@@ -61,11 +65,11 @@ impl DynamicPropertyConverter {
                 }
             }
             Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
-                let left = self.try_extract_property_name(&binary.left)?;
-                let right = self.try_extract_property_name(&binary.right)?;
+                let left = Self::try_extract_property_name(&binary.left)?;
+                let right = Self::try_extract_property_name(&binary.right)?;
                 Some(format!("{left}{right}"))
             }
-            Expression::ParenthesizedExpression(paren) => self.try_extract_property_name(&paren.expression),
+            Expression::ParenthesizedExpression(paren) => Self::try_extract_property_name(&paren.expression),
             _ => None,
         }
     }
@@ -87,9 +91,8 @@ fn is_valid_identifier(s: &str) -> bool {
     }
 
     let mut chars = s.chars();
-    let first = match chars.next() {
-        Some(c) => c,
-        None => return false,
+    let Some(first) = chars.next() else {
+        return false;
     };
 
     if !first.is_alphabetic() && first != '_' && first != '$' {
@@ -147,29 +150,21 @@ mod tests {
     fn test_convert_string_literal_property() {
         let output = run_dynamic_property(r#"obj["property"]"#);
         eprintln!("Output: {output}");
-        assert!(
-            output.contains("obj.property"),
-            "Expected obj.property, got: {}",
-            output
-        );
+        assert!(output.contains("obj.property"), "Expected obj.property, got: {output}");
     }
 
     #[test]
     fn test_convert_hex_ascii() {
         let output = run_dynamic_property("obj[97]");
         eprintln!("Output: {output}");
-        assert!(output.contains("obj.a"), "Expected obj.a (97 = 'a'), got: {}", output);
+        assert!(output.contains("obj.a"), "Expected obj.a (97 = 'a'), got: {output}");
     }
 
     #[test]
     fn test_convert_concatenated_property() {
         let output = run_dynamic_property(r#"obj["pro" + "perty"]"#);
         eprintln!("Output: {output}");
-        assert!(
-            output.contains("obj.property"),
-            "Expected obj.property, got: {}",
-            output
-        );
+        assert!(output.contains("obj.property"), "Expected obj.property, got: {output}");
     }
 
     #[test]
@@ -178,8 +173,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("obj[variable]"),
-            "Should preserve dynamic access, got: {}",
-            output
+            "Should preserve dynamic access, got: {output}"
         );
     }
 
@@ -189,8 +183,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains('[') && output.contains("123invalid"),
-            "Should preserve invalid identifier, got: {}",
-            output
+            "Should preserve invalid identifier, got: {output}"
         );
     }
 }

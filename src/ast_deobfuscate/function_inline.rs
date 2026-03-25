@@ -1,9 +1,14 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, BinaryExpression, BinaryOperator, BindingPattern, BooleanLiteral, CallExpression, EmptyStatement,
+    Expression, Function, FunctionBody, IdentifierReference, NullLiteral, NumericLiteral, Statement, StringLiteral,
+    UnaryExpression, UnaryOperator,
+};
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -28,17 +33,17 @@ pub enum ReturnExpr {
     Boolean(bool),
     Null,
     Binary {
-        left: Box<ReturnExpr>,
+        left: Box<Self>,
         op: BinaryOp,
-        right: Box<ReturnExpr>,
+        right: Box<Self>,
     },
     Unary {
         op: UnaryOp,
-        arg: Box<ReturnExpr>,
+        arg: Box<Self>,
     },
     Call {
         callee: String,
-        args: Vec<ReturnExpr>,
+        args: Vec<Self>,
     },
     ParamRef(usize),
 }
@@ -79,6 +84,7 @@ pub struct FunctionCollector {
 }
 
 impl FunctionCollector {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             functions: FxHashMap::default(),
@@ -86,6 +92,7 @@ impl FunctionCollector {
         }
     }
 
+    #[must_use]
     pub fn get_single_use_functions(&self) -> FxHashMap<String, InlinableFunction> {
         self.functions
             .iter()
@@ -154,29 +161,28 @@ impl FunctionCollector {
             return ret
                 .argument
                 .as_ref()
-                .and_then(|expr| self.expr_to_return_expr(expr, params));
+                .and_then(|expr| Self::expr_to_return_expr(expr, params));
         }
 
         None
     }
 
-    fn expr_to_return_expr(&self, expr: &Expression<'_>, params: &[String]) -> Option<ReturnExpr> {
+    fn expr_to_return_expr(expr: &Expression<'_>, params: &[String]) -> Option<ReturnExpr> {
         match expr {
             Expression::Identifier(ident) => {
                 let name = ident.name.as_str();
-                if let Some(idx) = params.iter().position(|p| p == name) {
-                    Some(ReturnExpr::ParamRef(idx))
-                } else {
-                    Some(ReturnExpr::Identifier(name.to_string()))
-                }
+                params.iter().position(|p| p == name).map_or_else(
+                    || Some(ReturnExpr::Identifier(name.to_string())),
+                    |idx| Some(ReturnExpr::ParamRef(idx)),
+                )
             }
             Expression::NumericLiteral(num) => Some(ReturnExpr::Number(num.value)),
             Expression::StringLiteral(s) => Some(ReturnExpr::String(s.value.as_str().to_string())),
             Expression::BooleanLiteral(b) => Some(ReturnExpr::Boolean(b.value)),
             Expression::NullLiteral(_) => Some(ReturnExpr::Null),
             Expression::BinaryExpression(binary) => {
-                let left = self.expr_to_return_expr(&binary.left, params)?;
-                let right = self.expr_to_return_expr(&binary.right, params)?;
+                let left = Self::expr_to_return_expr(&binary.left, params)?;
+                let right = Self::expr_to_return_expr(&binary.right, params)?;
                 let op = match binary.operator {
                     BinaryOperator::Addition => BinaryOp::Add,
                     BinaryOperator::Subtraction => BinaryOp::Sub,
@@ -203,7 +209,7 @@ impl FunctionCollector {
                 })
             }
             Expression::UnaryExpression(unary) => {
-                let arg = self.expr_to_return_expr(&unary.argument, params)?;
+                let arg = Self::expr_to_return_expr(&unary.argument, params)?;
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,
                     UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -213,7 +219,7 @@ impl FunctionCollector {
                 };
                 Some(ReturnExpr::Unary { op, arg: Box::new(arg) })
             }
-            Expression::ParenthesizedExpression(paren) => self.expr_to_return_expr(&paren.expression, params),
+            Expression::ParenthesizedExpression(paren) => Self::expr_to_return_expr(&paren.expression, params),
             _ => None,
         }
     }
@@ -246,14 +252,16 @@ pub struct FunctionInliner {
 }
 
 impl FunctionInliner {
-    pub fn new(functions: FxHashMap<String, InlinableFunction>) -> Self {
+    #[must_use]
+    pub const fn new(functions: FxHashMap<String, InlinableFunction>) -> Self {
         Self {
             functions,
             changed: false,
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -281,15 +289,10 @@ impl FunctionInliner {
         eprintln!("[AST] Inlining call to function: {name}");
         self.changed = true;
 
-        Some(self.build_expression(return_expr, &args, ctx))
+        Some(Self::build_expression(return_expr, &args, ctx))
     }
 
-    fn build_expression<'a>(
-        &self,
-        ret_expr: &ReturnExpr,
-        args: &[&Expression<'a>],
-        ctx: &mut Ctx<'a>,
-    ) -> Expression<'a> {
+    fn build_expression<'a>(ret_expr: &ReturnExpr, args: &[&Expression<'a>], ctx: &mut Ctx<'a>) -> Expression<'a> {
         match ret_expr {
             ReturnExpr::ParamRef(idx) => {
                 if *idx < args.len() {
@@ -298,14 +301,14 @@ impl FunctionInliner {
                     Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
                         name: ctx.ast.atom("undefined").into(),
-                        reference_id: Default::default(),
+                        reference_id: Cell::default(),
                     }))
                 }
             }
             ReturnExpr::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: SPAN,
                 name: ctx.ast.atom(name).into(),
-                reference_id: Default::default(),
+                reference_id: Cell::default(),
             })),
             ReturnExpr::Number(val) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
                 span: SPAN,
@@ -324,19 +327,17 @@ impl FunctionInliner {
             }
             ReturnExpr::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN })),
             ReturnExpr::Binary { left, op, right } => {
-                let left_expr = self.build_expression(left, args, ctx);
-                let right_expr = self.build_expression(right, args, ctx);
+                let left_expr = Self::build_expression(left, args, ctx);
+                let right_expr = Self::build_expression(right, args, ctx);
                 let operator = match op {
                     BinaryOp::Add => BinaryOperator::Addition,
                     BinaryOp::Sub => BinaryOperator::Subtraction,
                     BinaryOp::Mul => BinaryOperator::Multiplication,
                     BinaryOp::Div => BinaryOperator::Division,
                     BinaryOp::Mod => BinaryOperator::Remainder,
-                    BinaryOp::BitAnd => BinaryOperator::BitwiseAnd,
-                    BinaryOp::BitOr => BinaryOperator::BitwiseOR,
+                    BinaryOp::BitAnd | BinaryOp::And => BinaryOperator::BitwiseAnd,
+                    BinaryOp::BitOr | BinaryOp::Or => BinaryOperator::BitwiseOR,
                     BinaryOp::BitXor => BinaryOperator::BitwiseXOR,
-                    BinaryOp::And => BinaryOperator::BitwiseAnd,
-                    BinaryOp::Or => BinaryOperator::BitwiseOR,
                     BinaryOp::Eq => BinaryOperator::Equality,
                     BinaryOp::NotEq => BinaryOperator::Inequality,
                     BinaryOp::StrictEq => BinaryOperator::StrictEquality,
@@ -354,7 +355,7 @@ impl FunctionInliner {
                 }))
             }
             ReturnExpr::Unary { op, arg } => {
-                let arg_expr = self.build_expression(arg, args, ctx);
+                let arg_expr = Self::build_expression(arg, args, ctx);
                 let operator = match op {
                     UnaryOp::Not => UnaryOperator::LogicalNot,
                     UnaryOp::Neg => UnaryOperator::UnaryNegation,
@@ -373,7 +374,7 @@ impl FunctionInliner {
             } => {
                 let mut arguments = ctx.ast.vec();
                 for arg in call_args {
-                    let expr = self.build_expression(arg, args, ctx);
+                    let expr = Self::build_expression(arg, args, ctx);
                     arguments.push(Argument::from(expr));
                 }
                 Expression::CallExpression(ctx.ast.alloc(CallExpression {
@@ -381,7 +382,7 @@ impl FunctionInliner {
                     callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                         span: SPAN,
                         name: ctx.ast.atom(callee).into(),
-                        reference_id: Default::default(),
+                        reference_id: Cell::default(),
                     })),
                     arguments,
                     optional: false,
@@ -465,13 +466,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function twice"),
-            "Function declaration should be removed, got: {}",
-            output
+            "Function declaration should be removed, got: {output}"
         );
         assert!(
             output.contains("10 * 2") || output.contains("10*2"),
-            "Call should be inlined, got: {}",
-            output
+            "Call should be inlined, got: {output}"
         );
     }
 
@@ -481,14 +480,9 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function id"),
-            "Function should be removed, got: {}",
-            output
+            "Function should be removed, got: {output}"
         );
-        assert!(
-            output.contains("42"),
-            "Should contain the inlined value, got: {}",
-            output
-        );
+        assert!(output.contains("42"), "Should contain the inlined value, got: {output}");
     }
 
     #[test]
@@ -497,8 +491,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("function add"),
-            "Multi-use function should be preserved, got: {}",
-            output
+            "Multi-use function should be preserved, got: {output}"
         );
     }
 
@@ -508,9 +501,8 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function getConst"),
-            "Function should be removed, got: {}",
-            output
+            "Function should be removed, got: {output}"
         );
-        assert!(output.contains("42"), "Should contain the constant, got: {}", output);
+        assert!(output.contains("42"), "Should contain the constant, got: {output}");
     }
 }

@@ -1,5 +1,5 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{BlockStatement, EmptyStatement, Expression, Statement};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -13,11 +13,13 @@ pub struct DeadCodeEliminator {
 }
 
 impl DeadCodeEliminator {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -76,7 +78,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadCodeEliminator {
         let mut has_terminator = false;
         let mut new_body = ctx.ast.vec();
 
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if has_terminator {
                 eprintln!("[AST] Removing unreachable code after return/break/continue/throw");
                 self.changed = true;
@@ -136,8 +138,7 @@ mod tests {
         let output = run_dce("if (false) { console.log('dead'); }");
         assert!(
             !output.contains("dead"),
-            "Should remove if(false) branch, got: {}",
-            output
+            "Should remove if(false) branch, got: {output}"
         );
     }
 
@@ -146,8 +147,7 @@ mod tests {
         let output = run_dce("while (false) { console.log('dead'); }");
         assert!(
             !output.contains("while"),
-            "Should remove while(false) loop, got: {}",
-            output
+            "Should remove while(false) loop, got: {output}"
         );
     }
 
@@ -156,8 +156,7 @@ mod tests {
         let output = run_dce("var x = 1; console.log(x);");
         assert!(
             output.contains("console"),
-            "Should preserve reachable code, got: {}",
-            output
+            "Should preserve reachable code, got: {output}"
         );
     }
 }

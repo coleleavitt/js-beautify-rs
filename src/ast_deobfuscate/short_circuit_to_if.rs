@@ -1,5 +1,8 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BlockStatement, Expression, ExpressionStatement, FunctionBody, IfStatement, LogicalExpression, LogicalOperator,
+    Program, Statement, UnaryExpression, UnaryOperator,
+};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
@@ -13,11 +16,13 @@ pub struct ShortCircuitToIf {
 }
 
 impl ShortCircuitToIf {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { converted_count: 0 }
     }
 
-    pub fn converted_count(&self) -> usize {
+    #[must_use]
+    pub const fn converted_count(&self) -> usize {
         self.converted_count
     }
 }
@@ -52,7 +57,7 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
     let block = ctx.ast.statement_block_with_scope_id(SPAN, body_stmts, block_scope_id);
 
     let test = match logical.operator {
-        LogicalOperator::And => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
+        LogicalOperator::And | LogicalOperator::Coalesce => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
         LogicalOperator::Or => {
             let inner = logical.left.clone_in_with_semantic_ids(ctx.ast.allocator);
             Expression::UnaryExpression(ctx.ast.alloc(UnaryExpression {
@@ -61,7 +66,6 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
                 argument: inner,
             }))
         }
-        LogicalOperator::Coalesce => logical.left.clone_in_with_semantic_ids(ctx.ast.allocator),
     };
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
@@ -81,7 +85,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
 
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::LogicalExpression(logical) = &expr_stmt.expression
                 && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
@@ -109,7 +113,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
 
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::LogicalExpression(logical) = &expr_stmt.expression
                 && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
@@ -142,7 +146,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ShortCircuitToIf {
 
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::LogicalExpression(logical) = &expr_stmt.expression
                 && matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or)
@@ -195,11 +199,10 @@ mod tests {
         let (output, count) = run_convert("cond && doA();");
         assert!(
             count >= 1,
-            "Should have converted at least 1 && expression, got: {}",
-            count
+            "Should have converted at least 1 && expression, got: {count}"
         );
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
-        assert!(!output.contains("&&"), "Should NOT contain '&&', got: {}", output);
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
+        assert!(!output.contains("&&"), "Should NOT contain '&&', got: {output}");
     }
 
     #[test]
@@ -207,50 +210,45 @@ mod tests {
         let (output, count) = run_convert("cond || doA();");
         assert!(
             count >= 1,
-            "Should have converted at least 1 || expression, got: {}",
-            count
+            "Should have converted at least 1 || expression, got: {count}"
         );
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
-        assert!(output.contains('!'), "Should contain '!' negation, got: {}", output);
-        assert!(!output.contains("||"), "Should NOT contain '||', got: {}", output);
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
+        assert!(output.contains('!'), "Should contain '!' negation, got: {output}");
+        assert!(!output.contains("||"), "Should NOT contain '||', got: {output}");
     }
 
     #[test]
     fn test_preserve_assignment_and() {
         let (output, count) = run_convert("var x = cond && val;");
-        assert_eq!(count, 0, "Should NOT convert && inside var declaration, got: {}", count);
-        assert!(output.contains("&&"), "Should still contain '&&', got: {}", output);
+        assert_eq!(count, 0, "Should NOT convert && inside var declaration, got: {count}");
+        assert!(output.contains("&&"), "Should still contain '&&', got: {output}");
     }
 
     #[test]
     fn test_preserve_return_or() {
         let (output, count) = run_convert("function f() { return cond || val; }");
-        assert_eq!(count, 0, "Should NOT convert || inside return, got: {}", count);
-        assert!(output.contains("||"), "Should still contain '||', got: {}", output);
+        assert_eq!(count, 0, "Should NOT convert || inside return, got: {count}");
+        assert!(output.contains("||"), "Should still contain '||', got: {output}");
     }
 
     #[test]
     fn test_convert_in_function_body() {
         let (output, count) = run_convert("function f() { cond && doA(); }");
-        assert!(count >= 1, "Should have converted && in function body, got: {}", count);
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(count >= 1, "Should have converted && in function body, got: {count}");
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
     }
 
     #[test]
     fn test_preserve_arrow_expression_body() {
         let (output, count) = run_convert("const f = () => cond && doA();");
-        assert_eq!(
-            count, 0,
-            "Should NOT convert && in arrow expression body, got: {}",
-            count
-        );
-        assert!(output.contains("&&"), "Should still contain '&&', got: {}", output);
+        assert_eq!(count, 0, "Should NOT convert && in arrow expression body, got: {count}");
+        assert!(output.contains("&&"), "Should still contain '&&', got: {output}");
     }
 
     #[test]
     fn test_preserve_nullish_coalescing() {
         let (output, count) = run_convert("x ?? (x = 1);");
-        assert_eq!(count, 0, "Should NOT convert ?? (nullish coalescing), got: {}", count);
-        assert!(output.contains("??"), "Should still contain '??', got: {}", output);
+        assert_eq!(count, 0, "Should NOT convert ?? (nullish coalescing), got: {count}");
+        assert!(output.contains("??"), "Should still contain '??', got: {output}");
     }
 }

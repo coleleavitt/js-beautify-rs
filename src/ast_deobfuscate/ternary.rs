@@ -1,4 +1,4 @@
-use oxc_ast::ast::*;
+use oxc_ast::ast::Expression;
 use oxc_traverse::{Traverse, TraverseCtx};
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
@@ -10,11 +10,13 @@ pub struct TernarySimplifier {
 }
 
 impl TernarySimplifier {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -93,10 +95,9 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("= 1") || output.contains("=1"),
-            "Should keep true branch, got: {}",
-            output
+            "Should keep true branch, got: {output}"
         );
-        assert!(!output.contains('?'), "Should remove ternary, got: {}", output);
+        assert!(!output.contains('?'), "Should remove ternary, got: {output}");
     }
 
     #[test]
@@ -105,10 +106,9 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("= 2") || output.contains("=2"),
-            "Should keep false branch, got: {}",
-            output
+            "Should keep false branch, got: {output}"
         );
-        assert!(!output.contains('?'), "Should remove ternary, got: {}", output);
+        assert!(!output.contains('?'), "Should remove ternary, got: {output}");
     }
 
     #[test]
@@ -117,8 +117,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("yes"),
-            "Should keep true branch for truthy number, got: {}",
-            output
+            "Should keep true branch for truthy number, got: {output}"
         );
     }
 
@@ -128,8 +127,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("no"),
-            "Should keep false branch for falsy zero, got: {}",
-            output
+            "Should keep false branch for falsy zero, got: {output}"
         );
     }
 
@@ -139,8 +137,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains('?'),
-            "Should preserve non-constant ternary, got: {}",
-            output
+            "Should preserve non-constant ternary, got: {output}"
         );
     }
 }

@@ -1,6 +1,7 @@
 use crate::token::{Token, TokenType};
 use crate::{BeautifyError, Result};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -35,6 +36,7 @@ impl Default for ModuleExtractor {
 }
 
 impl ModuleExtractor {
+    #[must_use]
     pub fn new() -> Self {
         trace_webpack!("initializing ModuleExtractor");
         Self {
@@ -42,6 +44,8 @@ impl ModuleExtractor {
         }
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn extract_modules(&mut self, tokens: &[Token]) -> Result<()> {
         trace_webpack!("=== EXTRACTING WEBPACK MODULES ===");
         trace_webpack!("total tokens: {}", tokens.len());
@@ -221,6 +225,8 @@ impl ModuleExtractor {
         Ok(None)
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn write_modules(&self, tokens: &[Token], output_dir: &Path) -> Result<()> {
         trace_webpack!("=== WRITING MODULES ===");
         trace_webpack!("output directory: {}", output_dir.display());
@@ -250,14 +256,16 @@ impl ModuleExtractor {
         tokens.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ")
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn extract_dependencies(&mut self, tokens: &[Token]) -> Result<()> {
         trace_webpack!("=== EXTRACTING DEPENDENCIES ===");
 
-        for (id, module) in self.modules.clone().iter() {
+        for (id, module) in &self.modules.clone() {
             let deps = self.find_dependencies_in_range(tokens, module.start_pos, module.end_pos)?;
 
             if let Some(m) = self.modules.get_mut(id) {
-                m.dependencies = deps.clone();
+                m.dependencies.clone_from(&deps);
                 trace_webpack!("module {} has {} dependencies", id, deps.len());
             }
         }
@@ -298,6 +306,8 @@ impl ModuleExtractor {
         Ok(deps)
     }
 
+    /// # Errors
+    /// Returns an error if the operation fails.
     pub fn generate_dependency_graph(&self, output_path: &Path) -> Result<()> {
         trace_webpack!("=== GENERATING DEPENDENCY GRAPH ===");
 
@@ -306,14 +316,14 @@ impl ModuleExtractor {
         graph.push_str("  node [shape=box];\n\n");
 
         for id in self.modules.keys() {
-            graph.push_str(&format!("  module_{id} [label=\"Module {id}\"];\n"));
+            let _ = writeln!(graph, "  module_{id} [label=\"Module {id}\"];");
         }
 
         graph.push('\n');
 
         for (id, module) in &self.modules {
             for dep in &module.dependencies {
-                graph.push_str(&format!("  module_{id} -> module_{dep};\n"));
+                let _ = writeln!(graph, "  module_{id} -> module_{dep};");
             }
         }
 
@@ -326,6 +336,7 @@ impl ModuleExtractor {
         Ok(())
     }
 
+    #[must_use]
     pub fn module_count(&self) -> usize {
         self.modules.len()
     }

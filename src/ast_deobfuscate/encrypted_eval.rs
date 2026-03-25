@@ -1,6 +1,6 @@
 //! Pre-AST decryption of PRNG XOR + Caesar cipher encrypted eval patterns.
 //!
-//! Detects and decrypts the encryption scheme used by Tycoon2FA and similar
+//! Detects and decrypts the encryption scheme used by `Tycoon2FA` and similar
 //! phishing kits. The pattern embeds a colon-delimited string containing:
 //!
 //! ```text
@@ -51,13 +51,13 @@ struct Prng {
 }
 
 impl Prng {
-    fn new(seed: u64) -> Self {
+    const fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
     fn next(&mut self) -> f64 {
-        self.state = (self.state * 9301 + 49297) % 233280;
-        self.state as f64 / 233280.0
+        self.state = (self.state * 9301 + 49_297) % 233_280;
+        self.state as f64 / 233_280.0
     }
 }
 
@@ -142,6 +142,7 @@ fn decrypt_payload(payload_b64: &str, counter_str: &str, seed_b64: &str) -> Opti
 ///
 /// Returns `Some(decrypted_source)` if an encrypted pattern was found and
 /// successfully decrypted, or `None` if no pattern was detected.
+#[must_use]
 pub fn decrypt_encrypted_evals(source: &str) -> Option<String> {
     // Strip HTML wrapper if present — extract JS from <script> tags
     let js_source = extract_script_content(source);
@@ -181,12 +182,7 @@ pub fn decrypt_encrypted_evals(source: &str) -> Option<String> {
         decrypted.len()
     );
 
-    // If the original source was HTML-wrapped, re-wrap the decrypted JS
-    if js_source.is_some() {
-        Some(decrypted)
-    } else {
-        Some(decrypted)
-    }
+    Some(decrypted)
 }
 
 /// Extracts JavaScript content from `<script>...</script>` tags.
@@ -258,10 +254,10 @@ mod tests {
 
     #[test]
     fn test_prng_deterministic() {
-        let mut prng = Prng::new(170526);
+        let mut prng = Prng::new(170_526);
         // (170526 * 9301 + 49297) % 233280 = 40903
         let val = prng.next();
-        assert!((val - 40903.0 / 233280.0).abs() < 1e-10);
+        assert!((val - 40_903.0 / 233_280.0).abs() < 1e-10);
     }
 
     #[test]
@@ -322,12 +318,9 @@ mod tests {
         let html = std::fs::read_to_string(
             "/home/cole/VulnerabilityResearch/fiwealth.com/phishing-kit/raw/stage2_after_post.html",
         );
-        let html = match html {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("Skipping real payload test: file not found");
-                return;
-            }
+        let Ok(html) = html else {
+            eprintln!("Skipping real payload test: file not found");
+            return;
         };
 
         let result = decrypt_encrypted_evals(&html);

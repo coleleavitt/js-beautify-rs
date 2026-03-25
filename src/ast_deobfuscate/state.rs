@@ -8,6 +8,7 @@ pub struct DeobfuscateState {
 }
 
 impl DeobfuscateState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             changed: false,
@@ -62,14 +63,14 @@ pub struct DecoderInfo {
     pub decoder_type: DecoderType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OffsetOperation {
     None,
     Subtract,
     Add,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecoderType {
     Simple,
     Base64,

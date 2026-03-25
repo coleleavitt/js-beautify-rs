@@ -22,7 +22,10 @@
 //! declarations, assignments, or any other context are left untouched.
 
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    BlockStatement, ConditionalExpression, Expression, ExpressionStatement, FunctionBody, IfStatement, Program,
+    Statement,
+};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
@@ -36,11 +39,13 @@ pub struct TernaryToIfElse {
 }
 
 impl TernaryToIfElse {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { converted_count: 0 }
     }
 
-    pub fn converted_count(&self) -> usize {
+    #[must_use]
+    pub const fn converted_count(&self) -> usize {
         self.converted_count
     }
 }
@@ -107,7 +112,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
 
         let before = program.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in program.body.iter() {
+        for stmt in &program.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
             {
@@ -131,7 +136,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
 
         let before = block.body.len();
         let mut new_body = ctx.ast.vec();
-        for stmt in block.body.iter() {
+        for stmt in &block.body {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
             {
@@ -164,7 +169,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernaryToIfElse {
 
         let before = body.statements.len();
         let mut new_stmts = ctx.ast.vec();
-        for stmt in body.statements.iter() {
+        for stmt in &body.statements {
             if let Statement::ExpressionStatement(expr_stmt) = stmt
                 && let Expression::ConditionalExpression(cond) = &expr_stmt.expression
             {
@@ -211,13 +216,12 @@ mod tests {
     #[test]
     fn test_convert_simple_ternary() {
         let (output, count) = run_convert("cond ? doA() : doB();");
-        assert!(count >= 1, "Should have converted at least 1 ternary, got: {}", count);
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
-        assert!(output.contains("else"), "Should contain 'else', got: {}", output);
+        assert!(count >= 1, "Should have converted at least 1 ternary, got: {count}");
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
+        assert!(output.contains("else"), "Should contain 'else', got: {output}");
         assert!(
             !output.contains('?'),
-            "Should NOT contain '?' ternary operator, got: {}",
-            output
+            "Should NOT contain '?' ternary operator, got: {output}"
         );
     }
 
@@ -226,24 +230,21 @@ mod tests {
         let (output, count) = run_convert("var x = cond ? 1 : 2;");
         assert_eq!(
             count, 0,
-            "Should NOT convert ternary inside var declaration, got: {}",
-            count
+            "Should NOT convert ternary inside var declaration, got: {count}"
         );
         assert!(
             output.contains('?'),
-            "Should still contain '?' ternary operator, got: {}",
-            output
+            "Should still contain '?' ternary operator, got: {output}"
         );
     }
 
     #[test]
     fn test_preserve_return_ternary() {
         let (output, count) = run_convert("function f() { return cond ? 1 : 2; }");
-        assert_eq!(count, 0, "Should NOT convert ternary inside return, got: {}", count);
+        assert_eq!(count, 0, "Should NOT convert ternary inside return, got: {count}");
         assert!(
             output.contains('?'),
-            "Should still contain '?' ternary operator, got: {}",
-            output
+            "Should still contain '?' ternary operator, got: {output}"
         );
     }
 
@@ -252,17 +253,16 @@ mod tests {
         let (output, count) = run_convert("function f() { cond ? doA() : doB(); }");
         assert!(
             count >= 1,
-            "Should have converted ternary in function body, got: {}",
-            count
+            "Should have converted ternary in function body, got: {count}"
         );
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
     }
 
     #[test]
     fn test_convert_in_block() {
         let (output, count) = run_convert("{ cond ? doA() : doB(); }");
-        assert!(count >= 1, "Should have converted ternary in block, got: {}", count);
-        assert!(output.contains("if"), "Should contain 'if', got: {}", output);
+        assert!(count >= 1, "Should have converted ternary in block, got: {count}");
+        assert!(output.contains("if"), "Should contain 'if', got: {output}");
     }
 
     #[test]
@@ -270,13 +270,11 @@ mod tests {
         let (output, count) = run_convert("const f = (K) => K ? 1 : 2;");
         assert_eq!(
             count, 0,
-            "Should NOT convert ternary in arrow expression body, got: {}",
-            count
+            "Should NOT convert ternary in arrow expression body, got: {count}"
         );
         assert!(
             output.contains('?'),
-            "Should still contain '?' ternary operator, got: {}",
-            output
+            "Should still contain '?' ternary operator, got: {output}"
         );
     }
 }

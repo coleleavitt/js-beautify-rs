@@ -6,7 +6,7 @@
 //! console.log(_0x1234[0]); // Inlined to: console.log("hello");
 //! ```
 
-use oxc_ast::ast::*;
+use oxc_ast::ast::{ComputedMemberExpression, Expression, StringLiteral};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -19,11 +19,13 @@ pub struct StringArrayInliner {
 }
 
 impl StringArrayInliner {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -34,15 +36,12 @@ impl StringArrayInliner {
     ) -> Option<Expression<'a>> {
         eprintln!("[AST] Checking computed member expression for string array access");
 
-        let array_name = match &member.object {
-            Expression::Identifier(ident) => {
-                eprintln!("[AST]   Object: {}", ident.name);
-                ident.name.as_str()
-            }
-            _ => {
-                eprintln!("[AST]   Object is not identifier");
-                return None;
-            }
+        let array_name = if let Expression::Identifier(ident) = &member.object {
+            eprintln!("[AST]   Object: {}", ident.name);
+            ident.name.as_str()
+        } else {
+            eprintln!("[AST]   Object is not identifier");
+            return None;
         };
 
         let array_info = ctx.state.string_arrays.get(array_name)?;
@@ -52,16 +51,13 @@ impl StringArrayInliner {
             array_info.strings.len()
         );
 
-        let index = match &member.expression {
-            Expression::NumericLiteral(lit) => {
-                let idx = lit.value as usize;
-                eprintln!("[AST]   Index: {idx}");
-                idx
-            }
-            _ => {
-                eprintln!("[AST]   Index is not numeric literal");
-                return None;
-            }
+        let index = if let Expression::NumericLiteral(lit) = &member.expression {
+            let idx = lit.value as usize;
+            eprintln!("[AST]   Index: {idx}");
+            idx
+        } else {
+            eprintln!("[AST]   Index is not numeric literal");
+            return None;
         };
 
         if index >= array_info.strings.len() {

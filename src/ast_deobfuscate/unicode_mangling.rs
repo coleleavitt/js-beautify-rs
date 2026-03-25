@@ -1,4 +1,4 @@
-use oxc_ast::ast::*;
+use oxc_ast::ast::{Expression, StringLiteral};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 
@@ -19,11 +19,13 @@ pub struct UnicodeNormalizer {
 }
 
 impl UnicodeNormalizer {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -36,7 +38,7 @@ impl UnicodeNormalizer {
         false
     }
 
-    fn is_confusable(ch: char) -> bool {
+    const fn is_confusable(ch: char) -> bool {
         matches!(
             ch,
             '\u{0410}'..='\u{044F}' | // Cyrillic
@@ -51,38 +53,28 @@ impl UnicodeNormalizer {
             .collect()
     }
 
-    fn normalize_confusable(ch: char) -> char {
+    const fn normalize_confusable(ch: char) -> char {
         match ch {
-            '\u{0410}' => 'A',
-            '\u{0412}' => 'B',
-            '\u{0415}' => 'E',
-            '\u{041A}' => 'K',
-            '\u{041C}' => 'M',
-            '\u{041D}' => 'H',
-            '\u{041E}' => 'O',
-            '\u{0420}' => 'P',
+            '\u{0410}' | '\u{0391}' => 'A',
+            '\u{0412}' | '\u{0392}' => 'B',
+            '\u{0415}' | '\u{0395}' => 'E',
+            '\u{041A}' | '\u{039A}' => 'K',
+            '\u{041C}' | '\u{039C}' => 'M',
+            '\u{041D}' | '\u{0397}' => 'H',
+            '\u{041E}' | '\u{039F}' => 'O',
+            '\u{0420}' | '\u{03A1}' => 'P',
             '\u{0421}' => 'C',
-            '\u{0422}' => 'T',
-            '\u{0425}' => 'X',
+            '\u{0422}' | '\u{03A4}' => 'T',
+            '\u{0425}' | '\u{03A7}' => 'X',
             '\u{0430}' => 'a',
             '\u{0435}' => 'e',
             '\u{043E}' => 'o',
             '\u{0440}' => 'p',
             '\u{0441}' => 'c',
             '\u{0445}' => 'x',
-            '\u{0391}' => 'A',
-            '\u{0392}' => 'B',
-            '\u{0395}' => 'E',
             '\u{0396}' => 'Z',
-            '\u{0397}' => 'H',
             '\u{0399}' => 'I',
-            '\u{039A}' => 'K',
-            '\u{039C}' => 'M',
             '\u{039D}' => 'N',
-            '\u{039F}' => 'O',
-            '\u{03A1}' => 'P',
-            '\u{03A4}' => 'T',
-            '\u{03A7}' => 'X',
             '\u{03A5}' => 'Y',
             _ => ch,
         }
@@ -147,13 +139,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains('\u{200B}'),
-            "Should remove zero-width chars, got: {}",
-            output
+            "Should remove zero-width chars, got: {output}"
         );
         assert!(
             output.contains("helloworld"),
-            "String should be normalized, got: {}",
-            output
+            "String should be normalized, got: {output}"
         );
     }
 
@@ -163,8 +153,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("ABC"),
-            "Should normalize Cyrillic to ASCII, got: {}",
-            output
+            "Should normalize Cyrillic to ASCII, got: {output}"
         );
     }
 
@@ -174,8 +163,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("normal string"),
-            "Should preserve normal strings, got: {}",
-            output
+            "Should preserve normal strings, got: {output}"
         );
     }
 }

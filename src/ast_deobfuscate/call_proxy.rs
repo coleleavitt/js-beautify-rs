@@ -1,5 +1,9 @@
+use std::cell::Cell;
+
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, BindingPattern, CallExpression, EmptyStatement, Expression, Function, IdentifierReference, Statement,
+};
 use oxc_span::SPAN;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
@@ -20,6 +24,7 @@ pub struct CallProxyCollector {
 }
 
 impl CallProxyCollector {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             proxies: FxHashMap::default(),
@@ -27,6 +32,7 @@ impl CallProxyCollector {
         }
     }
 
+    #[must_use]
     pub fn get_single_use_proxies(&self) -> FxHashMap<String, CallProxyInfo> {
         self.proxies
             .iter()
@@ -134,14 +140,16 @@ pub struct CallProxyInliner {
 }
 
 impl CallProxyInliner {
-    pub fn new(proxies: FxHashMap<String, CallProxyInfo>) -> Self {
+    #[must_use]
+    pub const fn new(proxies: FxHashMap<String, CallProxyInfo>) -> Self {
         Self {
             proxies,
             changed: false,
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -173,7 +181,7 @@ impl CallProxyInliner {
             callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
                 span: SPAN,
                 name: ctx.ast.atom(&proxy.target_name).into(),
-                reference_id: Default::default(),
+                reference_id: Cell::default(),
             })),
             arguments,
             optional: false,
@@ -255,13 +263,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function _0xabc"),
-            "Proxy function should be removed, got: {}",
-            output
+            "Proxy function should be removed, got: {output}"
         );
         assert!(
             output.contains("_0xdec(123)"),
-            "Call should be inlined to target, got: {}",
-            output
+            "Call should be inlined to target, got: {output}"
         );
     }
 
@@ -272,13 +278,11 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             !output.contains("function _wrap"),
-            "Proxy function should be removed, got: {}",
-            output
+            "Proxy function should be removed, got: {output}"
         );
         assert!(
             output.contains("_target(1, 2, 3)") || output.contains("_target(1,2,3)"),
-            "Call should be inlined to target, got: {}",
-            output
+            "Call should be inlined to target, got: {output}"
         );
     }
 
@@ -288,8 +292,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("function _wrap"),
-            "Multi-use proxy should be preserved, got: {}",
-            output
+            "Multi-use proxy should be preserved, got: {output}"
         );
     }
 
@@ -299,8 +302,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("function _wrap"),
-            "Non-proxy (wrong param order) should be preserved, got: {}",
-            output
+            "Non-proxy (wrong param order) should be preserved, got: {output}"
         );
     }
 }

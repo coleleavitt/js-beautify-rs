@@ -22,7 +22,7 @@ fn main() {
             println!("{output}");
         }
         Err(e) => {
-            eprintln!("FAILED: {:?}", e);
+            eprintln!("FAILED: {e:?}");
             std::process::exit(1);
         }
     }

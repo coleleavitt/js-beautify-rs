@@ -6,7 +6,10 @@
 //! d["a"](); // Inlined to: 1
 //! ```
 
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    ArrowFunctionExpression, BindingPattern, BooleanLiteral, CallExpression, Expression, Function, IdentifierReference,
+    NullLiteral, NumericLiteral, ObjectPropertyKind, PropertyKey, Statement, StringLiteral, VariableDeclaration,
+};
 use oxc_span::SPAN;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
@@ -22,6 +25,7 @@ pub struct DispatcherInliner {
 }
 
 impl DispatcherInliner {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             changed: false,
@@ -29,11 +33,12 @@ impl DispatcherInliner {
         }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
-    fn detect_dispatcher_pattern<'a>(&mut self, var_decl: &VariableDeclaration<'a>) -> Option<DispatcherInfo> {
+    fn detect_dispatcher_pattern(&mut self, var_decl: &VariableDeclaration<'_>) -> Option<DispatcherInfo> {
         if var_decl.declarations.len() != 1 {
             return None;
         }
@@ -47,9 +52,8 @@ impl DispatcherInliner {
 
         let init = decl.init.as_ref()?;
 
-        let obj_expr = match init {
-            Expression::ObjectExpression(obj) => obj,
-            _ => return None,
+        let Expression::ObjectExpression(obj_expr) = init else {
+            return None;
         };
 
         let mut functions = FxHashMap::default();
@@ -84,13 +88,10 @@ impl DispatcherInliner {
             return None;
         }
 
-        Some(DispatcherInfo {
-            var_name: var_name.clone(),
-            functions,
-        })
+        Some(DispatcherInfo { var_name, functions })
     }
 
-    fn extract_function_return(func: &Function) -> Option<ReturnValue> {
+    fn extract_function_return(func: &Function<'_>) -> Option<ReturnValue> {
         let body = func.body.as_ref()?;
         if body.statements.len() != 1 {
             return None;
@@ -103,7 +104,7 @@ impl DispatcherInliner {
         }
     }
 
-    fn extract_arrow_return(arrow: &ArrowFunctionExpression) -> Option<ReturnValue> {
+    fn extract_arrow_return(arrow: &ArrowFunctionExpression<'_>) -> Option<ReturnValue> {
         // Case 1: Expression body: x => value (single expression in function body)
         if arrow.expression {
             // When expression is true, body contains a single ExpressionStatement
@@ -140,7 +141,7 @@ impl DispatcherInliner {
         None
     }
 
-    fn extract_literal_value(expr: &Expression) -> Option<ReturnValue> {
+    fn extract_literal_value(expr: &Expression<'_>) -> Option<ReturnValue> {
         match expr {
             Expression::NumericLiteral(lit) => Some(ReturnValue::Number(lit.value)),
             Expression::StringLiteral(lit) => Some(ReturnValue::String(lit.value.to_string())),
@@ -222,9 +223,8 @@ impl DispatcherInliner {
     }
 
     fn try_inline_computed_member<'a>(&self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
-        let member = match &call.callee {
-            Expression::ComputedMemberExpression(m) => m,
-            _ => return None,
+        let Expression::ComputedMemberExpression(member) = &call.callee else {
+            return None;
         };
 
         let obj_name = match &member.object {
@@ -243,18 +243,14 @@ impl DispatcherInliner {
         let func_info = dispatcher.functions.get(key)?;
         let return_value = func_info.return_value.as_ref()?;
 
-        eprintln!(
-            "[AST] Inlining computed: {}[\"{}\"]() → {:?}",
-            obj_name, key, return_value
-        );
+        eprintln!("[AST] Inlining computed: {obj_name}[\"{key}\"]() → {return_value:?}");
 
         Some(Self::create_expression_from_return_value(return_value, ctx))
     }
 
     fn try_inline_static_member<'a>(&self, call: &CallExpression<'a>, ctx: &mut Ctx<'a>) -> Option<Expression<'a>> {
-        let member = match &call.callee {
-            Expression::StaticMemberExpression(m) => m,
-            _ => return None,
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
         };
 
         // Object must be an identifier: d.key()
@@ -271,7 +267,7 @@ impl DispatcherInliner {
         let func_info = dispatcher.functions.get(key)?;
         let return_value = func_info.return_value.as_ref()?;
 
-        eprintln!("[AST] Inlining static: {}.{}() → {:?}", obj_name, key, return_value);
+        eprintln!("[AST] Inlining static: {obj_name}.{key}() → {return_value:?}");
 
         Some(Self::create_expression_from_return_value(return_value, ctx))
     }

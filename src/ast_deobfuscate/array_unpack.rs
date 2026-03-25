@@ -1,5 +1,5 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{ComputedMemberExpression, Expression, MemberExpression, NullLiteral};
 use oxc_traverse::{Traverse, TraverseCtx};
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
@@ -11,11 +11,13 @@ pub struct ArrayUnpacker {
 }
 
 impl ArrayUnpacker {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { changed: false }
     }
 
-    pub fn has_changed(&self) -> bool {
+    #[must_use]
+    pub const fn has_changed(&self) -> bool {
         self.changed
     }
 
@@ -77,10 +79,8 @@ impl<'a> Traverse<'a, DeobfuscateState> for ArrayUnpacker {
             )));
             if let Some(unpacked) = self.try_unpack(&member_expr, ctx) {
                 *expr = unpacked;
-            } else {
-                if let MemberExpression::ComputedMemberExpression(original) = member_expr {
-                    **member = original.unbox();
-                }
+            } else if let MemberExpression::ComputedMemberExpression(original) = member_expr {
+                **member = original.unbox();
             }
         }
     }
@@ -119,8 +119,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("\"a\"") && !output.contains("[\"a\""),
-            "Should unpack to first element, got: {}",
-            output
+            "Should unpack to first element, got: {output}"
         );
     }
 
@@ -130,8 +129,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("= 2") || output.contains("=2"),
-            "Should unpack to second element, got: {}",
-            output
+            "Should unpack to second element, got: {output}"
         );
     }
 
@@ -141,8 +139,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("= foo") || output.contains("=foo"),
-            "Should unpack to identifier, got: {}",
-            output
+            "Should unpack to identifier, got: {output}"
         );
     }
 
@@ -152,8 +149,7 @@ mod tests {
         eprintln!("Output: {output}");
         assert!(
             output.contains("[1, 2][5]") || output.contains("[1,2][5]"),
-            "Should preserve out of bounds access, got: {}",
-            output
+            "Should preserve out of bounds access, got: {output}"
         );
     }
 }

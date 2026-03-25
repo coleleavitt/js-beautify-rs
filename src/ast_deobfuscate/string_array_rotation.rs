@@ -12,9 +12,11 @@
 //!     _0xdef(2);
 //! })(_0x1234, 0x123);
 //! ```
-//! The array is rotated, so ["a", "b", "c"] becomes ["c", "a", "b"] after 2 rotations.
+//! The array is rotated, so `["a", "b", "c"]` becomes `["c", "a", "b"]` after 2 rotations.
 
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    Argument, ArrayExpressionElement, BindingPattern, CallExpression, Expression, Statement, VariableDeclaration,
+};
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
 
@@ -28,6 +30,7 @@ pub struct StringArrayRotation {
 }
 
 impl StringArrayRotation {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             detected_arrays: FxHashMap::default(),
@@ -39,7 +42,7 @@ impl StringArrayRotation {
         name.starts_with("_0x") || name.starts_with("_0X")
     }
 
-    fn detect_string_array<'a>(&mut self, var_decl: &VariableDeclaration<'a>) -> Option<StringArrayInfo> {
+    fn detect_string_array(&mut self, var_decl: &VariableDeclaration<'_>) -> Option<StringArrayInfo> {
         if var_decl.declarations.len() != 1 {
             return None;
         }
@@ -57,9 +60,8 @@ impl StringArrayRotation {
 
         let init = decl.init.as_ref()?;
 
-        let array_expr = match init {
-            Expression::ArrayExpression(arr) => arr,
-            _ => return None,
+        let Expression::ArrayExpression(array_expr) = init else {
+            return None;
         };
 
         let mut strings = Vec::new();
@@ -76,14 +78,14 @@ impl StringArrayRotation {
         }
 
         Some(StringArrayInfo {
-            var_name: var_name.clone(),
+            var_name,
             strings,
             rotated: false,
             rotation_count: 0,
         })
     }
 
-    fn detect_rotation_iife<'a>(&mut self, call_expr: &CallExpression<'a>) -> Option<(String, usize)> {
+    fn detect_rotation_iife(&mut self, call_expr: &CallExpression<'_>) -> Option<(String, usize)> {
         eprintln!("[AST] Checking call for rotation IIFE");
 
         let func = match &call_expr.callee {
@@ -91,16 +93,15 @@ impl StringArrayRotation {
                 eprintln!("[AST]   Direct function");
                 f
             }
-            Expression::ParenthesizedExpression(paren) => match &paren.expression {
-                Expression::FunctionExpression(f) => {
+            Expression::ParenthesizedExpression(paren) => {
+                if let Expression::FunctionExpression(f) = &paren.expression {
                     eprintln!("[AST]   Parenthesized function");
                     f
-                }
-                _ => {
+                } else {
                     eprintln!("[AST]   Parenthesized but not function");
                     return None;
                 }
-            },
+            }
             _ => {
                 eprintln!("[AST]   Not function or paren");
                 return None;
@@ -113,15 +114,12 @@ impl StringArrayRotation {
         }
 
         let array_arg = call_expr.arguments.first()?;
-        let array_name = match array_arg {
-            Argument::Identifier(ident) => {
-                eprintln!("[AST]   Arg: {}", ident.name);
-                ident.name.as_str()
-            }
-            _ => {
-                eprintln!("[AST]   Arg not identifier");
-                return None;
-            }
+        let array_name = if let Argument::Identifier(ident) = array_arg {
+            eprintln!("[AST]   Arg: {}", ident.name);
+            ident.name.as_str()
+        } else {
+            eprintln!("[AST]   Arg not identifier");
+            return None;
         };
 
         if !self.detected_arrays.contains_key(array_name) {
@@ -137,7 +135,7 @@ impl StringArrayRotation {
         Some((array_name.to_string(), rotation_count))
     }
 
-    fn analyze_rotation_body<'a>(&self, statements: &[Statement<'a>]) -> Option<usize> {
+    fn analyze_rotation_body(&self, statements: &[Statement<'_>]) -> Option<usize> {
         let mut has_rotation_ops = false;
         let mut rotation_count = None;
 
@@ -148,23 +146,17 @@ impl StringArrayRotation {
             self.scan_for_rotation(stmt, &mut has_rotation_ops, &mut rotation_count);
         }
 
-        eprintln!(
-            "[AST]     has_rotation_ops: {}, rotation_count: {:?}",
-            has_rotation_ops, rotation_count
-        );
+        eprintln!("[AST]     has_rotation_ops: {has_rotation_ops}, rotation_count: {rotation_count:?}");
 
         if has_rotation_ops && rotation_count.is_some() {
             rotation_count
         } else {
-            eprintln!(
-                "[AST]     No rotation detected (ops={}, count={:?})",
-                has_rotation_ops, rotation_count
-            );
+            eprintln!("[AST]     No rotation detected (ops={has_rotation_ops}, count={rotation_count:?})");
             None
         }
     }
 
-    fn scan_for_rotation<'a>(&self, stmt: &Statement<'a>, has_ops: &mut bool, count: &mut Option<usize>) {
+    fn scan_for_rotation(&self, stmt: &Statement<'_>, has_ops: &mut bool, count: &mut Option<usize>) {
         match stmt {
             Statement::VariableDeclaration(var_decl) => {
                 eprintln!(
@@ -197,7 +189,7 @@ impl StringArrayRotation {
         }
     }
 
-    fn scan_expr_for_rotation<'a>(&self, expr: &Expression<'a>, has_ops: &mut bool, count: &mut Option<usize>) {
+    fn scan_expr_for_rotation(&self, expr: &Expression<'_>, has_ops: &mut bool, count: &mut Option<usize>) {
         match expr {
             Expression::CallExpression(call) => {
                 eprintln!("[AST]         Found CallExpression");
