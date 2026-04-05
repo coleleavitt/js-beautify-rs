@@ -20,6 +20,7 @@ pub mod dispatcher_inline;
 pub mod dynamic_property;
 pub mod empty_statement_cleanup;
 pub mod encrypted_eval;
+pub mod esbuild_helper;
 pub mod expression_simplify;
 pub mod function_inline;
 pub mod iife_unwrap;
@@ -51,6 +52,7 @@ pub use decoder_inline::DecoderInliner;
 pub use dispatcher_inline::DispatcherInliner;
 pub use dynamic_property::DynamicPropertyConverter;
 pub use empty_statement_cleanup::EmptyStatementCleanup;
+pub use esbuild_helper::{EsbuildHelperCollector, annotate_esbuild_modules};
 pub use expression_simplify::ExpressionSimplifier;
 pub use function_inline::{FunctionCollector, FunctionInliner};
 pub use iife_unwrap::IifeUnwrap;
@@ -379,12 +381,19 @@ impl AstDeobfuscator {
             self.iife_unwrap.unwrapped_count()
         );
 
+        eprintln!("[DEOBFUSCATE] Phase 19: Detecting esbuild helpers");
+        let scoping = SemanticBuilder::new().build(&program).semantic.into_scoping();
+        let mut ctx = ReusableTraverseCtx::new(DeobfuscateState::new(), scoping, &allocator);
+        let mut esbuild_collector = EsbuildHelperCollector::new();
+        traverse_mut_with_ctx(&mut esbuild_collector, &mut program, &mut ctx);
+
         eprintln!("[DEOBFUSCATE] Generating output code");
         let output = Codegen::new().build(&program).code;
         eprintln!("[DEOBFUSCATE] Output generated, {} bytes", output.len());
 
-        eprintln!("[DEOBFUSCATE] Phase 19: Annotating webpack modules");
+        eprintln!("[DEOBFUSCATE] Phase 20: Annotating modules");
         let output = annotate_webpack_modules(&output);
+        let output = annotate_esbuild_modules(&output, &esbuild_collector);
 
         Ok(output)
     }
