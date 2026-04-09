@@ -29,7 +29,7 @@ fn oxc_beautify(code: &str) -> Result<String> {
 /// Returns an error if the operation fails.
 pub fn beautify(code: &str, options: &Options) -> Result<String> {
     if options.deobfuscate {
-        let mut deobfuscator = AstDeobfuscator::new();
+        let mut deobfuscator = AstDeobfuscator::new().with_skip_annotations(options.skip_annotations);
         return deobfuscator.deobfuscate(code);
     }
 

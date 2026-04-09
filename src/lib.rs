@@ -14,6 +14,7 @@
 
 pub mod ast_deobfuscate;
 pub mod beautifier;
+pub mod cross_version;
 pub mod oxc_opts;
 pub mod sourcemap;
 pub mod token;
@@ -28,6 +29,7 @@ pub use ast_deobfuscate::AstDeobfuscator;
 pub use beautifier::beautify;
 pub use chunk_detector::{ChunkDetector, ChunkMetadata};
 pub use chunk_splitter::{ChunkManifest, ChunkSplitter};
+pub use cross_version::{AlignConfig, AlignmentStats, CrossVersionAligner, StatementMatcher};
 pub use options::Options;
 pub use oxc_opts::OxcOptimizer;
 pub use token::{Token, TokenType};

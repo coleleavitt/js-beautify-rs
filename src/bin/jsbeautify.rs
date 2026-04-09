@@ -1,4 +1,5 @@
 use clap::Parser;
+use js_beautify_rs::cross_version::{AlignConfig, CrossVersionAligner};
 use js_beautify_rs::tokenizer::Tokenizer;
 use js_beautify_rs::webpack_module_extractor::ModuleExtractor;
 use js_beautify_rs::{Options, beautify};
@@ -61,6 +62,18 @@ struct Cli {
     /// Use tabs for indentation instead of spaces
     #[arg(long)]
     indent_with_tabs: bool,
+
+    /// Path to sourcemap for extracting original variable names
+    #[arg(long, value_name = "FILE")]
+    sourcemap: Option<PathBuf>,
+
+    /// Second bundle to align with (produces stable diffs)
+    #[arg(long, value_name = "FILE")]
+    align_with: Option<PathBuf>,
+
+    /// Output path for the aligned second bundle
+    #[arg(long, value_name = "FILE")]
+    align_output: Option<PathBuf>,
 }
 
 fn main() {
@@ -127,6 +140,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if cli.align_with.is_some() || cli.sourcemap.is_some() {
+        options.skip_annotations = true;
+        return run_cross_version_align(
+            cli.sourcemap.as_ref(),
+            cli.align_with.as_ref(),
+            cli.align_output.as_ref(),
+            cli.output.as_ref(),
+            &code,
+            &options,
+        );
+    }
+
     let beautified = beautify(&code, &options)?;
 
     if let Some(output_path) = &cli.output {
@@ -134,6 +159,78 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Beautified code written to {output_path}");
     } else {
         println!("{beautified}");
+    }
+
+    Ok(())
+}
+
+fn run_cross_version_align(
+    sourcemap_path: Option<&PathBuf>,
+    align_with_path: Option<&PathBuf>,
+    align_output_path: Option<&PathBuf>,
+    output_path: Option<&String>,
+    source_code: &str,
+    options: &Options,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = AlignConfig {
+        sourcemap_path: sourcemap_path.map(|p| p.to_string_lossy().to_string()),
+        align_with: align_with_path.map(|p| p.to_string_lossy().to_string()),
+        hash_depth: 12,
+    };
+
+    let mut aligner = CrossVersionAligner::new(config);
+
+    if let Some(smap_path) = sourcemap_path {
+        eprintln!("[ALIGN] Loading sourcemap: {}", smap_path.display());
+        let sourcemap_json = fs::read_to_string(smap_path)?;
+        let stable_count = aligner.load_sourcemap(&sourcemap_json, source_code)?;
+        eprintln!("[ALIGN] Loaded {} stable name mappings", stable_count);
+    }
+
+    eprintln!("[ALIGN] Beautifying source...");
+    let source_beautified = beautify(source_code, options)?;
+    eprintln!("[ALIGN] Source beautified: {} lines", source_beautified.lines().count());
+
+    if let Some(target_path) = align_with_path {
+        eprintln!("[ALIGN] Loading target bundle: {}", target_path.display());
+        let target_code = fs::read_to_string(target_path)?;
+
+        eprintln!("[ALIGN] Beautifying target...");
+        let target_beautified = beautify(&target_code, options)?;
+        eprintln!("[ALIGN] Target beautified: {} lines", target_beautified.lines().count());
+
+        eprintln!("[ALIGN] Aligning statements between versions...");
+        let (aligned_source, aligned_target, stats) = aligner.align_sources(&source_beautified, &target_beautified);
+
+        eprintln!("[ALIGN] === Results ===");
+        eprintln!(
+            "[ALIGN] Matched: {} / {} ({:.1}%)",
+            stats.matched_statements,
+            stats.source_statements,
+            stats.match_rate()
+        );
+        eprintln!("[ALIGN] Source replacements: {}", stats.source_replacements);
+        eprintln!("[ALIGN] Target replacements: {}", stats.target_replacements);
+        eprintln!("[ALIGN] Canonical names generated: {}", stats.canonical_names_generated);
+
+        if let Some(align_out) = align_output_path {
+            fs::write(align_out, &aligned_target)?;
+            eprintln!("[ALIGN] Target output written to {}", align_out.display());
+        }
+
+        if let Some(out_path) = output_path {
+            fs::write(out_path, &aligned_source)?;
+            eprintln!("[ALIGN] Source output written to {out_path}");
+        } else {
+            println!("{aligned_source}");
+        }
+    } else {
+        if let Some(out_path) = output_path {
+            fs::write(out_path, &source_beautified)?;
+            eprintln!("[ALIGN] Source output written to {out_path}");
+        } else {
+            println!("{source_beautified}");
+        }
     }
 
     Ok(())

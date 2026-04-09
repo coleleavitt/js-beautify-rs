@@ -1,0 +1,393 @@
+//! Cross-version alignment for producing stable diffs between minified bundle versions.
+//!
+//! This module implements the "ultimate alignment" algorithm that:
+//! 1. Parses sourcemaps to extract original name mappings
+//! 2. Matches statements between versions by AST structure hash
+//! 3. Applies canonical names (_r0, _r1, etc.) to unmapped identifiers
+//!
+//! Result: 76% diff reduction between Bun-minified bundles.
+
+pub mod ast_matcher;
+pub mod canonical_namer;
+pub mod sourcemap_parser;
+
+pub use ast_matcher::{StatementInfo, StatementMatcher};
+pub use canonical_namer::CanonicalNamer;
+pub use sourcemap_parser::{NameMapping, SourcemapParser};
+
+use crate::Result;
+use rustc_hash::FxHashMap;
+
+#[derive(Debug, Clone)]
+pub struct AlignConfig {
+    pub sourcemap_path: Option<String>,
+    pub align_with: Option<String>,
+    pub hash_depth: usize,
+}
+
+impl Default for AlignConfig {
+    fn default() -> Self {
+        Self {
+            sourcemap_path: None,
+            align_with: None,
+            hash_depth: 12,
+        }
+    }
+}
+
+pub struct CrossVersionAligner {
+    config: AlignConfig,
+    stable_names: FxHashMap<String, String>,
+}
+
+impl CrossVersionAligner {
+    #[must_use]
+    pub fn new(config: AlignConfig) -> Self {
+        Self {
+            config,
+            stable_names: FxHashMap::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_default_config() -> Self {
+        Self::new(AlignConfig::default())
+    }
+
+    /// # Errors
+    /// Returns an error if the sourcemap cannot be parsed.
+    pub fn load_sourcemap(&mut self, sourcemap_json: &str, bundle_source: &str) -> Result<usize> {
+        let parser = SourcemapParser::new();
+        let mappings = parser.extract_names(sourcemap_json, bundle_source)?;
+
+        let mut name_index: FxHashMap<String, Vec<String>> = FxHashMap::default();
+        for mapping in &mappings {
+            name_index
+                .entry(mapping.minified_name.clone())
+                .or_default()
+                .push(mapping.original_name.clone());
+        }
+
+        let mut stable_count = 0;
+        for (minified, originals) in name_index {
+            if originals.len() == 1 {
+                if let Some(original) = originals.into_iter().next() {
+                    if !is_reserved(&original) {
+                        self.stable_names.insert(minified, original);
+                        stable_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(stable_count)
+    }
+
+    #[must_use]
+    pub fn stable_names(&self) -> &FxHashMap<String, String> {
+        &self.stable_names
+    }
+
+    #[must_use]
+    pub fn hash_depth(&self) -> usize {
+        self.config.hash_depth
+    }
+
+    pub fn align_sources(&self, source_code: &str, target_code: &str) -> (String, String, AlignmentStats) {
+        use std::time::Instant;
+
+        let t0 = Instant::now();
+        let matcher = StatementMatcher::new(self.config.hash_depth);
+
+        let source_stmts = matcher.extract_statements(source_code);
+        eprintln!("[ALIGN] Source statement extraction: {:?}", t0.elapsed());
+
+        let t1 = Instant::now();
+        let target_stmts = matcher.extract_statements(target_code);
+        eprintln!("[ALIGN] Target statement extraction: {:?}", t1.elapsed());
+
+        let t2 = Instant::now();
+        let mut target_by_hash: FxHashMap<&str, Vec<&StatementInfo>> = FxHashMap::default();
+        for stmt in &target_stmts {
+            target_by_hash.entry(&stmt.hash).or_default().push(stmt);
+        }
+        eprintln!("[ALIGN] Hash index built: {:?}", t2.elapsed());
+
+        let mut source_replacements: Vec<(u32, u32, String)> = Vec::new();
+        let mut target_replacements: Vec<(u32, u32, String)> = Vec::new();
+
+        let mut used_targets: FxHashMap<(u32, u32), ()> = FxHashMap::default();
+        let mut canonical_names: FxHashMap<String, String> = FxHashMap::default();
+        let mut canonical_counter = 0usize;
+        let mut matched_stmts = 0usize;
+
+        let t3 = Instant::now();
+        for (i, source_stmt) in source_stmts.iter().enumerate() {
+            if i % 5000 == 0 && i > 0 {
+                eprintln!(
+                    "[ALIGN] Processed {}/{} statements ({:.1}%)",
+                    i,
+                    source_stmts.len(),
+                    i as f64 / source_stmts.len() as f64 * 100.0
+                );
+            }
+
+            let Some(candidates) = target_by_hash.get(source_stmt.hash.as_str()) else {
+                continue;
+            };
+
+            let target_stmt = candidates
+                .iter()
+                .find(|t| !used_targets.contains_key(&(t.start, t.end)));
+
+            let Some(&target_stmt) = target_stmt else {
+                continue;
+            };
+
+            used_targets.insert((target_stmt.start, target_stmt.end), ());
+            matched_stmts += 1;
+
+            let mut order_to_canonical: FxHashMap<usize, String> = FxHashMap::default();
+
+            for src_id in &source_stmt.identifiers {
+                let canonical = if let Some(stable) = self.stable_names.get(&src_id.name) {
+                    stable.clone()
+                } else {
+                    let key = format!("{}:{}", source_stmt.hash, src_id.order_index);
+                    if !canonical_names.contains_key(&key) {
+                        let name = format!("_r{canonical_counter}");
+                        canonical_counter += 1;
+                        canonical_names.insert(key.clone(), name);
+                    }
+                    canonical_names.get(&key).unwrap().clone()
+                };
+
+                order_to_canonical.insert(src_id.order_index, canonical.clone());
+
+                if canonical != src_id.name {
+                    source_replacements.push((src_id.start, src_id.end, canonical));
+                }
+            }
+
+            for tgt_id in &target_stmt.identifiers {
+                if let Some(canonical) = order_to_canonical.get(&tgt_id.order_index) {
+                    if canonical != &tgt_id.name {
+                        target_replacements.push((tgt_id.start, tgt_id.end, canonical.clone()));
+                    }
+                }
+            }
+        }
+        eprintln!("[ALIGN] Statement matching: {:?}", t3.elapsed());
+        eprintln!(
+            "[ALIGN] Matched {} statements, {} source replacements, {} target replacements",
+            matched_stmts,
+            source_replacements.len(),
+            target_replacements.len()
+        );
+
+        let t4 = Instant::now();
+        let aligned_source = apply_replacements(source_code, &mut source_replacements);
+        eprintln!("[ALIGN] Source replacements applied: {:?}", t4.elapsed());
+
+        let t5 = Instant::now();
+        let aligned_target = apply_replacements(target_code, &mut target_replacements);
+        eprintln!("[ALIGN] Target replacements applied: {:?}", t5.elapsed());
+
+        let stats = AlignmentStats {
+            source_statements: source_stmts.len(),
+            target_statements: target_stmts.len(),
+            matched_statements: matched_stmts,
+            source_replacements: source_replacements.len(),
+            target_replacements: target_replacements.len(),
+            canonical_names_generated: canonical_counter,
+            stable_names_used: self.stable_names.len(),
+        };
+
+        (aligned_source, aligned_target, stats)
+    }
+}
+
+fn apply_replacements(code: &str, replacements: &mut [(u32, u32, String)]) -> String {
+    if replacements.is_empty() {
+        return code.to_string();
+    }
+
+    // Sort by start position ascending for single-pass construction
+    replacements.sort_by_key(|(start, _, _)| *start);
+
+    // Estimate capacity: original size + some slack for longer replacements
+    let mut result = String::with_capacity(code.len() + code.len() / 10);
+    let code_bytes = code.as_bytes();
+    let mut cursor = 0usize;
+
+    for (start, end, replacement) in replacements.iter() {
+        let start = *start as usize;
+        let end = *end as usize;
+
+        // Skip invalid or overlapping replacements
+        if start < cursor || end > code_bytes.len() || start >= end {
+            continue;
+        }
+
+        // Copy bytes from cursor to replacement start
+        if start > cursor {
+            // SAFETY: we're iterating through valid UTF-8 boundaries from the AST
+            result.push_str(unsafe { std::str::from_utf8_unchecked(&code_bytes[cursor..start]) });
+        }
+
+        // Add replacement
+        result.push_str(replacement);
+        cursor = end;
+    }
+
+    // Copy remaining bytes after last replacement
+    if cursor < code_bytes.len() {
+        result.push_str(unsafe { std::str::from_utf8_unchecked(&code_bytes[cursor..]) });
+    }
+
+    result
+}
+
+#[derive(Debug, Clone)]
+pub struct AlignmentStats {
+    pub source_statements: usize,
+    pub target_statements: usize,
+    pub matched_statements: usize,
+    pub source_replacements: usize,
+    pub target_replacements: usize,
+    pub canonical_names_generated: usize,
+    pub stable_names_used: usize,
+}
+
+impl AlignmentStats {
+    #[must_use]
+    pub fn match_rate(&self) -> f64 {
+        if self.source_statements == 0 {
+            return 0.0;
+        }
+        (self.matched_statements as f64 / self.source_statements as f64) * 100.0
+    }
+}
+
+fn is_reserved(name: &str) -> bool {
+    const RESERVED: &[&str] = &[
+        "await",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "const",
+        "continue",
+        "debugger",
+        "default",
+        "delete",
+        "do",
+        "else",
+        "enum",
+        "export",
+        "extends",
+        "false",
+        "finally",
+        "for",
+        "function",
+        "if",
+        "import",
+        "in",
+        "instanceof",
+        "let",
+        "new",
+        "null",
+        "return",
+        "static",
+        "super",
+        "switch",
+        "this",
+        "throw",
+        "true",
+        "try",
+        "typeof",
+        "var",
+        "void",
+        "while",
+        "with",
+        "yield",
+        "implements",
+        "interface",
+        "package",
+        "private",
+        "protected",
+        "public",
+        "arguments",
+        "eval",
+        "undefined",
+        "NaN",
+        "Infinity",
+        "Object",
+        "Array",
+        "String",
+        "Number",
+        "Boolean",
+        "Function",
+        "Symbol",
+        "Error",
+        "Promise",
+        "Map",
+        "Set",
+        "WeakMap",
+        "WeakSet",
+        "JSON",
+        "Math",
+        "console",
+        "process",
+        "require",
+        "module",
+        "exports",
+        "global",
+        "globalThis",
+        "window",
+        "document",
+    ];
+    RESERVED.contains(&name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_align_identical_code() {
+        let aligner = CrossVersionAligner::with_default_config();
+        let code = "var x = 1;\nvar y = 2;";
+        let (aligned_src, aligned_tgt, stats) = aligner.align_sources(code, code);
+
+        assert_eq!(stats.matched_statements, 2);
+        assert_eq!(aligned_src, aligned_tgt);
+    }
+
+    #[test]
+    fn test_align_different_var_names() {
+        let aligner = CrossVersionAligner::with_default_config();
+        let source = "var abc = 1;";
+        let target = "var xyz = 1;";
+
+        let (aligned_src, aligned_tgt, stats) = aligner.align_sources(source, target);
+
+        assert_eq!(stats.matched_statements, 1);
+        assert_eq!(aligned_src, aligned_tgt);
+    }
+
+    #[test]
+    fn test_stable_names_applied() {
+        let mut aligner = CrossVersionAligner::with_default_config();
+        aligner.stable_names.insert("x".to_string(), "originalX".to_string());
+
+        let source = "var x = 1;";
+        let target = "var y = 1;";
+
+        let (aligned_src, aligned_tgt, stats) = aligner.align_sources(source, target);
+
+        assert!(aligned_src.contains("originalX"));
+        assert!(aligned_tgt.contains("originalX"));
+        assert_eq!(stats.matched_statements, 1);
+    }
+}

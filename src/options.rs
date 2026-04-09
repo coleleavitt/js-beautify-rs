@@ -26,6 +26,7 @@ pub struct Options {
     pub extract_modules: bool,
     pub module_dir: PathBuf,
     pub dependency_graph: Option<PathBuf>,
+    pub skip_annotations: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +62,7 @@ impl Default for Options {
             extract_modules: false,
             module_dir: PathBuf::from("./modules"),
             dependency_graph: None,
+            skip_annotations: false,
         }
     }
 }

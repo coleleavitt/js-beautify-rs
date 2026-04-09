@@ -2805,11 +2805,31 @@ pub fn annotate_esbuild_modules(code: &str, collector: &EsbuildHelperCollector) 
 
     let mut result = String::with_capacity(code.len() + 8192);
 
+    // Extract hashbang if present at start — must stay first for valid JS
+    let (hashbang, code_after_hashbang) = if code.starts_with("#!") {
+        match code.find('\n') {
+            Some(newline_pos) => {
+                let hashbang_line = &code[..=newline_pos];
+                let rest = &code[newline_pos + 1..];
+                (Some(hashbang_line), rest)
+            }
+            None => (Some(code), ""),
+        }
+    } else {
+        (None, code)
+    };
+
+    // Hashbang MUST come first (ECMAScript spec requirement)
+    if let Some(hashbang_line) = hashbang {
+        result.push_str(hashbang_line);
+    }
+
+    // Header goes after hashbang
     result.push_str(&generate_helper_header(collector));
 
     let mut count = 0u32;
 
-    for line in code.lines() {
+    for line in code_after_hashbang.lines() {
         let trimmed = line.trim_start();
 
         for helper in &commonjs_helpers {

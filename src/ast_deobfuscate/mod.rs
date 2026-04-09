@@ -10,12 +10,15 @@
 pub mod algebraic_simplify;
 pub mod array_unpack;
 pub mod boolean_literals;
+pub mod bun_alphabet;
+pub mod bun_module_annotator;
 pub mod call_proxy;
 pub mod constant_folding;
 pub mod control_flow_unflatten;
 pub mod dead_code;
 pub mod dead_var_elimination;
 pub mod decoder_inline;
+pub mod deterministic_rename;
 pub mod dispatcher_inline;
 pub mod dynamic_property;
 pub mod empty_statement_cleanup;
@@ -43,16 +46,18 @@ pub mod void_replacer;
 pub use algebraic_simplify::AlgebraicSimplifier;
 pub use array_unpack::ArrayUnpacker;
 pub use boolean_literals::BooleanLiteralConverter;
+pub use bun_module_annotator::annotate_bun_modules;
 pub use call_proxy::{CallProxyCollector, CallProxyInliner};
 pub use constant_folding::ConstantFolder;
 pub use control_flow_unflatten::ControlFlowUnflattener;
 pub use dead_code::DeadCodeEliminator;
 pub use dead_var_elimination::{DeadVarCollector, DeadVarEliminator};
 pub use decoder_inline::DecoderInliner;
+pub use deterministic_rename::DeterministicRenamer;
 pub use dispatcher_inline::DispatcherInliner;
 pub use dynamic_property::DynamicPropertyConverter;
 pub use empty_statement_cleanup::EmptyStatementCleanup;
-pub use esbuild_helper::{EsbuildHelperCollector, annotate_esbuild_modules};
+pub use esbuild_helper::{EsbuildHelperCollector, EsbuildHelperKind, annotate_esbuild_modules};
 pub use expression_simplify::ExpressionSimplifier;
 pub use function_inline::{FunctionCollector, FunctionInliner};
 pub use iife_unwrap::IifeUnwrap;
@@ -101,12 +106,14 @@ pub struct AstDeobfuscator {
     void_replacer: VoidReplacer,
     object_sparsing_consolidator: ObjectSparsingConsolidator,
     variable_renamer: VariableRenamer,
+    deterministic_renamer: DeterministicRenamer,
     empty_statement_cleanup: EmptyStatementCleanup,
     sequence_expression_splitter: SequenceExpressionSplitter,
     multi_var_splitter: MultiVarSplitter,
     ternary_to_if_else: TernaryToIfElse,
     short_circuit_to_if: ShortCircuitToIf,
     iife_unwrap: IifeUnwrap,
+    skip_annotations: bool,
 }
 
 impl AstDeobfuscator {
@@ -132,13 +139,21 @@ impl AstDeobfuscator {
             void_replacer: VoidReplacer::new(),
             object_sparsing_consolidator: ObjectSparsingConsolidator::new(),
             variable_renamer: VariableRenamer::new(),
+            deterministic_renamer: DeterministicRenamer::new(),
             empty_statement_cleanup: EmptyStatementCleanup::new(),
             sequence_expression_splitter: SequenceExpressionSplitter::new(),
             multi_var_splitter: MultiVarSplitter::new(),
             ternary_to_if_else: TernaryToIfElse::new(),
             short_circuit_to_if: ShortCircuitToIf::new(),
             iife_unwrap: IifeUnwrap::new(),
+            skip_annotations: false,
         }
+    }
+
+    #[must_use]
+    pub fn with_skip_annotations(mut self, skip: bool) -> Self {
+        self.skip_annotations = skip;
+        self
     }
 
     /// # Errors
@@ -391,9 +406,28 @@ impl AstDeobfuscator {
         let output = Codegen::new().build(&program).code;
         eprintln!("[DEOBFUSCATE] Output generated, {} bytes", output.len());
 
+        if self.skip_annotations {
+            eprintln!("[DEOBFUSCATE] Skipping module annotations (alignment mode)");
+            return Ok(output);
+        }
+
         eprintln!("[DEOBFUSCATE] Phase 20: Annotating modules");
         let output = annotate_webpack_modules(&output);
         let output = annotate_esbuild_modules(&output, &esbuild_collector);
+
+        let esm_helpers: Vec<String> = esbuild_collector
+            .get_helpers()
+            .iter()
+            .filter(|(_, info)| matches!(info.kind, EsbuildHelperKind::Esm))
+            .map(|(name, _)| name.clone())
+            .collect();
+        let cjs_helpers: Vec<String> = esbuild_collector
+            .get_helpers()
+            .iter()
+            .filter(|(_, info)| matches!(info.kind, EsbuildHelperKind::CommonJs))
+            .map(|(name, _)| name.clone())
+            .collect();
+        let output = annotate_bun_modules(&output, &esm_helpers, &cjs_helpers);
 
         Ok(output)
     }
