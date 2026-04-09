@@ -362,84 +362,60 @@ impl AlignmentStats {
 }
 
 fn is_reserved(name: &str) -> bool {
-    const RESERVED: &[&str] = &[
-        "await",
-        "break",
-        "case",
-        "catch",
-        "class",
-        "const",
-        "continue",
-        "debugger",
-        "default",
-        "delete",
-        "do",
-        "else",
-        "enum",
-        "export",
-        "extends",
-        "false",
-        "finally",
-        "for",
-        "function",
-        "if",
-        "import",
-        "in",
-        "instanceof",
-        "let",
-        "new",
-        "null",
-        "return",
-        "static",
-        "super",
-        "switch",
-        "this",
-        "throw",
-        "true",
-        "try",
-        "typeof",
-        "var",
-        "void",
-        "while",
-        "with",
-        "yield",
-        "implements",
-        "interface",
-        "package",
-        "private",
-        "protected",
-        "public",
-        "arguments",
-        "eval",
-        "undefined",
-        "NaN",
-        "Infinity",
-        "Object",
-        "Array",
-        "String",
-        "Number",
-        "Boolean",
-        "Function",
-        "Symbol",
-        "Error",
-        "Promise",
-        "Map",
-        "Set",
-        "WeakMap",
-        "WeakSet",
-        "JSON",
-        "Math",
-        "console",
-        "process",
-        "require",
-        "module",
-        "exports",
-        "global",
-        "globalThis",
-        "window",
-        "document",
-    ];
-    RESERVED.contains(&name)
+    matches!(
+        name,
+        "await"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "let"
+            | "new"
+            | "null"
+            | "return"
+            | "static"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+            | "implements"
+            | "interface"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "arguments"
+            | "eval"
+            | "undefined"
+            | "NaN"
+            | "Infinity"
+    )
 }
 
 #[cfg(test)]
