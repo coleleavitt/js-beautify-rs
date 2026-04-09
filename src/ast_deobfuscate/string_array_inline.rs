@@ -8,7 +8,9 @@
 
 use oxc_ast::ast::{ComputedMemberExpression, Expression, StringLiteral};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -73,8 +75,9 @@ impl StringArrayInliner {
         eprintln!("[AST] ✓ Inlining: {array_name}[{index}] → \"{string_value}\"");
 
         Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
-            value: ctx.ast.atom(string_value.as_str()),
+            value: ctx.ast.str(string_value.as_str()),
             raw: None,
             lone_surrogates: false,
         })))

@@ -5,6 +5,7 @@ use oxc_ast::ast::{
     UnaryExpression, UnaryOperator,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
@@ -299,33 +300,42 @@ impl FunctionInliner {
                     Self::clone_expression(args[*idx], ctx)
                 } else {
                     Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
-                        name: ctx.ast.atom("undefined").into(),
+                        name: ctx.ast.ident("undefined"),
                         reference_id: Cell::default(),
                     }))
                 }
             }
             ReturnExpr::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                name: ctx.ast.atom(name).into(),
+                name: ctx.ast.ident(name),
                 reference_id: Cell::default(),
             })),
             ReturnExpr::Number(val) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 value: *val,
-                raw: Some(ctx.ast.atom(&val.to_string())),
+                raw: Some(ctx.ast.str(&val.to_string())),
                 base: NumberBase::Decimal,
             })),
             ReturnExpr::String(s) => Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                value: ctx.ast.atom(s),
+                value: ctx.ast.str(s),
                 raw: None,
                 lone_surrogates: false,
             })),
-            ReturnExpr::Boolean(b) => {
-                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: *b }))
-            }
-            ReturnExpr::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN })),
+            ReturnExpr::Boolean(b) => Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
+                span: SPAN,
+                value: *b,
+            })),
+            ReturnExpr::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
+                span: SPAN,
+            })),
             ReturnExpr::Binary { left, op, right } => {
                 let left_expr = Self::build_expression(left, args, ctx);
                 let right_expr = Self::build_expression(right, args, ctx);
@@ -348,6 +358,7 @@ impl FunctionInliner {
                     BinaryOp::Gte => BinaryOperator::GreaterEqualThan,
                 };
                 Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     left: left_expr,
                     operator,
@@ -363,6 +374,7 @@ impl FunctionInliner {
                     UnaryOp::BitNot => UnaryOperator::BitwiseNot,
                 };
                 Expression::UnaryExpression(ctx.ast.alloc(UnaryExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     operator,
                     argument: arg_expr,
@@ -378,10 +390,12 @@ impl FunctionInliner {
                     arguments.push(Argument::from(expr));
                 }
                 Expression::CallExpression(ctx.ast.alloc(CallExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
-                        name: ctx.ast.atom(callee).into(),
+                        name: ctx.ast.ident(callee),
                         reference_id: Cell::default(),
                     })),
                     arguments,
@@ -415,7 +429,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for FunctionInliner {
             if self.functions.contains_key(name) {
                 eprintln!("[AST] Removing inlined function declaration: {name}");
                 self.changed = true;
-                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                }));
             }
         }
     }

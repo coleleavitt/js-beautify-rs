@@ -1,6 +1,8 @@
 use oxc_ast::ast::{Expression, StringLiteral};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -96,8 +98,9 @@ impl<'a> Traverse<'a, DeobfuscateState> for UnicodeNormalizer {
                 eprintln!("[AST] Normalizing unicode in string literal");
                 self.changed = true;
                 *expr = Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
-                    value: ctx.ast.atom(&normalized),
+                    value: ctx.ast.str(&normalized),
                     raw: None,
                     lone_surrogates: false,
                 }));

@@ -1,12 +1,12 @@
-use std::cell::Cell;
-
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, EmptyStatement, Expression, Function, IdentifierReference, Statement,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -177,10 +177,12 @@ impl CallProxyInliner {
         }
 
         Some(Expression::CallExpression(ctx.ast.alloc(CallExpression {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             callee: Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                name: ctx.ast.atom(&proxy.target_name).into(),
+                name: ctx.ast.ident(&proxy.target_name),
                 reference_id: Cell::default(),
             })),
             arguments,
@@ -212,7 +214,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for CallProxyInliner {
             if self.proxies.contains_key(name) {
                 eprintln!("[AST] Removing call proxy function: {name}");
                 self.changed = true;
-                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                }));
             }
         }
     }

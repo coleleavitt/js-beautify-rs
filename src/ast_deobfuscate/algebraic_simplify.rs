@@ -3,8 +3,10 @@ use oxc_ast::ast::{
     BinaryExpression, BinaryOperator, BooleanLiteral, Expression, LogicalExpression, LogicalOperator, NumericLiteral,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -294,15 +296,20 @@ impl AlgebraicSimplifier {
 
     fn make_number<'a>(val: i64, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             value: val as f64,
-            raw: Some(ctx.ast.atom(&val.to_string())),
+            raw: Some(ctx.ast.str(&val.to_string())),
             base: NumberBase::Decimal,
         }))
     }
 
     fn make_boolean<'a>(val: bool, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: val }))
+        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
+            span: SPAN,
+            value: val,
+        }))
     }
 }
 

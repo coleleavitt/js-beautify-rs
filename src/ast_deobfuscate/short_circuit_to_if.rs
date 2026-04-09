@@ -5,7 +5,9 @@ use oxc_ast::ast::{
 };
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -48,6 +50,7 @@ fn is_short_circuit_expr_stmt(stmt: &Statement<'_>) -> bool {
 fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>) -> Statement<'a> {
     let action_expr = logical.right.clone_in_with_semantic_ids(ctx.ast.allocator);
     let action_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         expression: action_expr,
     }));
@@ -61,6 +64,7 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
         LogicalOperator::Or => {
             let inner = logical.left.clone_in_with_semantic_ids(ctx.ast.allocator);
             Expression::UnaryExpression(ctx.ast.alloc(UnaryExpression {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 operator: UnaryOperator::LogicalNot,
                 argument: inner,
@@ -69,6 +73,7 @@ fn build_if_from_logical<'a>(logical: &LogicalExpression<'a>, ctx: &mut Ctx<'a>)
     };
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         test,
         consequent: block,

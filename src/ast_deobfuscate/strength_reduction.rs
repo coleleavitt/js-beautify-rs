@@ -1,8 +1,10 @@
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression, NumericLiteral};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -97,15 +99,17 @@ impl StrengthReducer {
 
     fn make_number<'a>(val: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             value: val as f64,
-            raw: Some(ctx.ast.atom(&val.to_string())),
+            raw: Some(ctx.ast.str(&val.to_string())),
             base: NumberBase::Decimal,
         }))
     }
 
     fn make_shift_left<'a>(left: &Expression<'a>, shift: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             left: Self::clone_expression(left, ctx),
             operator: BinaryOperator::ShiftLeft,
@@ -115,6 +119,7 @@ impl StrengthReducer {
 
     fn make_shift_right<'a>(left: &Expression<'a>, shift: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             left: Self::clone_expression(left, ctx),
             operator: BinaryOperator::ShiftRight,
@@ -124,6 +129,7 @@ impl StrengthReducer {
 
     fn make_bitwise_and<'a>(left: &Expression<'a>, mask: u32, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             left: Self::clone_expression(left, ctx),
             operator: BinaryOperator::BitwiseAnd,

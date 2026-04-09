@@ -5,6 +5,7 @@ use oxc_ast::ast::{
     UnaryExpression, UnaryOperator,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_syntax::number::NumberBase;
 use oxc_traverse::{Traverse, TraverseCtx};
 use std::cell::Cell;
@@ -125,8 +126,9 @@ impl ExpressionSimplifier {
         eprintln!("[AST] Simplifying void expr to undefined");
         self.changed = true;
         Some(Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
-            name: ctx.ast.atom("undefined").into(),
+            name: ctx.ast.ident("undefined"),
             reference_id: Cell::default(),
         })))
     }
@@ -145,11 +147,13 @@ impl ExpressionSimplifier {
 
                 return Some(Expression::StaticMemberExpression(ctx.ast.alloc(
                     StaticMemberExpression {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         object: Self::clone_expression(&member.object, ctx),
                         property: IdentifierName {
+                            node_id: Cell::new(NodeId::DUMMY),
                             span: SPAN,
-                            name: ctx.ast.atom(prop_name).into(),
+                            name: ctx.ast.ident(prop_name),
                         },
                         optional: member.optional,
                     },
@@ -180,8 +184,9 @@ impl ExpressionSimplifier {
             self.changed = true;
 
             return Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                value: ctx.ast.atom(&combined),
+                value: ctx.ast.str(&combined),
                 raw: None,
                 lone_surrogates: false,
             })));
@@ -210,14 +215,19 @@ impl ExpressionSimplifier {
     }
 
     fn make_boolean<'a>(val: bool, ctx: &mut Ctx<'a>) -> Expression<'a> {
-        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: val }))
+        Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
+            span: SPAN,
+            value: val,
+        }))
     }
 
     fn make_number<'a>(val: i64, ctx: &mut Ctx<'a>) -> Expression<'a> {
         Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
             value: val as f64,
-            raw: Some(ctx.ast.atom(&val.to_string())),
+            raw: Some(ctx.ast.str(&val.to_string())),
             base: NumberBase::Decimal,
         }))
     }
@@ -252,7 +262,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for ExpressionSimplifier {
             eprintln!("[AST] Removing debugger statement");
             self.changed = true;
             *stmt = Statement::EmptyStatement(oxc_allocator::Box::new_in(
-                EmptyStatement { span: SPAN },
+                EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                },
                 ctx.ast.allocator,
             ));
         }

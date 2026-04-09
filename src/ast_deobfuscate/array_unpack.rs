@@ -1,6 +1,8 @@
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{ComputedMemberExpression, Expression, MemberExpression, NullLiteral};
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -71,9 +73,16 @@ impl<'a> Traverse<'a, DeobfuscateState> for ArrayUnpacker {
             let member_expr = MemberExpression::ComputedMemberExpression(ctx.ast.alloc(std::mem::replace(
                 member.as_mut(),
                 ComputedMemberExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: oxc_span::SPAN,
-                    object: Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: oxc_span::SPAN })),
-                    expression: Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: oxc_span::SPAN })),
+                    object: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: oxc_span::SPAN,
+                    })),
+                    expression: Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: oxc_span::SPAN,
+                    })),
                     optional: false,
                 },
             )));

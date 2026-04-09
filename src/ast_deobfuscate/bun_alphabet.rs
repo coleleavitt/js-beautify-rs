@@ -324,13 +324,16 @@ pub fn extract_alphabet_from_source(source: &str) -> BunAlphabet {
         extractor.record_identifier(&current_word);
     }
 
+    let alphabet = extractor.build_alphabet();
     eprintln!(
         "[BUN_ALPHABET] Extracted alphabet from {} single-char and {} two-char identifiers",
         extractor.single_char_count(),
         extractor.two_char_count()
     );
+    eprintln!("[BUN_ALPHABET] HEAD: {}", &alphabet.head[..20.min(alphabet.head.len())]);
+    eprintln!("[BUN_ALPHABET] TAIL: {}", &alphabet.tail[..20.min(alphabet.tail.len())]);
 
-    extractor.build_alphabet()
+    alphabet
 }
 
 #[cfg(test)]

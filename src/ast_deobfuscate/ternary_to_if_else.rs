@@ -28,7 +28,9 @@ use oxc_ast::ast::{
 };
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -74,6 +76,7 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
     let alternate_expr = cond.alternate.clone_in_with_semantic_ids(ctx.ast.allocator);
 
     let consequent_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         expression: consequent_expr,
     }));
@@ -85,6 +88,7 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
         .statement_block_with_scope_id(SPAN, consequent_body, consequent_scope_id);
 
     let alternate_stmt = Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         expression: alternate_expr,
     }));
@@ -96,6 +100,7 @@ fn build_if_stmt<'a>(cond: &ConditionalExpression<'a>, ctx: &mut Ctx<'a>) -> Sta
         .statement_block_with_scope_id(SPAN, alternate_body, alternate_scope_id);
 
     Statement::IfStatement(ctx.ast.alloc(IfStatement {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         test,
         consequent: consequent_block,

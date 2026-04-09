@@ -12,8 +12,10 @@ use oxc_ast::ast::{
     Statement, StringLiteral,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::FxHashMap;
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::{DecoderInfo, DecoderType, DeobfuscateState, OffsetOperation};
 
@@ -514,8 +516,9 @@ impl DecoderInliner {
         );
 
         Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+            node_id: Cell::new(NodeId::DUMMY),
             span: SPAN,
-            value: ctx.ast.atom(&decoded_value),
+            value: ctx.ast.str(&decoded_value),
             raw: None,
             lone_surrogates: false,
         })))

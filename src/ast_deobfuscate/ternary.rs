@@ -1,5 +1,7 @@
 use oxc_ast::ast::Expression;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -48,12 +50,18 @@ impl<'a> Traverse<'a, DeobfuscateState> for TernarySimplifier {
             let branch = if condition_value {
                 std::mem::replace(
                     &mut cond.consequent,
-                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral { span: oxc_span::SPAN })),
+                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: oxc_span::SPAN,
+                    })),
                 )
             } else {
                 std::mem::replace(
                     &mut cond.alternate,
-                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral { span: oxc_span::SPAN })),
+                    Expression::NullLiteral(ctx.ast.alloc(oxc_ast::ast::NullLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: oxc_span::SPAN,
+                    })),
                 )
             };
 

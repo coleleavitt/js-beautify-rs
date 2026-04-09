@@ -3,7 +3,9 @@ use oxc_ast::ast::{
     BinaryOperator, ComputedMemberExpression, Expression, IdentifierName, MemberExpression, StaticMemberExpression,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -42,11 +44,13 @@ impl DynamicPropertyConverter {
 
         Some(Expression::StaticMemberExpression(ctx.ast.alloc(
             StaticMemberExpression {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 object,
                 property: IdentifierName {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
-                    name: ctx.ast.atom(&property_name).into(),
+                    name: ctx.ast.ident(&property_name),
                 },
                 optional: false,
             },

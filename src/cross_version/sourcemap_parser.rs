@@ -1,6 +1,14 @@
-//! Sourcemap parsing and name extraction via VLQ decoding.
+//! Sourcemap parsing and name extraction via AST-based identifier extraction.
+//!
+//! Uses oxc parser to extract all identifiers with precise positions,
+//! then maps them to original names via sourcemap lookup.
 
 use crate::{BeautifyError, Result};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{BindingIdentifier, IdentifierReference};
+use oxc_ast_visit::Visit;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
@@ -15,14 +23,93 @@ pub struct NameMapping {
     pub minified_column: u32,
 }
 
+#[derive(Debug, Clone)]
+struct MappingEntry {
+    gen_col: u32,
+    source_idx: usize,
+    orig_line: u32,
+    orig_col: u32,
+}
+
 #[derive(Debug, Deserialize)]
 struct RawSourcemap {
     sources: Vec<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     names: Vec<String>,
     mappings: String,
     #[serde(rename = "sourcesContent", default)]
     sources_content: Vec<Option<String>>,
+}
+
+struct IdentifierCollector<'a> {
+    #[allow(dead_code)]
+    source: &'a str,
+    line_starts: Vec<u32>,
+    identifiers: Vec<(u32, u32, String)>,
+}
+
+impl<'a> IdentifierCollector<'a> {
+    fn new(source: &'a str) -> Self {
+        let mut line_starts = vec![0u32];
+        for (i, ch) in source.char_indices() {
+            if ch == '\n' {
+                line_starts.push((i + 1) as u32);
+            }
+        }
+        Self {
+            source,
+            line_starts,
+            identifiers: Vec::new(),
+        }
+    }
+
+    // Sourcemap columns are UTF-16 code units, not byte offsets.
+    // Convert byte offset to (1-based line, 0-based UTF-16 column).
+    fn offset_to_line_col(&self, offset: u32) -> (u32, u32) {
+        let line_idx = self.line_starts.partition_point(|&start| start <= offset);
+        let line = line_idx as u32;
+        let line_start = self.line_starts.get(line_idx.saturating_sub(1)).copied().unwrap_or(0) as usize;
+        let offset = offset as usize;
+
+        let line_slice = &self.source.as_bytes()[line_start..offset];
+        let mut utf16_col = 0u32;
+        let mut i = 0;
+        while i < line_slice.len() {
+            let b = line_slice[i];
+            let (char_bytes, utf16_units) = if b < 0x80 {
+                (1, 1)
+            } else if b < 0xE0 {
+                (2, 1)
+            } else if b < 0xF0 {
+                (3, 1)
+            } else {
+                // 4-byte UTF-8 = surrogate pair = 2 UTF-16 code units
+                (4, 2)
+            };
+            utf16_col += utf16_units;
+            i += char_bytes;
+        }
+
+        (line, utf16_col)
+    }
+
+    fn add_identifier(&mut self, name: &str, start: u32) {
+        let (line, col) = self.offset_to_line_col(start);
+        self.identifiers.push((line, col, name.to_string()));
+    }
+}
+
+impl<'a> Visit<'a> for IdentifierCollector<'a> {
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        self.add_identifier(it.name.as_str(), it.span.start);
+        oxc_ast_visit::walk::walk_identifier_reference(self, it);
+    }
+
+    fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+        self.add_identifier(it.name.as_str(), it.span.start);
+        oxc_ast_visit::walk::walk_binding_identifier(self, it);
+    }
 }
 
 pub struct SourcemapParser {
@@ -37,48 +124,67 @@ impl SourcemapParser {
         }
     }
 
-    /// Extracts name mappings from a sourcemap JSON and bundle source.
-    ///
-    /// # Errors
-    /// Returns an error if the sourcemap cannot be parsed.
     pub fn extract_names(&self, sourcemap_json: &str, bundle_source: &str) -> Result<Vec<NameMapping>> {
         let raw: RawSourcemap = serde_json::from_str(sourcemap_json)
             .map_err(|e| BeautifyError::InvalidInput(format!("Invalid sourcemap JSON: {e}")))?;
 
-        let bundle_identifiers = self.extract_identifiers_with_positions(bundle_source);
-        let decoded = self.decode_mappings(&raw.mappings, raw.sources.len())?;
+        let mapping_index = self.build_mapping_index(&raw.mappings, raw.sources.len())?;
+        let bundle_identifiers = self.extract_identifiers_ast(bundle_source);
+
+        eprintln!(
+            "[SOURCEMAP] {} identifiers, {} mapping lines",
+            bundle_identifiers.len(),
+            mapping_index.len()
+        );
 
         let mut mappings = Vec::new();
 
-        for (minified_line, minified_col, source_idx, orig_line, orig_col) in decoded {
-            let Some(source_content) = raw.sources_content.get(source_idx).and_then(Option::as_ref) else {
+        for (line, col, minified_name) in &bundle_identifiers {
+            let Some(entry) = self.lookup_original_position(&mapping_index, *line, *col) else {
                 continue;
             };
 
-            let Some(original_name) = self.get_identifier_at(source_content, orig_line, orig_col) else {
+            let Some(source_content) = raw.sources_content.get(entry.source_idx).and_then(Option::as_ref) else {
                 continue;
             };
 
-            let Some(minified_name) = bundle_identifiers.get(&(minified_line, minified_col)).cloned() else {
+            let Some(original_name) = self.get_identifier_at(source_content, entry.orig_line, entry.orig_col) else {
                 continue;
             };
 
             mappings.push(NameMapping {
-                minified_name,
+                minified_name: minified_name.clone(),
                 original_name,
-                source_file: raw.sources.get(source_idx).cloned().unwrap_or_default(),
-                original_line: orig_line,
-                original_column: orig_col,
-                minified_line,
-                minified_column: minified_col,
+                source_file: raw.sources.get(entry.source_idx).cloned().unwrap_or_default(),
+                original_line: entry.orig_line,
+                original_column: entry.orig_col,
+                minified_line: *line,
+                minified_column: *col,
             });
         }
 
+        eprintln!("[SOURCEMAP] {} raw name mappings extracted", mappings.len());
         Ok(mappings)
     }
 
-    fn extract_identifiers_with_positions(&self, source: &str) -> FxHashMap<(u32, u32), String> {
-        let mut result = FxHashMap::default();
+    fn extract_identifiers_ast(&self, source: &str) -> Vec<(u32, u32, String)> {
+        let allocator = Allocator::default();
+        let source_type = SourceType::mjs();
+        let parser = Parser::new(&allocator, source, source_type);
+        let result = parser.parse();
+
+        if result.panicked || !result.errors.is_empty() {
+            eprintln!("[SOURCEMAP] AST parse failed, using regex fallback");
+            return self.extract_identifiers_fallback(source);
+        }
+
+        let mut collector = IdentifierCollector::new(source);
+        collector.visit_program(&result.program);
+        collector.identifiers
+    }
+
+    fn extract_identifiers_fallback(&self, source: &str) -> Vec<(u32, u32, String)> {
+        let mut result = Vec::new();
         let mut in_string = false;
         let mut string_char = ' ';
         let mut prev_char = ' ';
@@ -90,7 +196,7 @@ impl SourcemapParser {
         for ch in source.chars() {
             if ch == '\n' {
                 if !current_word.is_empty() && self.is_identifier(&current_word) {
-                    result.insert((line, word_start_col), current_word.clone());
+                    result.push((line, word_start_col, current_word.clone()));
                 }
                 current_word.clear();
                 line += 1;
@@ -101,7 +207,7 @@ impl SourcemapParser {
 
             if !in_string && (ch == '"' || ch == '\'' || ch == '`') {
                 if !current_word.is_empty() && self.is_identifier(&current_word) {
-                    result.insert((line, word_start_col), current_word.clone());
+                    result.push((line, word_start_col, current_word.clone()));
                 }
                 current_word.clear();
                 in_string = true;
@@ -127,7 +233,7 @@ impl SourcemapParser {
                 current_word.push(ch);
             } else {
                 if !current_word.is_empty() && self.is_identifier(&current_word) {
-                    result.insert((line, word_start_col), current_word.clone());
+                    result.push((line, word_start_col, current_word.clone()));
                 }
                 current_word.clear();
             }
@@ -137,26 +243,14 @@ impl SourcemapParser {
         }
 
         if !current_word.is_empty() && self.is_identifier(&current_word) {
-            result.insert((line, word_start_col), current_word);
+            result.push((line, word_start_col, current_word));
         }
 
         result
     }
 
-    fn is_identifier(&self, word: &str) -> bool {
-        word.chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-    }
-
-    fn get_identifier_at(&self, source: &str, line: u32, column: u32) -> Option<String> {
-        let target_line = source.lines().nth((line.saturating_sub(1)) as usize)?;
-        let rest = target_line.get((column as usize)..)?;
-        self.identifier_pattern.find(rest).map(|m| m.as_str().to_string())
-    }
-
-    fn decode_mappings(&self, mappings: &str, source_count: usize) -> Result<Vec<(u32, u32, usize, u32, u32)>> {
-        let mut result = Vec::new();
+    fn build_mapping_index(&self, mappings: &str, source_count: usize) -> Result<FxHashMap<u32, Vec<MappingEntry>>> {
+        let mut index: FxHashMap<u32, Vec<MappingEntry>> = FxHashMap::default();
         let mut gen_line = 1u32;
         let mut gen_col: i64;
         let mut source_idx = 0i64;
@@ -189,21 +283,50 @@ impl SourcemapParser {
                     orig_col += values[3];
 
                     if source_idx >= 0 && (source_idx as usize) < source_count {
-                        result.push((
-                            gen_line,
-                            gen_col as u32,
-                            source_idx as usize,
-                            (orig_line + 1) as u32,
-                            orig_col as u32,
-                        ));
+                        index.entry(gen_line).or_default().push(MappingEntry {
+                            gen_col: gen_col as u32,
+                            source_idx: source_idx as usize,
+                            orig_line: (orig_line + 1) as u32,
+                            orig_col: orig_col as u32,
+                        });
                     }
                 }
+            }
+
+            if let Some(entries) = index.get_mut(&gen_line) {
+                entries.sort_by_key(|e| e.gen_col);
             }
 
             gen_line += 1;
         }
 
-        Ok(result)
+        Ok(index)
+    }
+
+    fn lookup_original_position(
+        &self,
+        index: &FxHashMap<u32, Vec<MappingEntry>>,
+        line: u32,
+        col: u32,
+    ) -> Option<MappingEntry> {
+        let entries = index.get(&line)?;
+        let pos = entries.partition_point(|e| e.gen_col <= col);
+        if pos == 0 {
+            return None;
+        }
+        Some(entries[pos - 1].clone())
+    }
+
+    fn is_identifier(&self, word: &str) -> bool {
+        word.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+    }
+
+    fn get_identifier_at(&self, source: &str, line: u32, column: u32) -> Option<String> {
+        let target_line = source.lines().nth((line.saturating_sub(1)) as usize)?;
+        let rest = target_line.get((column as usize)..)?;
+        self.identifier_pattern.find(rest).map(|m| m.as_str().to_string())
     }
 }
 
@@ -267,11 +390,11 @@ mod tests {
     }
 
     #[test]
-    fn test_identifier_extraction() {
+    fn test_ast_identifier_extraction() {
         let parser = SourcemapParser::new();
         let source = "var foo = bar;";
-        let ids = parser.extract_identifiers_with_positions(source);
-        assert!(ids.contains_key(&(1, 4)));
-        assert!(ids.contains_key(&(1, 10)));
+        let ids = parser.extract_identifiers_ast(source);
+        assert!(ids.iter().any(|(_, _, name)| name == "foo"));
+        assert!(ids.iter().any(|(_, _, name)| name == "bar"));
     }
 }

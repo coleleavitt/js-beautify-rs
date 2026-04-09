@@ -22,7 +22,9 @@
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{BlockStatement, FunctionBody, Program, Statement, VariableDeclaration};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -78,6 +80,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         kind: var_decl.kind,
                         declarations: single_declarations,
@@ -121,6 +124,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_body.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         kind: var_decl.kind,
                         declarations: single_declarations,
@@ -164,6 +168,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for MultiVarSplitter {
                     let mut single_declarations = ctx.ast.vec();
                     single_declarations.push(declarator.clone_in_with_semantic_ids(ctx.ast.allocator));
                     new_stmts.push(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         kind: var_decl.kind,
                         declarations: single_declarations,

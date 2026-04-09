@@ -4,7 +4,9 @@ use oxc_ast::ast::{
     VariableDeclarator,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -170,6 +172,7 @@ fn try_unwrap_assigned<'a>(
     }
     let new_init = return_expr.clone_in_with_semantic_ids(ctx.ast.allocator);
     let new_declarator = VariableDeclarator {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         kind: var_decl.kind,
         id: var_decl.declarations[0]
@@ -182,6 +185,7 @@ fn try_unwrap_assigned<'a>(
     let mut new_declarations = ctx.ast.vec();
     new_declarations.push(new_declarator);
     let new_var = Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+        node_id: Cell::new(NodeId::DUMMY),
         span: SPAN,
         kind: var_decl.kind,
         declarations: new_declarations,

@@ -104,7 +104,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for CanonicalNamer {
     fn enter_binding_identifier(&mut self, ident: &mut BindingIdentifier<'a>, ctx: &mut Ctx<'a>) {
         if let Some(canonical) = self.get_canonical_at(ident.span.start, ident.span.end) {
             if canonical != ident.name.as_str() {
-                ident.name = ctx.ast.atom(canonical).into();
+                ident.name = ctx.ast.ident(canonical);
                 self.changed = true;
                 self.renamed_count += 1;
             }
@@ -114,7 +114,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for CanonicalNamer {
     fn enter_identifier_reference(&mut self, ident: &mut IdentifierReference<'a>, ctx: &mut Ctx<'a>) {
         if let Some(canonical) = self.get_canonical_at(ident.span.start, ident.span.end) {
             if canonical != ident.name.as_str() {
-                ident.name = ctx.ast.atom(canonical).into();
+                ident.name = ctx.ast.ident(canonical);
                 self.changed = true;
                 self.renamed_count += 1;
             }

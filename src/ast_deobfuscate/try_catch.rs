@@ -2,7 +2,9 @@ use oxc_allocator::Vec as OxcVec;
 use oxc_ast::ast::{CatchClause, EmptyStatement, Statement};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -59,7 +61,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
 
             if try_body_statements.is_empty() {
                 eprintln!("[TRY_CATCH] Empty try body -> EmptyStatement");
-                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                }));
             } else if try_body_statements.len() == 1 {
                 eprintln!("[TRY_CATCH] Single stmt try body -> unwrapping");
                 let mut iter = try_body_statements.into_iter();
@@ -67,7 +72,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for TryCatchRemover {
                     *stmt = first;
                 } else {
                     eprintln!("[TRY_CATCH] ERROR: iterator was empty despite len() == 1");
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: SPAN,
+                    }));
                 }
             } else {
                 let scope_id = ctx.create_child_scope_of_current(ScopeFlags::empty());

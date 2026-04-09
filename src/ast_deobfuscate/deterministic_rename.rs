@@ -285,7 +285,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeterministicRenamer {
     fn enter_binding_identifier(&mut self, ident: &mut BindingIdentifier<'a>, ctx: &mut Ctx<'a>) {
         let old_name = ident.name.as_str();
         if let Some(new_name) = self.try_rename(old_name) {
-            ident.name = ctx.ast.atom(new_name).into();
+            ident.name = ctx.ast.ident(new_name);
             self.changed = true;
             self.renamed_count += 1;
         }
@@ -294,7 +294,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeterministicRenamer {
     fn enter_identifier_reference(&mut self, ident: &mut IdentifierReference<'a>, ctx: &mut Ctx<'a>) {
         let old_name = ident.name.as_str();
         if let Some(new_name) = self.try_rename(old_name) {
-            ident.name = ctx.ast.atom(new_name).into();
+            ident.name = ctx.ast.ident(new_name);
             self.changed = true;
             self.renamed_count += 1;
         }
@@ -304,7 +304,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeterministicRenamer {
         if let Some(ident) = &mut func.id {
             let old_name = ident.name.as_str();
             if let Some(new_name) = self.try_rename(old_name) {
-                ident.name = ctx.ast.atom(new_name).into();
+                ident.name = ctx.ast.ident(new_name);
                 self.changed = true;
                 self.renamed_count += 1;
             }

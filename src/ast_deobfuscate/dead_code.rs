@@ -2,7 +2,9 @@ use oxc_allocator::CloneIn;
 use oxc_ast::ast::{BlockStatement, EmptyStatement, Expression, Statement};
 use oxc_semantic::ScopeFlags;
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -57,7 +59,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadCodeEliminator {
                 if Self::is_false(&if_stmt.test) {
                     eprintln!("[AST] Eliminating if(false) branch");
                     self.changed = true;
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: SPAN,
+                    }));
                 } else if Self::is_true(&if_stmt.test) {
                     eprintln!("[AST] Eliminating if(true) - keeping consequent");
                     self.changed = true;
@@ -68,7 +73,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadCodeEliminator {
             Statement::WhileStatement(while_stmt) if Self::is_false(&while_stmt.test) => {
                 eprintln!("[AST] Eliminating while(false) loop");
                 self.changed = true;
-                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                }));
             }
             _ => {}
         }

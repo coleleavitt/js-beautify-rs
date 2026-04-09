@@ -14,6 +14,7 @@
 
 pub mod ast_deobfuscate;
 pub mod beautifier;
+pub mod bun_extract;
 pub mod cross_version;
 pub mod oxc_opts;
 pub mod sourcemap;
@@ -27,6 +28,10 @@ mod options;
 
 pub use ast_deobfuscate::AstDeobfuscator;
 pub use beautifier::beautify;
+pub use bun_extract::{
+    BundleSplit, ExportMapping, MappingSource, ModuleInfo, ModuleType, extract_all_names,
+    extract_display_name_patterns, extract_mr_exports, extract_this_name_patterns, find_module_wrappers, split_bundle,
+};
 pub use chunk_detector::{ChunkDetector, ChunkMetadata};
 pub use chunk_splitter::{ChunkManifest, ChunkSplitter};
 pub use cross_version::{AlignConfig, AlignmentStats, CrossVersionAligner, StatementMatcher};
@@ -54,6 +59,9 @@ pub enum BeautifyError {
 
     #[error("chunk splitting failed: {0}")]
     ChunkSplittingFailed(#[from] chunk_splitter::ChunkSplitterError),
+
+    #[error("JSON parsing failed: {0}")]
+    JsonParsingFailed(#[from] serde_json::Error),
 }
 
 pub type Result<T> = std::result::Result<T, BeautifyError>;

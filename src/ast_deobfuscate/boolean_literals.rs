@@ -1,6 +1,8 @@
 use oxc_ast::ast::{BooleanLiteral, Expression, UnaryOperator};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -42,6 +44,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for BooleanLiteralConverter {
                     eprintln!("[AST] Converting !0 -> true");
                     self.changed = true;
                     *expr = Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         value: true,
                     }));
@@ -49,6 +52,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for BooleanLiteralConverter {
                     eprintln!("[AST] Converting !1 -> false");
                     self.changed = true;
                     *expr = Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         value: false,
                     }));

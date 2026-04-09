@@ -1,8 +1,8 @@
-use std::cell::Cell;
-
 use oxc_ast::ast::{Expression, IdentifierReference, UnaryOperator};
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -43,8 +43,9 @@ impl<'a> Traverse<'a, DeobfuscateState> for VoidReplacer {
                 eprintln!("[AST] Converting void 0 -> undefined");
                 self.changed = true;
                 *expr = Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
-                    name: ctx.ast.atom("undefined").into(),
+                    name: ctx.ast.ident("undefined"),
                     reference_id: Cell::default(),
                 }));
             }

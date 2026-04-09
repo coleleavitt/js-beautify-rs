@@ -9,6 +9,8 @@ use oxc_ast::ast::{
     Program, Statement, StringLiteral, VariableDeclaration, VariableDeclarator,
 };
 use oxc_semantic::SemanticBuilder;
+use oxc_syntax::node::NodeId;
+use std::cell::Cell;
 
 use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
 use rustc_hash::FxHashMap;
@@ -170,6 +172,7 @@ impl CommonSubexpressionElimination {
         match stmt {
             Statement::ExpressionStatement(expr_stmt) => {
                 Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: expr_stmt.span,
                     expression: Self::clone_expression(&expr_stmt.expression, ctx),
                 }))
@@ -179,6 +182,7 @@ impl CommonSubexpressionElimination {
                 for decl in &var_decl.declarations {
                     let new_id = decl.id.clone_in(ctx.ast.allocator);
                     new_decls.push(VariableDeclarator {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: decl.span,
                         kind: var_decl.kind,
                         id: new_id,
@@ -188,6 +192,7 @@ impl CommonSubexpressionElimination {
                     });
                 }
                 Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: var_decl.span,
                     kind: var_decl.kind,
                     declarations: new_decls,
@@ -201,23 +206,27 @@ impl CommonSubexpressionElimination {
     fn clone_expression<'a>(expr: &Expression<'a>, ctx: &mut Ctx<'a>) -> Expression<'a> {
         match expr {
             Expression::Identifier(ident) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: ident.span,
-                name: ctx.ast.atom(ident.name.as_str()).into(),
+                name: ctx.ast.ident(ident.name.as_str()),
                 reference_id: None.into(),
             })),
             Expression::NumericLiteral(lit) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: lit.span,
                 value: lit.value,
                 raw: lit.raw,
                 base: lit.base,
             })),
             Expression::StringLiteral(lit) => Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: lit.span,
-                value: ctx.ast.atom(lit.value.as_str()),
+                value: ctx.ast.str(lit.value.as_str()),
                 raw: None,
                 lone_surrogates: false,
             })),
             Expression::BinaryExpression(bin) => Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: bin.span,
                 left: Self::clone_expression(&bin.left, ctx),
                 operator: bin.operator,

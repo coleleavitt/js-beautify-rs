@@ -11,15 +11,15 @@
 //! var obj = {a: 1, b: 2};
 //! ```
 
-use std::cell::Cell;
-
 use oxc_ast::ast::{
     AssignmentOperator, AssignmentTarget, BindingPattern, BooleanLiteral, Expression, IdentifierName,
     IdentifierReference, NullLiteral, NumericLiteral, ObjectExpression, ObjectProperty, ObjectPropertyKind,
     PropertyKey, PropertyKind, Statement, StringLiteral,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -128,24 +128,32 @@ impl ObjectSparsingConsolidator {
     fn build_property_value<'a>(value: &PropertyValue, ctx: &mut Ctx<'a>) -> Expression<'a> {
         match value {
             PropertyValue::Number(n) => Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 value: *n,
                 raw: None,
                 base: oxc_syntax::number::NumberBase::Decimal,
             })),
             PropertyValue::String(s) => Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                value: ctx.ast.atom(s),
+                value: ctx.ast.str(s),
                 raw: None,
                 lone_surrogates: false,
             })),
-            PropertyValue::Bool(b) => {
-                Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral { span: SPAN, value: *b }))
-            }
-            PropertyValue::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN })),
-            PropertyValue::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+            PropertyValue::Bool(b) => Expression::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                name: ctx.ast.atom(name).into(),
+                value: *b,
+            })),
+            PropertyValue::Null => Expression::NullLiteral(ctx.ast.alloc(NullLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
+                span: SPAN,
+            })),
+            PropertyValue::Identifier(name) => Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                node_id: Cell::new(NodeId::DUMMY),
+                span: SPAN,
+                name: ctx.ast.ident(name),
                 reference_id: Cell::default(),
             })),
         }
@@ -206,11 +214,13 @@ impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
             for prop in &collected {
                 let value_expr = Self::build_property_value(&prop.value, ctx);
                 let property = ObjectPropertyKind::ObjectProperty(ctx.ast.alloc(ObjectProperty {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     kind: PropertyKind::Init,
                     key: PropertyKey::StaticIdentifier(ctx.ast.alloc(IdentifierName {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
-                        name: ctx.ast.atom(&prop.name).into(),
+                        name: ctx.ast.ident(&prop.name),
                     })),
                     value: value_expr,
                     method: false,
@@ -221,6 +231,7 @@ impl<'a> Traverse<'a, DeobfuscateState> for ObjectSparsingConsolidator {
             }
 
             let new_object = Expression::ObjectExpression(ctx.ast.alloc(ObjectExpression {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 properties: new_properties,
             }));

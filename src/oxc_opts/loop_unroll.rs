@@ -12,8 +12,10 @@ use oxc_ast::ast::{
 };
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_syntax::scope::ScopeFlags;
 use oxc_traverse::{ReusableTraverseCtx, Traverse, TraverseCtx, traverse_mut_with_ctx};
+use std::cell::Cell;
 
 use crate::oxc_opts::state::OptimizationState;
 
@@ -153,6 +155,7 @@ impl LoopUnroller {
             Statement::ExpressionStatement(expr_stmt) => {
                 let new_expr = self.substitute_in_expression(&expr_stmt.expression, loop_var, value, ctx)?;
                 Some(Statement::ExpressionStatement(ctx.ast.alloc(ExpressionStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     expression: new_expr,
                 })))
@@ -169,6 +172,7 @@ impl LoopUnroller {
                     let new_id = decl.id.clone_in(ctx.ast.allocator);
 
                     new_decls.push(VariableDeclarator {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         kind: var_decl.kind,
                         id: new_id,
@@ -179,6 +183,7 @@ impl LoopUnroller {
                 }
 
                 Some(Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     kind: var_decl.kind,
                     declarations: new_decls,
@@ -200,6 +205,7 @@ impl LoopUnroller {
             Expression::Identifier(ident) => {
                 if ident.name.as_str() == loop_var {
                     Some(Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         value: value as f64,
                         raw: None,
@@ -207,8 +213,9 @@ impl LoopUnroller {
                     })))
                 } else {
                     Some(Expression::Identifier(ctx.ast.alloc(IdentifierReference {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
-                        name: ctx.ast.atom(ident.name.as_str()).into(),
+                        name: ctx.ast.ident(ident.name.as_str()),
                         reference_id: None.into(),
                     })))
                 }
@@ -226,6 +233,7 @@ impl LoopUnroller {
                 }
 
                 Some(Expression::CallExpression(ctx.ast.alloc(CallExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     callee: new_callee,
                     type_arguments: None,
@@ -239,6 +247,7 @@ impl LoopUnroller {
                 let right = self.substitute_in_expression(&bin.right, loop_var, value, ctx)?;
 
                 Some(Expression::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     left,
                     operator: bin.operator,
@@ -250,11 +259,13 @@ impl LoopUnroller {
 
                 Some(Expression::StaticMemberExpression(ctx.ast.alloc(
                     StaticMemberExpression {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         object,
                         property: IdentifierName {
+                            node_id: Cell::new(NodeId::DUMMY),
                             span: SPAN,
-                            name: ctx.ast.atom(static_mem.property.name.as_str()).into(),
+                            name: ctx.ast.ident(static_mem.property.name.as_str()),
                         },
                         optional: static_mem.optional,
                     },
@@ -266,6 +277,7 @@ impl LoopUnroller {
 
                 Some(Expression::ComputedMemberExpression(ctx.ast.alloc(
                     ComputedMemberExpression {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         object,
                         expression: property,
@@ -274,14 +286,16 @@ impl LoopUnroller {
                 )))
             }
             Expression::NumericLiteral(lit) => Some(Expression::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 value: lit.value,
                 raw: lit.raw,
                 base: lit.base,
             }))),
             Expression::StringLiteral(lit) => Some(Expression::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                value: ctx.ast.atom(lit.value.as_str()),
+                value: ctx.ast.str(lit.value.as_str()),
                 raw: None,
                 lone_surrogates: false,
             }))),
@@ -300,6 +314,7 @@ impl LoopUnroller {
             Argument::Identifier(ident) => {
                 if ident.name.as_str() == loop_var {
                     Some(Argument::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         value: value as f64,
                         raw: None,
@@ -307,33 +322,41 @@ impl LoopUnroller {
                     })))
                 } else {
                     Some(Argument::Identifier(ctx.ast.alloc(IdentifierReference {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
-                        name: ctx.ast.atom(ident.name.as_str()).into(),
+                        name: ctx.ast.ident(ident.name.as_str()),
                         reference_id: None.into(),
                     })))
                 }
             }
             Argument::NumericLiteral(lit) => Some(Argument::NumericLiteral(ctx.ast.alloc(NumericLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 value: lit.value,
                 raw: lit.raw,
                 base: lit.base,
             }))),
             Argument::StringLiteral(lit) => Some(Argument::StringLiteral(ctx.ast.alloc(StringLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
-                value: ctx.ast.atom(lit.value.as_str()),
+                value: ctx.ast.str(lit.value.as_str()),
                 raw: None,
                 lone_surrogates: false,
             }))),
             Argument::BooleanLiteral(lit) => Some(Argument::BooleanLiteral(ctx.ast.alloc(BooleanLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
                 span: SPAN,
                 value: lit.value,
             }))),
-            Argument::NullLiteral(_) => Some(Argument::NullLiteral(ctx.ast.alloc(NullLiteral { span: SPAN }))),
+            Argument::NullLiteral(_) => Some(Argument::NullLiteral(ctx.ast.alloc(NullLiteral {
+                node_id: Cell::new(NodeId::DUMMY),
+                span: SPAN,
+            }))),
             Argument::BinaryExpression(bin) => {
                 let left = self.substitute_in_expression(&bin.left, loop_var, value, ctx)?;
                 let right = self.substitute_in_expression(&bin.right, loop_var, value, ctx)?;
                 Some(Argument::BinaryExpression(ctx.ast.alloc(BinaryExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     left,
                     operator: bin.operator,
@@ -351,6 +374,7 @@ impl LoopUnroller {
                     new_args.push(new_a);
                 }
                 Some(Argument::CallExpression(ctx.ast.alloc(CallExpression {
+                    node_id: Cell::new(NodeId::DUMMY),
                     span: SPAN,
                     callee: new_callee,
                     type_arguments: None,

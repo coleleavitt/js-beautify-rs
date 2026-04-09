@@ -6,8 +6,10 @@ use oxc_ast::ast::{
     UpdateExpression, VariableDeclaration, VariableDeclarator,
 };
 use oxc_span::SPAN;
+use oxc_syntax::node::NodeId;
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cell::Cell;
 
 use crate::ast_deobfuscate::state::DeobfuscateState;
 
@@ -289,7 +291,10 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
                     }
                 }
                 self.changed = true;
-                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                    node_id: Cell::new(NodeId::DUMMY),
+                    span: SPAN,
+                }));
                 return;
             }
 
@@ -306,9 +311,13 @@ impl<'a> Traverse<'a, DeobfuscateState> for DeadVarEliminator {
                 }
 
                 if new_declarations.is_empty() {
-                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement { span: SPAN }));
+                    *stmt = Statement::EmptyStatement(ctx.ast.alloc(EmptyStatement {
+                        node_id: Cell::new(NodeId::DUMMY),
+                        span: SPAN,
+                    }));
                 } else {
                     *stmt = Statement::VariableDeclaration(ctx.ast.alloc(VariableDeclaration {
+                        node_id: Cell::new(NodeId::DUMMY),
                         span: SPAN,
                         kind: var_decl.kind,
                         declarations: new_declarations,
