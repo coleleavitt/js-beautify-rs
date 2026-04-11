@@ -120,7 +120,7 @@ impl SourcemapParser {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            identifier_pattern: regex::Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*").unwrap(),
+            identifier_pattern: regex::Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*").expect("valid identifier regex"),
         }
     }
 

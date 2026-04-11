@@ -43,20 +43,23 @@ pub enum ModuleType {
     Main,
 }
 
-static MR_CALL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"MR\([^,]+,\s*\{").unwrap());
+static MR_CALL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"MR\([^,]+,\s*\{").expect("valid regex pattern"));
 
-static EXPORT_PAIR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([A-Za-z_$][A-Za-z0-9_$]*):\s*\(\)\s*=>\s*([A-Za-z_$][A-Za-z0-9_$]*)").unwrap());
+static EXPORT_PAIR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([A-Za-z_$][A-Za-z0-9_$]*):\s*\(\)\s*=>\s*([A-Za-z_$][A-Za-z0-9_$]*)").expect("valid regex pattern")
+});
 
-static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"class\s+(\w+)\s+extends\s+\w+[^{]*\{").unwrap());
+static CLASS_DECL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"class\s+(\w+)\s+extends\s+\w+[^{]*\{").expect("valid regex pattern"));
 
 static CLASS_ASSIGN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(\w+)\s*=\s*class\s+(?:\w+\s+)?extends\s+\w+[^{]*\{").unwrap());
+    LazyLock::new(|| Regex::new(r"(\w+)\s*=\s*class\s+(?:\w+\s+)?extends\s+\w+[^{]*\{").expect("valid regex pattern"));
 
-static THIS_NAME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"this\.name\s*=\s*"([^"]+)""#).unwrap());
+static THIS_NAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"this\.name\s*=\s*"([^"]+)""#).expect("valid regex pattern"));
 
 static DISPLAY_NAME_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(\w+)\.displayName\s*=\s*"([^"]+)""#).unwrap());
+    LazyLock::new(|| Regex::new(r#"(\w+)\.displayName\s*=\s*"([^"]+)""#).expect("valid regex pattern"));
 
 const GENERIC_NAMES: &[&str] = &[
     "call", "default", "get", "set", "init", "run", "exec", "then", "next", "done",
@@ -64,6 +67,7 @@ const GENERIC_NAMES: &[&str] = &[
 
 /// Extract all MR() export mappings from code.
 /// Returns mappings from minified variable name to original export name.
+#[must_use]
 pub fn extract_mr_exports(code: &str) -> Vec<ExportMapping> {
     let mut results = Vec::new();
 
@@ -91,8 +95,8 @@ pub fn extract_mr_exports(code: &str) -> Vec<ExportMapping> {
         let body = &code[start_idx..end_idx - 1];
 
         for cap in EXPORT_PAIR_RE.captures_iter(body) {
-            let export_name = cap.get(1).unwrap().as_str();
-            let minified_var = cap.get(2).unwrap().as_str();
+            let export_name = cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
+            let minified_var = cap.get(2).expect("capture group 2 guaranteed by regex").as_str();
 
             // Skip if same name or generic
             if export_name == minified_var {
@@ -120,20 +124,21 @@ pub fn extract_mr_exports(code: &str) -> Vec<ExportMapping> {
 }
 
 /// Extract class names from `this.name = "ClassName"` patterns.
+#[must_use]
 pub fn extract_this_name_patterns(code: &str) -> Vec<ExportMapping> {
     let mut results = Vec::new();
 
     // Pattern 1: class X extends Y { ... this.name = "Z" }
     for cap in CLASS_DECL_RE.captures_iter(code) {
-        let class_name = cap.get(1).unwrap().as_str();
-        let start_idx = cap.get(0).unwrap().end();
+        let class_name = cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
+        let start_idx = cap.get(0).expect("capture group 0 guaranteed by regex").end();
 
         // Look within next 500 chars for this.name = "..."
         let end = (start_idx + 500).min(code.len());
         let window = &code[start_idx..end];
 
         if let Some(name_cap) = THIS_NAME_RE.captures(window) {
-            let readable_name = name_cap.get(1).unwrap().as_str();
+            let readable_name = name_cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
             if class_name != readable_name && class_name.len() > 1 {
                 results.push(ExportMapping {
                     minified_name: class_name.to_string(),
@@ -146,14 +151,14 @@ pub fn extract_this_name_patterns(code: &str) -> Vec<ExportMapping> {
 
     // Pattern 2: X = class extends Y { ... this.name = "Z" }
     for cap in CLASS_ASSIGN_RE.captures_iter(code) {
-        let var_name = cap.get(1).unwrap().as_str();
-        let start_idx = cap.get(0).unwrap().end();
+        let var_name = cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
+        let start_idx = cap.get(0).expect("capture group 0 guaranteed by regex").end();
 
         let end = (start_idx + 500).min(code.len());
         let window = &code[start_idx..end];
 
         if let Some(name_cap) = THIS_NAME_RE.captures(window) {
-            let readable_name = name_cap.get(1).unwrap().as_str();
+            let readable_name = name_cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
             if var_name != readable_name && var_name.len() > 1 {
                 // Avoid duplicates
                 let exists = results
@@ -174,12 +179,13 @@ pub fn extract_this_name_patterns(code: &str) -> Vec<ExportMapping> {
 }
 
 /// Extract displayName assignments: `X.displayName = "ComponentName"`
+#[must_use]
 pub fn extract_display_name_patterns(code: &str) -> Vec<ExportMapping> {
     let mut results = Vec::new();
 
     for cap in DISPLAY_NAME_RE.captures_iter(code) {
-        let minified_var = cap.get(1).unwrap().as_str();
-        let readable_name = cap.get(2).unwrap().as_str();
+        let minified_var = cap.get(1).expect("capture group 1 guaranteed by regex").as_str();
+        let readable_name = cap.get(2).expect("capture group 2 guaranteed by regex").as_str();
 
         if minified_var != readable_name && minified_var.len() > 1 && !readable_name.starts_with('#') {
             results.push(ExportMapping {
@@ -195,6 +201,7 @@ pub fn extract_display_name_patterns(code: &str) -> Vec<ExportMapping> {
 
 /// Extract all name mappings from code (MR exports + this.name + displayName).
 /// Returns deduplicated map from minified name to original name.
+#[must_use]
 pub fn extract_all_names(code: &str) -> FxHashMap<String, String> {
     let mut var_map: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
@@ -225,6 +232,7 @@ pub fn extract_all_names(code: &str) -> FxHashMap<String, String> {
     result
 }
 
+#[must_use]
 pub fn detect_wrapper_functions(code: &str) -> (String, String) {
     let preamble = &code[..5000.min(code.len())];
 
@@ -232,22 +240,32 @@ pub fn detect_wrapper_functions(code: &str) -> (String, String) {
     // Match structure without backreferences - look for the {exports:{}} pattern
     let factory_re = Regex::new(
         r"(?:,|var\s+)([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\([A-Za-z_$][A-Za-z0-9_$]*,\s*[A-Za-z_$][A-Za-z0-9_$]*\)\s*=>\s*\(\)\s*=>\s*\([^)]*\{\s*exports\s*:\s*\{\s*\}\s*\}"
-    ).unwrap();
+    ).expect("valid regex pattern");
 
     let factory_fn = factory_re
         .captures(preamble)
-        .map(|c| c.get(1).unwrap().as_str().to_string())
+        .map(|c| {
+            c.get(1)
+                .expect("capture group 1 guaranteed by regex")
+                .as_str()
+                .to_string()
+        })
         .unwrap_or_else(|| "y".to_string());
 
     // __esm: (a,b)=>()=>(a&&(b=a(a=0)),b)
     // Match structure - look for the (a=0) pattern
     let lazy_re = Regex::new(
         r"(?:,|var\s+)([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\([A-Za-z_$][A-Za-z0-9_$]*,\s*[A-Za-z_$][A-Za-z0-9_$]*\)\s*=>\s*\(\)\s*=>\s*\([^)]*=\s*0\s*\)"
-    ).unwrap();
+    ).expect("valid regex pattern");
 
     let lazy_fn = lazy_re
         .captures(preamble)
-        .map(|c| c.get(1).unwrap().as_str().to_string())
+        .map(|c| {
+            c.get(1)
+                .expect("capture group 1 guaranteed by regex")
+                .as_str()
+                .to_string()
+        })
         .unwrap_or_else(|| "h".to_string());
 
     (factory_fn, lazy_fn)
@@ -255,6 +273,7 @@ pub fn detect_wrapper_functions(code: &str) -> (String, String) {
 
 /// Find all module wrappers in code.
 /// Returns list of modules with their positions.
+#[must_use]
 pub fn find_module_wrappers(code: &str) -> Vec<ModuleInfo> {
     let (mod_fn, laz_fn) = detect_wrapper_functions(code);
     let mut modules = Vec::new();
@@ -264,12 +283,16 @@ pub fn find_module_wrappers(code: &str) -> Vec<ModuleInfo> {
         r"var\s+([A-Za-z0-9_$]+)\s*=\s*{}\s*\(",
         regex::escape(&mod_fn)
     ))
-    .unwrap();
+    .expect("valid regex pattern");
 
     for cap in mod_re.captures_iter(code) {
-        let name = cap.get(1).unwrap().as_str().to_string();
-        let decl_start = cap.get(0).unwrap().start();
-        let factory_start = cap.get(0).unwrap().end();
+        let name = cap
+            .get(1)
+            .expect("capture group 1 guaranteed by regex")
+            .as_str()
+            .to_string();
+        let decl_start = cap.get(0).expect("capture group 0 guaranteed by regex").start();
+        let factory_start = cap.get(0).expect("capture group 0 guaranteed by regex").end();
 
         // Find matching closing paren
         if let Some(end) = find_matching_paren(code, factory_start - 1) {
@@ -288,12 +311,16 @@ pub fn find_module_wrappers(code: &str) -> Vec<ModuleInfo> {
         r"var\s+([A-Za-z0-9_$]+)\s*=\s*{}\s*\(",
         regex::escape(&laz_fn)
     ))
-    .unwrap();
+    .expect("valid regex pattern");
 
     for cap in laz_re.captures_iter(code) {
-        let name = cap.get(1).unwrap().as_str().to_string();
-        let decl_start = cap.get(0).unwrap().start();
-        let factory_start = cap.get(0).unwrap().end();
+        let name = cap
+            .get(1)
+            .expect("capture group 1 guaranteed by regex")
+            .as_str()
+            .to_string();
+        let decl_start = cap.get(0).expect("capture group 0 guaranteed by regex").start();
+        let factory_start = cap.get(0).expect("capture group 0 guaranteed by regex").end();
 
         if let Some(end) = find_matching_paren(code, factory_start - 1) {
             modules.push(ModuleInfo {
@@ -354,6 +381,7 @@ pub struct BundleSplit {
     pub main: String,
 }
 
+#[must_use]
 pub fn split_bundle(code: &str) -> BundleSplit {
     let modules = find_module_wrappers(code);
 

@@ -155,7 +155,7 @@ impl ModuleExtractor {
         if module_id.is_none() {
             return Ok(None);
         }
-        let module_id = module_id.unwrap();
+        let module_id = module_id.expect("module ID set during detection");
 
         let colon_pos = i
             .checked_add(1)
@@ -178,7 +178,7 @@ impl ModuleExtractor {
             if func_end.is_none() {
                 return Ok(None);
             }
-            let func_end = func_end.unwrap();
+            let func_end = func_end.expect("function end set during detection");
 
             trace_webpack!("parsed module {}: positions {}..{}", module_id, func_pos, func_end);
 

@@ -90,7 +90,7 @@ fn is_valid_module_name(name: &str) -> bool {
         return false;
     }
 
-    let first = name.chars().next().unwrap();
+    let first = name.chars().next().expect("non-empty module name");
     if !first.is_ascii_alphabetic() && first != '_' && first != '$' {
         return false;
     }

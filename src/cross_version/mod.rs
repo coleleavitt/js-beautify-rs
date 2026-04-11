@@ -86,7 +86,7 @@ impl CrossVersionAligner {
                 .into_iter()
                 .collect();
             if unique.len() == 1 {
-                let original = unique.into_iter().next().unwrap();
+                let original = unique.into_iter().next().expect("exactly one element");
                 if !is_reserved(&original) {
                     self.stable_names.insert(minified, original);
                     stable_count += 1;
@@ -229,7 +229,10 @@ impl CrossVersionAligner {
                             canonical_counter += 1;
                             canonical_names.insert(key.clone(), name);
                         }
-                        canonical_names.get(&key).unwrap().clone()
+                        canonical_names
+                            .get(&key)
+                            .expect("canonical name generated for key")
+                            .clone()
                     }
                 } else {
                     let key = format!("{}:{}", source_stmt.hash, src_id.order_index);
@@ -238,7 +241,10 @@ impl CrossVersionAligner {
                         canonical_counter += 1;
                         canonical_names.insert(key.clone(), name);
                     }
-                    canonical_names.get(&key).unwrap().clone()
+                    canonical_names
+                        .get(&key)
+                        .expect("canonical name generated for key")
+                        .clone()
                 };
 
                 order_to_canonical.insert(src_id.order_index, canonical.clone());

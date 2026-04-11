@@ -2,11 +2,32 @@
 name = "js-beautify-rs"
 version = "0.1.0"
 edition = "2024"
+autobins = false
 description = "A fast JavaScript beautifier and deobfuscator powered by oxc"
 license = "MIT"
 repository = "https://github.com/coleleavitt/js-beautify-rs"
+readme = "README.md"
 keywords = ["javascript", "beautifier", "deobfuscator", "webpack", "oxc"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+    "research/",
+    "instructions.md",
+    "SESSION_SUMMARY.md",
+    "PHASE6_PROGRESS.md",
+    "QUICK_REFERENCE.md",
+    "IMPROVEMENTS.md",
+    "AST_ARCHITECTURE.md",
+    "tests/",
+    "examples/",
+    ".idea/",
+    ".ruff_cache/",
+    "src/bin/test_ast_deob.rs",
+    "src/bin/test_oxc_parse.rs",
+]
+
+[[bin]]
+name = "jsbeautify"
+path = "src/bin/jsbeautify.rs"
 
 [lints.rust]
 rust_2018_idioms = "warn"
@@ -34,15 +55,15 @@ rc4 = "0.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustc-hash = "2"
-oxc_allocator = { path = "../../forks/oxc/crates/oxc_allocator" }
-oxc_ast = { path = "../../forks/oxc/crates/oxc_ast" }
-oxc_ast_visit = { path = "../../forks/oxc/crates/oxc_ast_visit" }
-oxc_parser = { path = "../../forks/oxc/crates/oxc_parser" }
-oxc_semantic = { path = "../../forks/oxc/crates/oxc_semantic" }
-oxc_span = { path = "../../forks/oxc/crates/oxc_span" }
-oxc_syntax = { path = "../../forks/oxc/crates/oxc_syntax" }
-oxc_traverse = { path = "../../forks/oxc/crates/oxc_traverse" }
-oxc_codegen = { path = "../../forks/oxc/crates/oxc_codegen" }
-oxc_cfg = { path = "../../forks/oxc/crates/oxc_cfg" }
+oxc_allocator = "0.124.0"
+oxc_ast = "0.124.0"
+oxc_ast_visit = "0.124.0"
+oxc_parser = "0.124.0"
+oxc_semantic = "0.124.0"
+oxc_span = "0.124.0"
+oxc_syntax = "0.124.0"
+oxc_traverse = "0.124.0"
+oxc_codegen = "0.124.0"
+oxc_cfg = "0.124.0"
 clap = { version = "4.5.57", features = ["derive"] }
 md5 = "0.7"

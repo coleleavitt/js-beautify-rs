@@ -59,7 +59,10 @@ impl CanonicalNamer {
                     self.canonical_counter += 1;
                     self.canonical_names.insert(key.clone(), name);
                 }
-                self.canonical_names.get(&key).unwrap().clone()
+                self.canonical_names
+                    .get(&key)
+                    .expect("canonical name exists for key")
+                    .clone()
             };
 
             order_to_canonical.insert(src_id.order_index, canonical.clone());

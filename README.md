@@ -1,16 +1,35 @@
 # js-beautify-rs
 
+[![Crates.io](https://img.shields.io/crates/v/js-beautify-rs.svg)](https://crates.io/crates/js-beautify-rs)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+
 A fast JavaScript beautifier and deobfuscator written in Rust, powered by [oxc](https://github.com/oxc-project/oxc).
 
-Takes minified, obfuscated webpack bundles and produces readable JavaScript. Handles real-world production bundles — tested against 11MB+ Anthropic CLI builds.
+Takes minified, obfuscated webpack/esbuild/Bun bundles and produces readable JavaScript.
+Handles real-world production bundles — tested against 11MB+ builds.
 
-## Usage
+## Installation
 
 ```bash
-# Beautify
+cargo install js-beautify-rs
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/coleleavitt/js-beautify-rs
+cd js-beautify-rs
+cargo build --release
+# binary at ./target/release/jsbeautify
+```
+
+## Quick Start
+
+```bash
+# Beautify minified JavaScript
 jsbeautify input.js -o output.js
 
-# Beautify + deobfuscate
+# Beautify + deobfuscate (20-phase AST pipeline)
 jsbeautify input.js --deobfuscate -o output.js
 
 # Pipe from stdin
@@ -19,9 +38,17 @@ cat bundle.js | jsbeautify - > output.js
 # Extract webpack modules to separate files
 jsbeautify bundle.js --extract-modules --module-dir ./modules
 
-# Generate dependency graph
+# Generate dependency graph (DOT format)
 jsbeautify bundle.js --extract-modules --dependency-graph deps.dot
+
+# Cross-version alignment with sourcemap name recovery
+jsbeautify v1.js --sourcemap v1.js.map --align-with v2.js --align-output v2.aligned.js -o v1.aligned.js
+
+# Extract names from Bun bundles (MR exports, this.name, displayName)
+jsbeautify bundle.js --bun-extract --sourcemap bundle.js.map -o output.js
 ```
+
+## CLI Reference
 
 ```
 Usage: jsbeautify [OPTIONS] <FILE>
@@ -31,7 +58,7 @@ Arguments:
 
 Options:
   -o, --output <FILE>            Write output to a file instead of stdout
-  -d, --deobfuscate              Enable AST-based deobfuscation (19-phase pipeline)
+  -d, --deobfuscate              Enable AST-based deobfuscation (20-phase pipeline)
       --split-chunks             Split webpack chunks into separate files
       --chunk-dir <DIR>          Directory for chunk output [default: ./chunks]
       --chunk-map <FILE>         Write chunk metadata to a JSON file
@@ -39,15 +66,43 @@ Options:
       --module-dir <DIR>         Directory for module output [default: ./modules]
       --dependency-graph <FILE>  Generate a dependency graph in DOT format
       --source-maps              Generate source maps
+      --sourcemap <FILE>         Sourcemap for extracting original variable names
+      --names-json <FILE>        Name mappings from extract-names.ts
+      --align-with <FILE>        Second bundle to align with (produces stable diffs)
+      --align-output <FILE>      Output path for the aligned second bundle
+      --raw                      Skip beautification, output raw aligned code
+      --bun-extract              Extract names from Bun bundle patterns
       --indent-size <N>          Indentation size in spaces [default: 4]
       --indent-with-tabs         Use tabs for indentation instead of spaces
   -h, --help                     Print help
   -V, --version                  Print version
 ```
 
+## Library Usage
+
+js-beautify-rs can also be used as a Rust library:
+
+```rust
+use js_beautify_rs::{beautify, Options};
+
+let code = "function test(){console.log('hello');}";
+let options = Options::default();
+let beautified = beautify(code, &options).expect("beautification failed");
+```
+
+For deobfuscation:
+
+```rust
+use js_beautify_rs::AstDeobfuscator;
+
+let obfuscated = std::fs::read_to_string("bundle.js").unwrap();
+let mut deobfuscator = AstDeobfuscator::new();
+let clean = deobfuscator.deobfuscate(&obfuscated).unwrap();
+```
+
 ## Deobfuscation Pipeline
 
-The `--deobfuscate` flag runs a **Phase 0 pre-processor** followed by a **19-phase AST transformation pipeline**. Each phase feeds the next — order matters.
+The `--deobfuscate` flag runs a **Phase 0 pre-processor** followed by a **20-phase AST transformation pipeline**. Each phase feeds the next — order matters.
 
 ### Phase 0: Encrypted Eval Decryption (Pre-AST)
 
@@ -64,24 +119,24 @@ window[chars.map(c => c[1]).join('')](decrypted);       // eval(decrypted)
 console.log("Hello World!");
 ```
 
-**Encryption layers removed:**
+Encryption layers removed:
 1. Base64 decode with colon-delimited PRNG seed and counter
 2. XOR keystream via custom PRNG (seed-based)
-3. Variable-shift Caesar cipher (shift values 1–25 per character)
+3. Variable-shift Caesar cipher (shift values 1-25 per character)
 4. Color-hex steganography for the `eval` call
 
 This pattern was reverse-engineered from a live phishing campaign. The decrypted payload replaces the entire encrypted block in-place before AST processing continues.
 
-### AST Transformation Phases (1–19)
+### AST Transformation Phases (1-20)
 
 | Phase | Pass | What it does |
-|-------|------|-------------|
+|------:|------|-------------|
 | 1 | Control flow unflattening | Reconstructs original control flow from switch-based state machines |
 | 2 | String array rotation | Detects and applies array rotation (shift/push IIFE patterns) |
 | 3 | Decoder / string array / dispatcher inlining | Resolves decoder functions (base64, RC4, XOR, offset) and inlines string values |
 | 4 | Call proxy inlining | Detects single-use wrapper functions and inlines their targets |
 | 5 | Operator proxy inlining | Resolves proxy functions that wrap binary operators |
-| 6 | Expression simplification | Bracket-to-dot notation, `!0`→`true`, `void 0`→`undefined`, constant folding, algebraic simplification, strength reduction |
+| 6 | Expression simplification | Bracket-to-dot notation, `!0`->`true`, `void 0`->`undefined`, constant folding, algebraic simplification, strength reduction |
 | 7 | Dead code elimination | Removes `if(false)`, `while(false)`, unreachable code after return/throw |
 | 8 | Dead variable elimination | Removes variables that are never read |
 | 9 | Function inlining | Inlines single-use functions with simple bodies |
@@ -94,25 +149,48 @@ This pattern was reverse-engineered from a live phishing campaign. The decrypted
 | 16 | Ternary to if/else | Converts standalone ternary expression statements to if/else blocks |
 | 17 | Short-circuit to if | Converts standalone `a && b()` / `a \|\| b()` to if statements |
 | 18 | IIFE unwrapping | Unwraps zero-argument arrow IIFEs into inline statements |
-| 19 | Webpack module annotation | Labels module boundaries with comment separators |
+| 19 | esbuild helper detection | Identifies `__commonJS`, `__esm`, `__export`, `__toESM`, `__toCommonJS` runtime helpers |
+| 20 | Module annotation | Labels webpack, esbuild, and Bun module boundaries with comment separators |
 
-## Building
+## Cross-Version Alignment
 
-Requires a local checkout of [oxc](https://github.com/oxc-project/oxc) at `../../forks/oxc` (relative to this repo).
+Produces stable diffs between versions of minified bundles by recovering original names and matching statements across versions:
 
 ```bash
-cargo build --release
+# Align two bundle versions using sourcemap name recovery
+jsbeautify v2.1.88.js \
+  --sourcemap v2.1.88.js.map \
+  --align-with v2.1.96.js \
+  --align-output v2.1.96.aligned.js \
+  -o v2.1.88.aligned.js
 ```
 
-The binary is at `./target/release/jsbeautify`.
+Three-tier canonical naming:
+1. **Sourcemap names** — original identifiers recovered from `.map` files (36,000+ names)
+2. **Slot-based names** — Bun alphabet-derived `sN` names for unmapped identifiers
+3. **Hash-based names** — AST structure hash fallback `_rN` for unmatched code
 
-## Running Tests
+Results: 94.7% statement match rate, 76% diff reduction between bundle versions.
+
+## Bun Bundle Support
+
+Extracts original names from Bun-specific bundle patterns:
 
 ```bash
-# Unit tests (221 tests across all deobfuscation passes)
+jsbeautify bundle.js --bun-extract --sourcemap bundle.js.map -o output.js
+```
+
+Patterns detected:
+- `MR(target, { exportName: () => minifiedVar })` export mappings
+- `this.name = "ClassName"` in class constructors
+- `Component.displayName = "ComponentName"` assignments
+
+## Testing
+
+```bash
 cargo test --lib
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE.md)
