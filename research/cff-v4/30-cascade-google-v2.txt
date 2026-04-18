@@ -1,0 +1,846 @@
+                                              CASCADE: LLM-powered JavaScript Deobfuscator at Google
+                                                                            Shan Jiang∗                                                               Pranoy Kovuri∗
+                                                              The University of Texas at Austin                                                           Google
+                                                                        Austin, USA                                                                  Sunnyvale, USA
+                                                                   shanjiang@utexas.edu                                                          kovuripranoy@gmail.com
+
+                                                                             David Tao                                                                  Zhixun Tan
+                                                                              Google                                                                       Google
+                                                                          Sunnyvale, USA                                                               Sunnyvale, USA
+                                                                         dtao@google.com                                                               tzx@google.com
+
+
+
+
+arXiv:2507.17691v2 [cs.SE] 25 Feb 2026
+                                         Abstract                                                                                    JavaScript is the dominant programming language for web de-
+                                         Software obfuscation, particularly prevalent in JavaScript, hinders                     velopment, powering client-side interactions across billions of web
+                                         code comprehension and analysis, posing significant challenges to                       pages, mobile applications, and browser extensions. However, its
+                                         software testing, static analysis, and malware detection. This pa-                      widespread adoption has led to increased use of code obfuscation
+                                         per introduces CASCADE, a novel hybrid approach that integrates                         techniques that deliberately transform readable code into complex,
+                                         the advanced coding capabilities of Gemini with the deterministic                       difficult-to-understand variants. This poses significant challenges
+                                         transformation capabilities of a compiler Intermediate Representa-                      to software testing, complicates analysis, and hinders malware
+                                         tion (IR), specifically JavaScript IR (JSIR). By employing Gemini to                    detection. Deobfuscation, which transforms the code to restore
+                                         identify critical prelude functions—the foundational components                         readability and reveal the original intention while maintaining
+                                         underlying the most prevalent obfuscation techniques—and leverag-                       code semantic equivalence, is inherently difficult. It requires ro-
+                                         ing JSIR for subsequent code transformations, CASCADE effectively                       bust handling of various complex obfuscation techniques—such as
+                                         recovers semantic elements like original strings and API names, and                     dynamic code generation (e.g., using the eval function to execute
+                                         reveals original program behaviors. This method overcomes limita-                       code from strings), control flow flattening, and string encoding.
+                                         tions of existing static and dynamic deobfuscation techniques, elim-                    Deobfuscation involves not only syntactic simplification but also
+                                         inating hundreds to thousands of hard-coded rules while achieving                       deeper semantic restructuring to reverse transformations like iden-
+                                         reliability and flexibility. CASCADE is already deployed in Google’s                    tifier mangling, opaque predicate removal, and constant unfolding.
+                                         production environment, demonstrating substantial improvements                          Aggressive code transformations might significantly enhance read-
+                                         in JavaScript deobfuscation efficiency and reducing reverse engi-                       ability but inadvertently compromise semantic equivalence; conser-
+                                         neering efforts.                                                                        vative approaches may produce code that, while correct, remains
+                                                                                                                                 largely inscrutable.
+                                         CCS Concepts                                                                                Based on empirical observations, Obfuscator.IO [3] is the most
+                                                                                                                                 widely used JavaScript obfuscator by malware developers, with
+                                         • Software and its engineering → Compilers; • Security and
+                                                                                                                                 js-confuser [6] is the second most common. Obfuscator.IO’s level
+                                         privacy → Software reverse engineering; • Computing method-
+                                                                                                                                 of obscurity, as demonstrated in a concrete example shown in Fig
+                                         ologies → Artificial intelligence.
+                                                                                                                                 1, significantly impedes malware detection workflows. Amongst its
+                                                                                                                                 various obfuscation techniques, the obfuscation of strings and API
+                                         Keywords                                                                                names (method and property names) creates the greatest barriers
+                                         JavaScript Deobfuscation, Large Language Models, Compiler                               to code analysis. Recovering original string literals and API names
+                                         ACM Reference Format:                                                                   would markedly reduce the manual effort required in Google’s
+                                         Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan. 2026. CASCADE:                    malware detection processes. Since Obfuscator.IO performs API ob-
+                                         LLM-powered JavaScript Deobfuscator at Google. In 2026 IEEE/ACM 48th                    fuscation by transforming direct API calls (e.g., chrome.cookies) as
+                                         International Conference on Software Engineering (ICSE-SEIP ’26), April 12–             string-indexed lookups (chrome["cookies"]) before obfuscating the
+                                         18, 2026, Rio de Janeiro, Brazil. ACM, New York, NY, USA, 11 pages. https:              string literal ("cookies"), solving string obfuscation inherently re-
+                                         //doi.org/10.1145/3786583.3786873                                                       solves the API obfuscation. Consequently, we target Obfuscator.IO’s
+                                                                                                                                 string obfuscation in this paper.
+                                         1    Introduction                                                                           To address string obfuscation of Obfuscator.IO, we propose CAS-
+                                                                                                                                 CADE (Combined Analysis of Scripts with a Context-Aware
+                                         ∗ Work done while at Google.
+                                                                                                                                 Deobfuscation Engine), a hybrid JavaScript deobfuscator that com-
+                                                                                                                                 bines large language models (LLMs) and a compiler intermediate
+                                                                                                                                 representation (IR). First, it uses Gemini [17] to detect and extract
+                                         Please use nonacm option or ACM Engage class to enable CC licenses
+                                         This work is licensed under a Creative Commons Attribution 4.0 International License.   key code patterns, termed prelude functions, generated by Obfus-
+                                         ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                cator.IO for manipulating obfuscated strings. Then, it runs a cus-
+                                         © 2026 Copyright held by the owner/author(s).                                           tomized constant propagation and inline pass built on JSIR [8], a
+                                         ACM ISBN 979-8-4007-2426-8/2026/04
+                                         https://doi.org/10.1145/3786583.3786873                                                 next-generation compiler framework, and treats prelude functions
+ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                                            Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan
+
+
+function hi () {
+   console . log ( ' Hello World ! ');
+}
+hi () ;
+
+
+function _0x432d () {
+    var _0x1398fd = [
+          ' 754705 BaCmnb ', ' 710 BeTfxi ', ' 6078 JFPbmg ', ' 391457 WTcWXy ', ' 6916 iSWoZO ',
+          ' 1533357 iISYWF ', ' 2400 oHfZQf ', '24 eeZIfI ', ' log ', ' 149 YcoFBV ',
+          ' 1367628 nfkDqA ', ' 1243948 epsCBk ', ' Hello \ x20World ! '
+    ];
+    _0x432d = function () {
+          return _0x1398fd ;
+    };
+    return _0x432d () ;
+}
+( function ( _0x38057e , _0xee6281 ) {
+    var _0x18e9b0 = _0x4c0c ;
+    var _0x1ab84e = _0x38057e () ;
+    while (!![]) {
+          try {
+               var _0xc7d52d = parseInt ( _0x18e9b0 (0 x1b7 )) / 0 x1 * (- parseInt ( _0x18e9b0 (0 x1bf )) / 0 x2 ) + - parseInt ( _0x18e9b0 (0 x1b8 )) / 0 x3 + -
+        parseInt ( _0x18e9b0 (0 x1b9 )) / 0 x4 + - parseInt ( _0x18e9b0 (0 x1c1 )) / 0 x5 * ( parseInt ( _0x18e9b0 (0 x1bd )) / 0 x6 ) + parseInt ( _0x18e9b0 (0 x1bb ))
+        / 0 x7 * (- parseInt ( _0x18e9b0 (0 x1b5 )) / 0 x8 ) + - parseInt ( _0x18e9b0 (0 x1c0 )) / 0 x9 + - parseInt ( _0x18e9b0 (0 x1bc )) / 0 xa * (- parseInt (
+        _0x18e9b0 (0 x1be )) / 0 xb );
+               if ( _0xc7d52d === _0xee6281 ) {
+                    break ;
+               } else {
+                    _0x1ab84e [ ' push ']( _0x1ab84e [ ' shift ' ]() );
+               }
+          } catch ( _0x5a174b ) {
+               _0x1ab84e [ ' push ']( _0x1ab84e [ ' shift ' ]() );
+          }
+    }
+}( _0x432d , 0 x40942 ));
+function _0x4c0c ( _0x32b956 , _0x514a26 ) {
+    var _0x432d26 = _0x432d () ;
+    _0x4c0c = function ( _0x4c0c62 , _0x284b04 ) {
+          _0x4c0c62 = _0x4c0c62 - 0 x1b5 ;
+          var _0x85349e = _0x432d26 [ _0x4c0c62 ];
+          return _0x85349e ;
+    };
+    return _0x4c0c ( _0x32b956 , _0x514a26 );
+}
+function hi () {
+    var _0x964834 = _0x4c0c ;
+    console [ _0x964834 (0 x1b6 ) ]( _0x964834 (0 x1ba ));
+}
+hi () ;
+
+
+
+                  Figure 1: Hello World obfuscated by Obfuscator.IO with the default (the lowest level) configuration
+
+
+as pure (i.e. idempotent and side-effect-free) functions and dynami-                    The hybrid approach of CASCADE leverages the best of both worlds:
+cally execute them in a sandboxed JavaScript environment. The use                       Gemini detects prelude functions with a 99.56% average success
+of LLMs for code pattern detection eliminates reliance on manually                      rate on a synthetic dataset of 12K obfuscated files; the deterministic
+engineered heuristics; the compiler IR provides a robust structure                      transformations of JSIR then restores 945 string literals per sample
+for applying code transformations, ensuring functional integrity                        in an average of two seconds, demonstrating practical throughput.
+through semantics-preserving operations while systematically im-                           This paper offers three primary contributions:
+proving code readability.
+   Recent work confirms that LLMs possess strong code understand-                             • Novelty — CASCADE is the first framework to pair an LLM
+ing skills [25, 31, 37], making them promising tools for identifying                            with compiler-level IR transformations, merging probabilis-
+code patterns. LLMs also align user prompts with their learned                                  tic code understanding with deterministic rewrites for robust
+internal representations [27] and show emergent competence on                                   deobfuscation of JavaScript code.
+tasks not seen during training [46]. Together, these properties po-                           • Industrial deployment — CASCADE is deployed in produc-
+sition LLMs to automatically pinpoint prelude functions in long,                                tion at Google and eliminates the need for hard-coded pat-
+obfuscated codebases. However, LLMs still falter on tasks that de-                              tern matching rules (100+ lines per obfuscation technique)
+mand exact logical or mathematical reasoning [50, 53] limiting                                  in WebCrack and Deobfuscator.IO.
+their effectiveness in fully correct end-to-end deobfuscation. Even                           • Robustness - CASCADE hybrid architecture eliminates hard-
+small arithmetic mistakes—e.g., flipping an if condition from true to                           coded pattern matching which can be easily broken with just
+false—can radically change program behavior. Evaluating pure LLM                                a slight change after obfuscation, and is robust to regression
+deobfuscation is also difficult because proving functional equiva-                              changes of Obfuscator.IO.
+lence between the obfuscated and recovered programs is non-trivial.                           • Scalability — We open-source our prompt templates and
+                                                                                                the full JSIR infrastructure to facilitate community adoption
+CASCADE: LLM-powered JavaScript Deobfuscator at Google                                            ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil
+
+
+       and reproducibility. The repository is publicly available at       prevent successful deobfuscation. AST-based methods are limited
+       https://github.com/google/jsir.                                    when encountering heavily obfuscated code or novel obfuscation
+                                                                          patterns not included in their predefined rule sets. The key limi-
+2 Background and Related Work                                             tation of AST-based tools is their lack of semantic understanding
+                                                                          capabilities compared to compiler-based methods. These tools are
+2.1 Software Obfuscation.
+                                                                          prone to altering code behavior or introducing errors during the
+Software obfuscation deliberately transforms code to hinder read-         deobfuscation process.
+ability, analysis, and reverse engineering. Common obfuscation
+techniques include restructuring code, replacing descriptive vari-        2.3    LLM for SE.
+able names with unintuitive identifiers, injecting redundant or
+                                                                          Large Language Models (LLMs) have recently demonstrated strong
+misleading instructions, manipulating control flow, and encrypting
+                                                                          capabilities in diverse code-related tasks, including program synthe-
+literals such as strings or configuration data [14, 52]. Although
+                                                                          sis, code refactoring, and automated test generation [27, 31, 54, 55].
+obfuscation can legitimately safeguard proprietary algorithms and
+                                                                          Trained on extensive corpora of code and textual data, these mod-
+sensitive resources (e.g., IP addresses) [19, 35], it is also exploited
+                                                                          els develop an implicit understanding of programming language
+by attackers to mask malicious logic—especially in web and mobile
+                                                                          syntax, semantics, and code structures [28, 32, 45]. Consequently,
+scripts [15, 36, 47].
+                                                                          LLMs exhibit notable capabilities in tasks requiring both natural lan-
+    Obfuscated code severely diminishes the effectiveness of analysis
+                                                                          guage comprehension and code manipulation [27]. While models
+tools, creating a major obstacle for software testing and static anal-
+                                                                          such as StarCoder [33] and Gemini demonstrate proficiency in code
+ysis methods [12, 49, 51]. Moreover, obfuscation hampers malware
+                                                                          generation, they remain susceptible to hallucination, wherein they
+detection by concealing malicious behavior from static analyzers,
+                                                                          generate plausible but incorrect or nonsensical outputs [22]. More-
+security filters, machine-learning detectors, and manual reviewers
+                                                                          over, LLMs exhibit limitations in tasks demanding precise logical
+[30, 40, 44]. JavaScript, the dominant client-side language, is partic-
+                                                                          and mathematical reasoning [50, 53]. This constrains their efficacy
+ularly vulnerable because its source code is delivered directly to the
+                                                                          in achieving correct end-to-end deobfuscation, where precise com-
+browser [18, 21], making it an attractive target for both defensive
+                                                                          putation is crucial, as even minor inaccuracies can drastically alter
+and malicious obfuscation.
+                                                                          program behavior. To address these non-deterministic limitations,
+                                                                          hybrid approaches integrating LLMs with Abstract Syntax Trees
+2.2    JavaScript Deobfuscation                                           (ASTs) or Intermediate Representations (IRs) have demonstrated
+The prevalence of malicious JavaScript code underscores an urgent         promise in various software engineering applications [39].
+need for effective deobfuscation techniques [16, 26, 43]. JavaScript
+deobfuscators aim to restore code readability for analysis while          3     String Obfuscation And CASCADE Approach
+preserving semantic correctness. Various deobfuscation approaches
+have been explored in recent years.
+   Machine learning-based approaches, exemplified by DEGUARD
+[13] for ProGuard-obfuscated Android code, have demonstrated
+promising results. However, the inherent stochasticity of current
+ML models prevents them from guaranteeing semantic equivalence
+between original and deobfuscated code.
+   Dynamic analysis can enhance code readability to facilitate man-
+ual inspection of obfuscated scripts [24]. Lu et al. [34] proposed a
+dynamic analysis technique incorporating program slicing. How-
+ever, dynamic methods generally impose specific runtime environ-
+ment requirements, incur substantial performance overhead, and                           Figure 2: CASCADE Deobfuscator
+raise security concerns.
+   Static analysis presents an alternative approach. JSDES [11] in-          Obfuscator.IO represents a widely adopted obfuscation tool among
+troduced function-centric deobfuscation but struggles with obfusca-       malicious actors [9]. The tool employs a multi-stage obfuscation
+tions implemented purely through basic operations. This limitation        pipeline incorporating string obfuscation, control flow flattening,
+renders it less effective against Obfuscator.IO, which commonly           and complex arithmetic operations, etc.. String obfuscation emerges
+interleaves such operations with complex function calls. Many             as the most critical technique for two key reasons: (1) recovering
+static techniques operate at the AST level [5, 7, 10, 20]. TransAST       string literals and API names yields the greatest readability im-
+[42] uses static analysis and machine translation to deobfuscate          provements, and (2) string obfuscation occurs as the final pipeline
+JavaScript but faces difficulties with obfuscation techniques that        stage, layering atop other obfuscation methods and establishing
+are dynamically generated or manifested at runtime.                       string deobfuscation as a prerequisite for subsequent analysis. Con-
+   Pattern-matching approaches, such as Safe-Deobs [24], rely on          sequently, CASCADE prioritizes string deobfuscation when
+predefined patterns derived from real-world malware. Webcrack [7]         processing Obfuscator.IO-generated code.
+is a rule-based JavaScript deobfuscator that transforms code at the          The Obfuscator.IO tool implements string obfuscation through
+AST level. Webcrack relies on hard-coded AST rules, so even slight        two code transformations. First, it creates a string fetching func-
+modifications (e.g., changing while (!![]) to while (!false)) can         tion that retrieves and optionally decodes elements from a global
+ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                           Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan
+
+
+string table. Second, it replaces each original string literal with           (2) We dynamically execute these detected prelude functions
+a complex string recovery expression that calls the fetching                      in a sandboxed JavaScript environment to obtain accurate
+function through multiple abstraction layers including wrapper                    results from string fetching function calls.
+functions, object property lookups, variable aliases, and arithmetic          (3) We apply constant propagation and inlining via JSIR—a
+operations.                                                                       JavaScript intermediate representation built on MLIR [29]—to
+   Figure 3 is a simplified version of Figure 1, and illustrates string           evaluate arithmetic expressions and resolve indirections.
+obfuscation in Obfuscator.IO. In this example, the strings "log"
+and "Hello World!" are replaced by calls to a getString() function,           This hybrid approach has the following key benefits:
+which retrieves the corresponding entries from a global string array
+                                                                              (1) Hybrid dynamic execution: CASCADE overcomes the
+using offset indices.
+                                                                                  conservatism of pure static analysis, which often fails against
+                                                                                  complex obfuscations to maintain soundness. By dynami-
+function hi () {
+                                                                                  cally executing code snippets that appear non-idempotent
+   console . log ( ' Hello World ! ');
+}                                                                                 but are actually idempotent, CASCADE evaluates more ex-
+hi () ;                                                                           pressions and recovers obfuscated strings effectively.
+var globalStringTable = [                                                     (2) AI-driven maintainability: CASCADE eliminates the need
+   ... , /* index : 8 */ ' log ',                                                 for hundreds to thousands of lines of brittle, unreadable
+   ... , /* index : 12 */ ' Hello World ! '
+                                                                                  manual rules in prelude function detection by leveraging
+];
+function getStringArray () {                                                      state-of-the-art Gemini, achieving accuracy of 99.56%. Such
+   return globalStringTable ;                                                     manual rules are easy to break with minor code changes (e.g.
+}
+                                                                                  change true to !false, or make an alias to a variable), as
+function getString ( index ) {                                                    shown in Figure 4. In comparison, Gemini is resilient against
+  return getStringArray () [ index - 437];                                        minor changes in code format and syntax, which evades
+}
+                                                                                  traditional detection based on AST or regex rules.
+( function () {                                                               (3) Advanced static analysis via JSIR: CASCADE conducts
+   var stringArray = getStringArray () ;
+                                                                                  comprehensive code analyses and transformations using
+   while ( true ) {
+      if ( conditionOnPermutationOf ( stringArray )) {                            the robust JSIR infrastructure, a novel high-level JavaScript
+        stringArray . push ( stringArray . shift () );                            intermediate representation (IR). Although ASTs preserve
+      }
+   }
+                                                                                  high fidelity to source code syntax and suit source-to-source
+}) () ;                                                                           transformations [23, 38], IRs facilitate more sophisticated
+                                                                                  semantic-level analyses and transformations [41, 48]. JSIR
+function hi () {
+   console [ getString (438) ]( getString (442) );                                uniquely encodes all AST syntactical information while sup-
+}                                                                                 porting dataflow analysis.
+hi () ;
+                                                                              (4) Responsible use of AI: CASCADE deliberately refrains
+                                                                                  from using LLMs to directly generate deobfuscated code,
+    Figure 3: Simplified Illustration of String Obfuscation                       eliminating a wide range of potential hallucination errors.
+                                                                                  Its hybrid design improves explanability, observability, and
+   The global string table undergoes rotation an unknown num-                     evaluability, ensuring practical use in production environ-
+ber of times, which makes getStringArray()—and by extension,                      ments.
+getString()—seem non-idempotent with side effects, despite their
+truly idempotent and side-effect-free nature. As a result, these func-
+tions bypass compiler optimizations such as constant propagation          4    Detecting prelude functions
+and inlining.                                                                Prelude functions, generated from templates, are easily recog-
+   However, the definition and initialization of the global string        nizable to reverse engineers despite obfuscation efforts. However,
+table, along with the string fetching function—which we term pre-         manual detection becomes prohibitively time-consuming when
+lude functions—are generated from templates and are highly rec-           applied to lengthy obfuscated codebases. Rule-based approaches
+ognizable. By detecting these code segments, treating getString()         using AST patterns [7] or regular expressions [3] prove equally
+as an idempotent and side-effect-free built-in function, and dy-          problematic—they require extensive manual crafting, demand on-
+namically executing it upon invocation, we can enhance constant           going maintenance, and exhibit brittleness when confronted with
+propagation and inlining, thereby successfully evaluating the string      minor code variations.
+recovery expressions.                                                        Recent advances in LLM code comprehension capabilities, exem-
+   To achieve this, the CASCADE deobfuscator employs a hybrid             plified by models such as Gemini, motivated our investigation into
+approach that integrates static analysis, dynamic execution, and          LLM-based prelude detection. The remainder of this section is orga-
+AI:                                                                       nized as follows: Section 4.1 presents a comprehensive analysis of
+    (1) We identify prelude functions by prompting Gemini, which          prelude function characteristics, Section 4.2 details our prompting
+        leverages its high-level code understanding and structured        methodologies, and Section 4.3 outlines optimization strategies for
+        output capabilities.                                              cost reduction and error mitigation.
+CASCADE: LLM-powered JavaScript Deobfuscator at Google                                                   ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil
+
+
+              function _0x4d08 () {                                    function _0x4d08 () {
+                var _0x235313 = [ ... ];                                 var _0x235313 = [ ... ];
+                                                                         var _alias = _0x235313 ; // Add an alias
+                  _0x4d08 = function () {                                _0x4d08 = function () {
+                     return _0x235313 ;                                     return _alias ;
+                  };                                                     };
+                  return _0x4d08 () ;                                    return _0x4d08 () ;
+              }                                                        }
+
+              while ( true ) { ... }                                   while (! false ) { ... } // true => ! false
+
+              while (!![]) { ... }                                     while (!! true ) { ... } // !![] => !! true
+
+              while ( true ) { ... }                                   for (; ! false ; ) { ... } // Another infinite loop
+
+
+
+Figure 4: Slight changes cause rule-based pattern match to fail, left means Webcrack deobfuscation is correct, right means
+Webcrack cannot deobfuscate
+
+
+4.1    Prelude functions                                                       4.2    Prompt Design
+Obfuscator.IO implements string obfuscation through three prelude              We iterated over different LLM prompt designs to detect Obfus-
+functions:                                                                     cator.IO prelude functions. Figure 5 presents our current prompt
+   (1) A string array function that defines a global string table as           template. We adopt a few-shot learning paradigm by incorporating
+       an array.                                                               descriptions and examples of the code patterns we seek to detect,
+   (2) A string fetching function that retrieves elements from the             as well as a concrete end-to-end example. In particular:
+       array using shifted indices.                                               (1) We separate obfuscated code by top-level statements, en-
+   (3) A string array rotate function implemented as an IIFE (imme-                   closed by HTML-style comment tags (e.g., // <0> and //
+       diately invoked function expression) that rotates the global                   </0>) of IDs. This allows us to instruct the LLM to respond
+       string table until a complex arithmetic expression evaluates                   in the form of statement IDs, restricting the output space,
+       to a target value.                                                             minimizing the output size, and making it easy to consume
+   The following examples illustrate these prelude functions using                    the output for downstream deobfuscation steps.
+simplified names for clarity. In practice, Obfuscator.IO generates                (2) We instruct the LLM to respond in a JSON format, mapping
+incomprehensible function names such as _0x746cd9.                                    each template type to its corresponding statement ID. This
+   String Array Function: Figure 6 demonstrates the                                   structured output simplifies downstream automatic process-
+getStringArray() function, which returns a reference to a global                      ing.
+string table containing both original string literals and those gener-            (3) For each target pattern, we provide a natural language de-
+ated during obfuscation. This function employs a self-redefining                      scription, the template source code, and several concrete
+pattern: upon first invocation, it redefines itself to return a reference             examples. Since Obfuscator.IO prelude functions have a lim-
+to the string array created during that initial call. JavaScript closure              ited number of variations, a few examples are sufficient to
+mechanisms ensure that getStringArray() consistently returns the                      cover all preset configurations (default, low, medium, high),
+same array object in subsequent invocations.                                          as demonstrated by evaluation results in section 6.2.
+   String Fetching Function: Figure 7 demonstrates the
+                                                                                  This description and example-oriented prompt effectively con-
+getString() function, which retrieves a single element from the
+                                                                               veys the classification criteria and desired output structure of LLM
+global string table using an index-based lookup with a fixed off-
+                                                                               without explicit rule definition. It eliminates the need for hundreds
+set. Similar as getStringArray(), the getString() function employs
+                                                                               to thousands of lines of manual rules in AST patterns [7] or regex
+self-modification during its initial execution, rendering it non-
+                                                                               [3], while being resilient against minor formatting or structural
+idempotent. This behavior likely serves as an anti-analysis tech-
+                                                                               changes, making it more maintainable and reliable.
+nique designed to prevent compiler optimization through inlining.
+                                                                                  Our prompt design exemplifies how structured instruction engi-
+Figure 3 illustrates the default obfuscation level implementation. At
+                                                                               neering, combined with few-shot learning, can effectively enable
+elevated obfuscation levels, the global string table contains encoded
+                                                                               modern language models to undertake sophisticated code analy-
+strings, and getString() runs custom decoding algorithms (such as
+                                                                               sis tasks, presenting substantial potential benefits for automated
+Base64 or RC4 decryption), significantly increasing the function’s
+                                                                               security analysis and research.
+complexity and length.
+   String Array Rotate Function: Figure 8 demonstrates an IIFE
+that systematically rotates the global string table until a specific           4.3    Practical Engineering Optimization
+mathematical expression evaluates to a target value. The expression            For production deployment, we implement two engineering opti-
+applies parseInt() to selected table strings and performs arithmetic           mizations to minimize LLM query costs and detection errors.
+operations, making the evaluation dependent on the table’s current                Pre-LLM filtering: We deploy a proprietary YARA [2] rule
+permutation order. Achieving the correct permutation is essential              to identify Obfuscator.IO-obfuscated JavaScript before querying
+for getString() to successfully retrieve the intended string value.            Gemini. This pre-filtering eliminates the majority of the millions
+ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                             Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan
+
+
+  Obfuscator . io is a well - known JavaScript obfuscator .
+  To obfuscate strings , it usually inserts 3 templates : StringArrayTemplate , StringArrayRotateFunctionTemplate and
+  StringArrayCallsWrapperTemplate .
+  ## StringArrayTemplate
+  StringArrayTemplate defines a string array that includes string literals from the original unobfuscated code .
+  It 's generated using this template :
+  ```js
+  {{ string_array_template }}
+  ```
+  An example looks like this :
+  ```js
+  {{ string_array_template_example }}
+  ```
+  ## StringArrayCallsWrapperTemplate
+  StringArrayCallsWrapperTemplate fetches a string from the string array given a shifted index .
+  Depending on the obfuscation config , StringArrayCallsWrapperTemplate may also perform custom decoding such as base64 or rc4 .
+  It 's generated using this template :
+  ```js
+  {{ string_array_calls_wrapper_template }}
+  ```
+  ### StringArrayCallsWrapperTemplate example 1:
+  ```js
+  {{ string_array_calls_wrapper_template_example_1 }}
+  ```
+  ### StringArrayCallsWrapperTemplate example 2:
+  ...
+  ### StringArrayCallsWrapperTemplate example 3:
+  ...
+  ## StringArrayRotateFunctionTemplate
+  StringArrayRotateFunctionTemplate is a piece of code that rotates the string array defined in StringArrayTemplate .
+  It 's generated using this template :
+  ```js
+  {{ string_array_rotate_function_template }}
+  ```
+  An example looks like this :
+  ```js
+  {{ string_array_rotate_function_template_example_1 }}
+  ```
+  Another example looks like this :
+  ```js
+  {{ string_array_rotate_function_template_example_2 }}
+  ```
+  Now , as an obfuscator . io expert , your job is to detect these templates from a piece of obfuscated code .
+  In particular , the code is split into N parts , using html tags in comments with an ID .
+  Please return a JSON map from template name to a list of parts belonging to that template .
+  Here is an example . If the input is this :
+
+  < example_java_script >
+  // <0 >
+  var _0x42f9c1 = _0x1e0f ;
+  // </0 >
+  // <1 >
+  String Array Rotate Function ...
+  // </1 >
+  // <2 >
+  console [ _0x42f9c1 (337) ]( ' Hello , world ! ') ;
+  // </2 >
+  // <3 >
+  String Fetching Function ...
+  // </3 >
+  // <4 >
+  String Array Function ...
+  // </4 >
+  </ example_java_script >
+
+  Output :
+  {
+    ' StringArrayTemplate ': 4,
+    ' StringArrayRotateFunctionTemplate ': 1,
+    ' StringArrayCallsWrapperTemplate ': 3
+  }
+
+  Now please investigate the following code and return the output JSON .
+  < investigation_java_script >
+  {{ annotated_example }}
+  </ investigation_java_script >
+  ** Remember :**
+  * The values for StringArrayTemplate , StringArrayRotateFunctionTemplate , and StringArrayCallsWrapperTemplate can never be equal because of
+          the nature of obfuscation .
+  * Only output the json , do not output any explanation
+
+  Output :
+
+
+
+                                                       Figure 5: Prompt Template For Prelude Detection
+CASCADE: LLM-powered JavaScript Deobfuscator at Google                                                       ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil
+
+
+function getStringArray () {
+  var stringArray = [
+       ' info ', ' ewLHr ', ' prototype ', ... ,
+       ' ctor (\ x22retu ', ' Hello \ x20Worl ',
+       ' tZhir ', ' __proto__ ', ' table '
+  ];
+  getStringArray = function () {
+     return stringArray ;
+  };
+  return getStringArray () ;
+}
+
+
+
+Figure 6: String Array Function (Variable Renamed For Read-                           Figure 9: Dependency graph of prelude functions
+ability)
+                                                                                   We run an intra-procedural constant propagation pass augmented
+function getString ( index , ignored ) {                                       with (1) dynamic execution of the string fetching function, and
+  var stringArray = getStringArray () ;                                        (2) inlining of indirections introduced by Obfuscator.IO, including
+  return getString = function ( index , ignored ) {
+                                                                               variable aliases, wrapper functions, and object wrappers. Table 1
+    index = index -
+            ( -0 x3 *0 x23b + 0 x1b3 + -0 x1 * -0 x676 );                      illustrates the result of running the pass, assuming that dynamically
+    var result = stringArray [ index ];                                        executing getString(438) yields the string "Hello World!".
+    return result ;
+  }, getString ( index , ignored );
+}
+                                                                                          Table 1: Illustration of JSIR transformation
+
+                                                                                     Before                                  After
+Figure 7: String Fetching Function (Variable Renamed For
+                                                                                     var x = getString (438) ;                var x = " Hello World !";
+Readability)
+                                                                                     // Variable alias                        // Variable alias
+                                                                                     var x = getString ;                      var x = getString ;
+( function ( getStringArray , target ) {                                             ...                                      ...
+   var stringArray = getStringArray () ;                                             var y = x (438) ;                        var y = " Hello World !";
+   function getStringWrapper1 (a , b , c , d) {                                      // Wrapper function                      // Wrapper function
+     return getString (d - 0 x1e2 , a);                                              function x(a , b) {                      function x(a , b) {
+   }                                                                                   return getString (a - 1) ;               return getString (a - 1) ;
+   ...                                                                               }                                        }
+   while (!![]) {                                                                    ...                                      ...
+     try {                                                                           var y = x (439 , 101) ;                  var y = " Hello World !";
+       var value = parseInt ( getStringWrapper2 ( -0 xbc , -0 xa4 , -0 xc9 ,         // Object wrapper                        // Object wrapper
+       -0 xab )) / ( -0 x22da + -0 x3e * -0 x4d +0 x1035 ) + - parseInt (            var o = {                                var o = {
+       getStringWrapper1 (0 x38b , 0 x38a , 0 x357 , 0 x376 )) ...                      " k1 ": function (f , x) {               " k1 ": function (f , x) {
+       if ( value === target )                                                             return f(x);                             return f(x);
+          break ;                                                                       },                                       },
+       else                                                                             " k2 ": function (a , b) {               " k2 ": function (a , b) {
+          stringArray [ ' push ']( stringArray [ ' shift ' ]() );                          return a + b;                            return a + b;
+     } catch ( _0x5c80ce ) {                                                            }                                        }
+       stringArray [ ' push ']( stringArray [ ' shift ' ]() );                       };                                       };
+     }                                                                               ...                                      ...
+   }                                                                                 var f = getString ;                      var f = getString ;
+}( getStringArray , 0 x7 * -0 x11ff9 + -0 x166d *0 xc7 + 0 x237a14 ));               var y = o. k1 (f , o. k2 (437 , 1) );    var y = " Hello World !";
+
+
+
+Figure 8: String Array Rotate Function (Variable Renamed
+For Readability)
+                                                                               5.1      Augmenting Constant Propagation
+                                                                               The standard intra-procedural constant propagation is a dataflow
+                                                                               analysis. It applies the worklist algorithm to iteratively update
+of JavaScript samples processed daily, significantly reducing query            abstract states attached to each program point, by propagating the
+costs.                                                                         results of a transfer function, which simulates program execution in
+   Post-LLM validation: We set up a mechanism to validate Gem-                 an abstract domain. In particular, we set the abstract state as a map
+ini’s result. As shown in Figure 6, the three prelude functions have           from symbols to abstract values: {Uninit, Const(some constant
+a fixed dependency relationship, and do not depend on other parts              value), Unknown}.
+of the obfuscated code. We require that the LLM detected prelude                  Figure 10 demonstrates abstract states in action. In this example,
+conforms to this dependency relationship, and if the verification              since a and b are both known to be constants, we can calculate d
+fails, we ignore the LLM detection result.                                     after the first assignment; since c is Unknown, we have to set d to
+                                                                               Unknown after the second assignment.
+5    JSIR Transformation                                                          We augment constant propagation by extending the kinds of ab-
+This section describes how we transform code and recover ob-                   stract values such that they can represent not only constant values,
+fuscated strings based on the prelude detection result, through a              but also (1) references to prelude functions and (2) expressions with
+combination of static analysis and dynamic execution using JSIR.               inline potential.
+ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                            Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan
+
+
+// State : {a #0: 100 , b #0: 200 , c #0: Unknown , d #0: Unknown }     under analysis, we pre-build a global lookup table for all symbols
+d = a + b;
+                                                                        that are assigned only once with a supported expression. During
+// State : {a #0: 100 , b #0: 200 , c #0: Unknown , d #0: 300}          the analysis, we look up symbols not only from the abstract state,
+                                                                        but also from the global lookup table.
+d = a + c;
+// State : {a #0: 100 , b #0: 200 , c #0: Unknown , d #0: Unknown }        (1) Variable Alias: Figure 13 is the example of a variable alias.
+                                                                               Note that the alias x is defined outside the function foo, but
+       Figure 10: Intra-Procedural Constant Propagation                        it is still available in the global lookup table.
+
+                                                                        // Global lookup table :
+5.2     Dynamic Execution of Prelude Functions                          //   x: < prelude " getString ">
+                                                                        //   ...
+After detecting the prelude, i.e. getStringArray, getString and the
+string rotation code, we remove these parts from the obfuscated         var x = getString ;
+code, and load them in a JavaScript execution engine such as V8         ...
+                                                                        function foo () {
+[1] or QuickJS [4]. This means the JavaScript execution context           // State : {y #1: Unknown }
+now contains the rotated global string table and the definition of
+                                                                            var y = x (438) ;
+getString(). Now, utilizing the C++ API exposed by the engine, we
+                                                                            // State : {y #1: " Hello World !"}
+can programmatically invoke any function defined in the context.            //
+More specifically, we can call getString() with any literal argu-           // State is computed by :
+                                                                            // - Look up `x ` in the global inline map
+ments at any time, as if getString() is a builtin function - this is        // - Evaluate getString (438)
+why we call it a prelude function.                                          // -          = " Hello World !" <- Dynamic execution
+   Then, a reference to a prelude function is considered a valid            ...
+                                                                        }
+abstract value during the augmented constant propagation analysis.
+Figure 11 demonstrates an example, assuming getString is a pre-
+lude function, and the dynamic execution of getString(438) yields                         Figure 13: Inlining Variable Alias
+"Hello World!".
+                                                                             (2) Wrapper Function: Figure 14 is the example of a wrapper
+// State : {a #0: Unknown , f #0: Unknown }
+                                                                                 function. During the analysis, we evaluate the expression
+f = getString ;                                                                  x(439, 101) in multiple steps, involving substitution (similar
+// State : {a #0: Unknown , f #0: < prelude " getString " >}                     to that in lambda calculus), binary expression evaluation
+a = f (438) ;
+                                                                                 (standard constant folding), and dynamic execution.
+// State : {a #0: " Hello World !" , f #0: < prelude " getString " >}
+// State computed by dynamically executing getString (438)
+                                                                        // Global lookup table :
+                                                                        //   x: (a #1 , b #1) => getString (a #1 - 1)
+                                                                        //   ...
+Figure 11: Constant Propagation: Dynamic Execution Of Pre-
+lude                                                                    function x(a , b) {
+                                                                          return getString (a - 1) ;
+                                                                        }
+                                                                        ...
+                                                                        function foo () {
+5.3     Inlining Indirections                                             // State : {y #2: Unknown }
+In order to inline Obfuscator.IO indirections, we further extend the
+                                                                            var y = x (439 , 101) ;
+abstract value to support certain expressions with inline potential.        // State : {y #2: " Hello World !"}
+In particular, we support the kinds of expressions listed in Figure         //
+12.                                                                         // State is computed by :
+                                                                            // - Look up `x ` in the global inline map
+                                                                            // - Eval (( a #1 , b #1) => getString (a #1 - 1) ) (439 , 101)
+expr ::=   string
+                                                                            // -     = getString (439 - 1) <- Substitution
+       |   number
+                                                                            // -     = getString (438)       <- Binary expr evaluation
+       |   unary_op expr
+                                                                            // -     = " Hello World !"      <- Dynamic execution
+       |   expr bin_op expr
+                                                                            ...
+       |   identifier
+                                                                        }
+       |   expr [ expr ]                      #   member expression
+       |   { property , ... }                 #   object expression
+       |   expr ( expr , ...)                 #   call expression
+       |   ( identifier , ...) => expr        #   function expression                  Figure 14: Inlining Wrapper Function
+
+property ::= ( string : expr )
+                                                                             (3) Object Wrapper: Figure 15 shows the example of an object
+                                                                                 wrapper, which serves as a repository of utility functions.
+                   Figure 12: Supported Expressions                              Similar to wrapper functions, during the analysis, we evalu-
+                                                                                 ate the expression o.k1(f, o.k2(437, 1)) in multiple steps,
+   Then, to overcome the limit of intra-procedural analysis where                which includes fetching properties from an object expres-
+the abstract state only contains symbols in the current function                 sion.
+CASCADE: LLM-powered JavaScript Deobfuscator at Google                                            ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil
+
+
+// Global lookup table :                                                               Table 2: File Size Distributions (KB)
+//   o: {
+//     'k1 ': (f #1 , x #1) => f #1( x #1) ,
+//     'k2 ': (a #2 , b #2) => a #2 + b #2                                                         50p       90p       95p        99p
+//   }                                                                                Original     2.2       19.9      40.4      186.0
+var o = {
+                                                                                      Default      5.8       31.0      58.4      286.3
+   'k1 ': function (f , x) {                                                          Low          6.9       26.2      46.6      207.7
+      return f(x);                                                                    Medium       28.1     109.7     201.7      973.0
+   },
+   'k2 ': function (a , b) {                                                          High        125.8     340.4     600.7     2,642.0
+      return a + b;
+   }
+};                                                                       Table 3: RQ1: GEMINI PRELUDE FUNCTIONS DETECTION
+...
+function foo () {
+                                                                         RESULT
+   // { State : f #3: Unknown , y #3: Unknown }
+                                                                                                               Responses              Correct
+    var f = getString ;                                                     Configuration        Samples
+    // { State : f #3: < getString >, y #3: Unknown }                                                          (/ Samples)        (/ Responses)
+                                                                                                                     2935                2934
+    var y = o. k1 (f , o. k2 (437 , 1) );                                   Default               2935
+    // { State : f #3: < getString >, y #3: " Hello World !"}
+                                                                                                                   (100%)             (99.97%)
+    //                                                                                                               2935                2935
+                                                                            Low                   2935
+    // State calculated by :                                                                                       (100%)              (100%)
+    // - Look up `o ` in the global inline map
+    // - Eval {...}. k1 (< getString > , {...}. k2 (437 , 1) )                                                       2918                2910
+                                                                            Medium                2935
+    //       = multiple steps ...                                                                                 (99.42%)            (99.73%)
+    //       = < getString >(438)
+                                                                                                                     2867                2825
+    //       = " Hello World !"                                             High                  2935
+    ...                                                                                                           (97.68%)            (98.54%)
+}                                                                                                                   11655               11604
+                                                                            All                   11740
+                                                                                                                  (99.28%)            (99.56%)
+                 Figure 15: Inlining Object Wrapper
+
+                                                                         6.2      RQ1: Prelude detection
+                                                                         Table 3 evaluates Gemini’s prelude detection across various con-
+                                                                         figurations, with each tested on 2,935 samples (down from 2,937
+6     Evaluation                                                         samples because 2 samples could not be annotated with IDs due to
+In this section, we evaluate the CASCADE deobfuscator and address        preprocessing failures caused by invalid code semantics).
+the following research questions:                                           The Default and Low configurations both achieved a 100% re-
+   RQ1: Prelude Detection. What is the Gemini’s accuracy of              sponse rate - meaning Gemini provided a prelude detection result
+prelude function detection when processing obfuscated code?              for every sample; Gemini failed to return a result for some Medium
+   RQ2: JSIR Transformation. How many literals does CASCADE              and High samples, mostly due to out-of-token-limit errors. For those
+recover from the obfuscated code? How long does it take to com-          samples where Gemini successfully returned a result, a near-perfect
+plete the deobfuscation?                                                 99.56% of them matched the ground truth.
+   RQ3: Lessons Learned. What are the lessons learned from
+adopting Gemini for automating challenging software engineering          6.3      RQ2: JSIR transformation
+tasks like code deobfuscation?
+                                                                                   Table 4: RQ2: STRING RECOVERY RESULT
+6.1      Experimental Setup
+                                                                                                                                Avg.               Avg.
+We constructed a dataset by randomly selecting 3,000 JavaScript                                              Successes
+                                                                          Configuration      Samples                          Recovered          Running
+samples of diverse lengths from the ETH 150k JavaScript Dataset                                               (Rate %)
+[49,50]. We then obfuscated each sample using four different preset                                                            Literals          Time (s)
+configurations of Obfuscator.IO (default, low, medium, and high),                                               2929
+                                                                          Default                2934                            127.71             0.844
+which theoretically generates 12,000 obfuscated code snippets. How-                                           (99.83%)
+ever, Obfuscator.IO failed to process some files, yielding actually                                             2929
+                                                                          Low                    2934                            150.05             0.893
+2,937 files per configuration. Table 2 shows the size distributions of                                        (99.83%)
+original and obfuscated samples.                                                                                2895
+                                                                          Medium                 2934                            1050.14            2.364
+   We instrumented Obfuscator.IO to output prelude function loca-                                             (98.67%)
+tions, which serve as ground truth for evaluating Gemini prelude                                                2857
+                                                                          High                   2934                            2493.29            5.164
+detection. We use Gemini 2.5 Flash without thinking (1M input to-                                             (97.38%)
+kens), for its lower latency and cost - both important for production                                          11610
+                                                                          All                    11736                           945.26             2.298
+use, and found that it already works nearly perfectly.                                                        (98.93%)
+ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil                                                Shan Jiang, Pranoy Kovuri, David Tao, and Zhixun Tan
+
+
+   In the experiment, we set a timeout of 60 seconds. If the deobfus-               Obfuscator.IO pattern detection allows us to deploy CAS-
+cator crashes or does not complete after 60 seconds, CASCADE is                     CADE to scan millions of JavaScript files per day.
+considered to be failed. We also count the number of literals recov-
+ered by CASCADE and record the running time. Table 4 presents a             7    Limitation and Future Work
+summary of our string recovery results across various obfuscation           While CASCADE has demonstrated success in string deobfuscation,
+configurations. Each configuration was evaluated on 2934 samples            several limitations remain. This section outlines key areas we plan
+(down from 2937 since 3 samples failed to be preprocessed). Across          to explore in future:
+all 11736 samples, our approach achieved an overall high success
+rate of 98.93% (11610 successes) with an average of 945.26 literals             (1) Agent Integration. Instead of a workflow of predefined
+recovered per file and an average running time of 2.298 seconds.                    steps, we will evolve CASCADE into a LLM agent. In the
+                                                                                    agent, the LLM decides by itself when to invoke various
+                                                                                    JSIR-based code transformation primitives. This could scale
+6.4     RQ3: Lessons Learned                                                        CASCADE to other obfuscators than Obfuscator.IO without
+In this RQ, we discuss our lessons learned from using LLMs in                       new purpose-built logic, and defeat more circumventions.
+industrial software engineering tasks, especially JavaScript deob-              (2) Deployment. CASCADE is deployed in Google’s produc-
+fuscation. LLMs’ ever-growing reasoning and code understanding                      tion environment, where it is utilized to detect malicious
+capabilities suggest significant potential for LLM-driven deobfusca-                JavaScript on Google platforms, thereby enhancing user pro-
+tion. Yet, our investigation reveals that a hybrid (LLM + compiler)                 tection. Future work includes extending its deployment to
+is still required for reliable production use. In particular, it provides           additional platforms and releasing CASCADE as an open-
+the following critical improvements to an LLM-only solution:                        source artifact to promote wider adoption within the soft-
+   (1) Reduce hallucination: Deobfuscation of a single file re-                     ware engineering and security community.
+       lies on hundreds of accurate arithmetic calculations during              (3) Enhancing CASCADE. Currently CASCADE focuses on
+       operations like string retrieval, parameter calculation, and                 string obfuscation of Obfuscator.IO, which is the most impor-
+       dataflow analysis. Even one subtle miscalculation, such as an                tant for improving readability. But other obfuscation tech-
+       off-by-one error, can fundamentally alter program semantics                  niques and other obfuscators also warrant attention. Future
+       (e.g. by inverting the result of a conditional operation). Del-              work will leverage JSIR’s robust infrastructure to address
+       egating precise analysis and calculation to a compiler tool                  other obfuscation strategies, e.g. control-flow flattening and
+       eliminates vast categories of potential errors caused by LLM                 dead code elimination, and support more JavaScript obfusca-
+       hallucination, improving correctness, which is important for                 tors.
+       production use [48].
+   (2) Provide observability and explainability: There is lim-              8    Conclusion
+       ited control and explanation over why and how an LLM re-             CASCADE is a novel hybrid approach to JavaScript deobfuscation,
+       turns a specific response, which might even be different from        offering a significant advancement in addressing complex obfusca-
+       its own ‘thought log’. For instance, when we tasked Gemini           tion techniques. This approach specializes in string obfuscation of
+       2.5 Pro with deobfuscating a program that outputs “world             Obfuscator.IO, the most popular JavaScript obfuscator by malware
+       hello”, it mistakenly responded with “hello world” even              writers. CASCADE employs a hybrid architecture, integrating LLMs
+       though it correctly identified “world hello” in the thought          with JSIR to achieve automated and correct deobfuscation. LLMs
+       chain. This discrepancy likely stems from biases in the train-       automate the detection of prelude functions, substantially reducing
+       ing data - where “hello world” is significantly more prevalent.      manual engineering effort, while the JSIR ensures the correctness
+       Our hybrid approach enforces a workflow such that the re-            of code transformations. Consequently, CASCADE fulfills two crit-
+       sult is explainable and intermediate steps are observable,           ical requirements for deobfuscation: it enhances code readability
+       improving user confidence.                                           through string recovery, and guarantees correctness by leveraging
+   (3) Improve verifiability and evaluability: Due to the inher-            JSIR-based compiler infrastructure. We believe that our experience
+       ent probabilistic nature of AI, an important factor to consider      of a responsible combination of LLM and compiler tools can inspire
+       for production use is the cost of verifying result correctness,      other use cases in software engineering and security communities.
+       which, in the case of deobfuscation, is functional equiva-
+       lence between obfuscated and deobfuscated code. Since an             Acknowledgments
+       LLM-only deobfuscator can make a wide range of errors,               We would like to thank our colleagues across Google for the support
+       such verification is difficult if not impossible. Limiting the       and discussions: Alex Petit-Bianco, David Sklar, Kurt Thomas, Luca
+       non-deterministic part to prelude detection not only makes           Invernizzi, Saswat Anand.
+       it easier for a human to verify its correctness, but also makes
+       it possible to define a correctness metric for evaluation.           References
+   (4) Reduce latency and cost: LLM-only deobfuscation requires              [1] 2008. V8 JavaScript engine. https://github.com/v8/v8.
+       large amounts of reasoning, as many output tokens are the             [2] 2013. YARA: The pattern matching swiss knife for malware researchers (and
+       result of multiple steps of calculation. Our hybrid approach              everyone else). https://virustotal.github.io/yara.
+                                                                             [3] 2016. JavaScript-obfuscator: A Powerful Obfuscator for JavaScript and Node.js.
+       enables the use of Gemini 2.5 Flash without thinking, re-                 https://github.com/javascript-obfuscator/javascript-obfuscator.
+       ducing latency and token costs. Limiting LLM use to only              [4] 2019. QuickJS JavaScript Engine. https://github.com/bellard/quickjs.
+CASCADE: LLM-powered JavaScript Deobfuscator at Google                                                                 ICSE-SEIP ’26, April 12–18, 2026, Rio de Janeiro, Brazil
+
+
+ [5] 2021. JavaScript Deobfuscator - General purpose JavaScript deobfuscator. https:     [34] Gen Lu and Saumya Debray. 2012. Automatic simplification of obfuscated
+     //github.com/ben-sb/javascript-deobfuscator.                                             JavaScript code: A semantics-based approach. In SERE(SSIRI).
+ [6] 2021. JS-Confuser. https://github.com/MichaelXF/js-confuser.                        [35] Benjamin Lynn, Manoj Prabhakaran, and Amit Sahai. 2004. Positive results
+ [7] 2022. webcrack - a tool for reverse engineering javascript. https://github.com/          and techniques for obfuscation. In International conference on the theory and
+     j4k0xb/webcrack.                                                                         applications of cryptographic techniques.
+ [8] 2024. JSIR - An MLIR-based JavaScript Intermediate Representation. https:           [36] Davide Maiorca, Davide Ariu, Igino Corona, Marco Aresu, and Giorgio Giacinto.
+     //github.com/google/jsir.                                                                2015. Stealth attacks: An extended insight into the obfuscation effects on Android
+ [9] 2024. Now You See Me, Now You Don’t: Using LLMs to Obfuscate Malicious                   malware. Computers & Security (2015).
+     JavaScript. https://unit42.paloaltonetworks.com/using-llms-obfuscate-malicious-     [37] Daye Nam, Andrew Macvean, Vincent Hellendoorn, Bogdan Vasilescu, and Brad
+     javascript/.                                                                             Myers. 2024. Using an LLM to help with code understanding. In ICSE.
+[10] 2024. Synchrony - A simple deobfuscator for mangled or obfuscated JavaScript        [38] Samuel Ndichu, Sangwook Kim, Seiichi Ozawa, Takeshi Misu, and Kazuo Mak-
+     files. https://github.com/relative/synchrony.                                            ishima. 2019. A machine learning approach to detection of JavaScript-based
+[11] Moataz AbdelKhalek and Ahmed Shosha. 2017. Jsdes: An automated de-                       attacks using AST features and paragraph vectors. Applied Soft Computing
+     obfuscation system for malicious javascript. In ARES.                                    (2019).
+[12] Salman A. Baset, Shih-Wei Li, Philippe Suter, and Omer Tripp. 2017. Identi-         [39] Stoyan Nikolov, Daniele Codecasa, Anna Sjovall, Maxim Tabachnyk, Satish Chan-
+     fying Android library dependencies in the presence of code obfuscation and               dra, Siddharth Taneja, and Celal Ziftci. 2025. How is Google using AI for internal
+     minimization. In ICSE.                                                                   code migrations? ICSE (2025).
+[13] Benjamin Bichsel, Veselin Raychev, Petar Tsankov, and Martin Vechev. 2016.          [40] Nikolaos Pantelaios and Alexandros Kapravelos. 2024. FV8: A Forced Exe-
+     Statistical Deobfuscation of Android Applications. In CCS.                               cution JavaScript Engine for Detecting Evasive Techniques. arXiv preprint
+[14] Gregory Blanc, Daisuke Miyamoto, Mitsuaki Akiyama, and Youki Kadobayashi.                arXiv:2405.13175 (2024).
+     2012. Characterizing Obfuscated JavaScript Using Abstract Syntax Trees: Experi-     [41] Jihyeok Park, Jihee Park, Seungmin An, and Sukyoung Ryu. 2020. JISET:
+     menting with Malicious Scripts. In WAINA.                                                JavaScript IR-based semantics extraction toolchain. In ASE.
+[15] Kenneth Brezinski and Ken Ferens. 2023. Metamorphic malware and obfuscation:        [42] Yan Qin, Weiping Wang, Zixian Chen, Hong Song, and Shigeng Zhang. 2023.
+     a survey of techniques, variants, and generation kits. Security and Communication        TransAST: A machine translation-based approach for obfuscated malicious
+     Networks (2023).                                                                         javascript detection. In DSN.
+[16] Guoqiang Chen, Xin Jin, and Zhiqiang Lin. 2025. JsDeObsBench: Measuring and         [43] Kunlun Ren, Weizhong Qiang, Yueming Wu, Yi Zhou, Deqing Zou, and Hai
+     Benchmarking LLMs for JavaScript Deobfuscation. In Proceedings of the 2025               Jin. 2023. An Empirical Study on the Effects of Obfuscation on Static Machine
+     ACM SIGSAC Conference on Computer and Communications Security. 36–50.                    Learning-Based Malicious JavaScript Detectors. In ISSTA.
+[17] Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen              [44] Kunlun Ren, Weizhong Qiang, Yueming Wu, Yi Zhou, Deqing Zou, and Hai Jin.
+     Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen,             2023. JSRevealer: A Robust Malicious JavaScript Detector against Obfuscation.
+     et al. 2025. Gemini 2.5: Pushing the Frontier with Advanced Reasoning, Multi-            In DSN.
+     modality, Long Context, and Next Generation Agentic Capabilities. arXiv preprint    [45] Jonan Richards and Mairieli Wessel. 2024. What You Need is What You Get:
+     arXiv:2507.06261 (2025).                                                                 Theory of Mind for an LLM-Based Code Understanding Assistant.
+[18] Charlie Curtsinger, Benjamin Livshits, Benjamin Zorn, and Christian Seifert.        [46] Rylan Schaeffer, Brando Miranda, and Sanmi Koyejo. 2024. Are emergent abilities
+     2011. ZOZZLE: fast and precise in-browser JavaScript malware detection. In               of large language models a mirage? NeurIPS (2024).
+     SEC.                                                                                [47] Moritz Schloegel, Tim Blazytko, Moritz Contag, Cornelius Aschermann, Julius
+[19] Tony Doyle. 2018. Privacy, obfuscation, and propertization. IFLA Journal (2018).         Basler, Thorsten Holz, and Ali Abbasi. 2022. Loki: Hardening Code Obfuscation
+[20] Aurore Fass, Michael Backes, and Ben Stock. 2019. HideNoSeek: Camouflaging               Against Automated Attacks. In USENIX Security.
+     Malicious JavaScript in Benign ASTs. In CCS.                                        [48] Marc Szafraniec, Baptiste Roziere, Hugh James Leather, Patrick Labatut, Fran-
+[21] Daniel Fraunholz and Hans D. Schotten. 2018. Defending Web Servers with                  cois Charton, and Gabriel Synnaeve. 2023. Code Translation with Compiler
+     Feints, Distraction and Obfuscation. In ICNC.                                            Representations. In ICLR.
+[22] Andrew Gambardella, Yusuke Iwasawa, and Yutaka Matsuo. 2024. Language               [49] Zifan Xie, Ming Wen, Haoxiang Jia, Xiaochen Guo, Xiaotong Huang, Deqing
+     Models Do Hard Arithmetic Tasks Easily and Hardly Do Easy Arithmetic Tasks.              Zou, and Hai Jin. 2023. Precise and Efficient Patch Presence Test for Android
+     In ACL.                                                                                  Applications against Code Obfuscation. In ISSTA.
+[23] Quinn Hanam, Fernando S. de M. Brito, and Ali Mesbah. 2016. Discovering bug         [50] Zheng Yuan, Hongyi Yuan, Chuanqi Tan, Wei Wang, and Songfang Huang. 2023.
+     patterns in JavaScript. In FSE.                                                          How well do large language models perform in arithmetic tasks? arXiv preprint
+[24] Adrian Herrera. 2020. Optimizing away javascript obfuscation. In SCAM.                   arXiv:2304.02015 (2023).
+[25] Yang Hong, Shan Jiang, Yulei Fu, and Sarfraz Khurshid. 2025. On the Effec-          [51] Jiexin Zhang, Alastair R. Beresford, and Stephan A. Kollmann. 2019. LibID:
+     tiveness of Large Language Models in Writing Alloy Formulas. arXiv preprint              reliable identification of obfuscated third-party Android libraries. In ISSTA.
+     arXiv:2502.15441 (2025).                                                            [52] Xiaolu Zhang, Frank Breitinger, Engelbert Luechinger, and Stephen
+[26] Yiheng Huang, Ruisi Wang, Wen Zheng, Zhuotong Zhou, Susheng Wu, Shulin                   O’Shaughnessy. 2021. Android application forensics: A survey of obfus-
+     Ke, Bihuan Chen, Shan Gao, and Xin Peng. 2024. SpiderScan: Practical Detection           cation, obfuscation detection and deobfuscation techniques and their impact on
+     of Malicious NPM Packages Based on Graph-Based Behavior Modeling and                     investigations. Forensic Science International: Digital Investigation (2021).
+     Matching. In ASE.                                                                   [53] Yilun Zhao, Yitao Long, Hongjun Liu, Ryo Kamoi, Linyong Nan, Lyuhao Chen,
+[27] Shan Jiang, Chenguang Zhu, and Sarfraz Khurshid. 2024. Generating executable             Yixin Liu, Xiangru Tang, Rui Zhang, and Arman Cohan. 2024. Docmath-eval: Eval-
+     oracles to check conformance of client code to requirements of JDK Javadocs              uating math reasoning capabilities of llms in understanding financial documents.
+     using LLMs. arXiv preprint arXiv:2411.01789 (2024).                                      In ACL.
+[28] Shan Jiang, Chenguang Zhu, and Sarfraz Khurshid. 2025. OBsmith: Test-               [54] Hua Zhong, Shan Jiang, and Sarfraz Khurshid. 2025. An approach for API
+     ing JavaScript Obfuscator using LLM-powered sketching. arXiv preprint                    synthesis using large language models. arXiv preprint arXiv:2502.15246 (2025).
+     arXiv:2510.10066 (2025).                                                            [55] Hua Zhong, Shan Jiang, and Sarfraz Khurshid. 2025. APRIL: API Synthesis with
+[29] Chris Lattner, Mehdi Amini, Uday Bondhugula, Albert Cohen, Andy Davis,                   Automatic Prompt Optimization and Reinforcement Learning. arXiv preprint
+     Jacques Pienaar, River Riddle, Tatiana Shpeisman, Nicolas Vasilache, and Olek-           arXiv:2509.25196 (2025).
+     sandr Zinenko. 2021. MLIR: Scaling Compiler Infrastructure for Domain Specific
+     Computation. In 2021 IEEE/ACM International Symposium on Code Generation
+     and Optimization (CGO). 2–14. https://doi.org/10.1109/CGO51591.2021.9370308
+[30] Bo Li, Phani Vadrevu, Kyu Hyung Lee, and Roberto Perdisci. 2018. JSgraph:
+     Enabling Reconstruction of Web Attacks via Efficient Tracking of Live In-Browser
+     JavaScript Executions. In NDSS.
+[31] Zongjie Li, Chaozheng Wang, Zhibo Liu, Haoxuan Wang, Dong Chen, Shuai
+     Wang, and Cuiyun Gao. 2023. Cctest: Testing and repairing code completion
+     systems. In ICSE.
+[32] Kaibo Liu, Zhenpeng Chen, Yiyang Liu, Jie M Zhang, Mark Harman, Yudong
+     Han, Yun Ma, Yihong Dong, Ge Li, and Gang Huang. 2025. LLM-powered test
+     case generation for detecting bugs in plausible programs. ACL (2025).
+[33] Anton Lozhkov, Raymond Li, Loubna Ben Allal, Federico Cassano, Joel Lamy-
+     Poirier, Nouamane Tazi, Ao Tang, Dmytro Pykhtar, Jiawei Liu, Yuxiang Wei,
+     et al. 2024. Starcoder 2 and the stack v2: The next generation. arXiv preprint
+     arXiv:2402.19173 (2024).
+

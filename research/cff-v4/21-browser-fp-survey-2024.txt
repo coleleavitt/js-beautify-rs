@@ -1,0 +1,533 @@
+                                               Fingerprinting and Tracing Shadows: The Development and Impact of Browser
+                                                                     Fingerprinting on Digital Privacy
+
+                                                                                                   Alexander Lawall
+                                                                                     IU International University of Applied Science
+                                                                                              Erfurt, Thüringen, Germany
+                                                                                                alexander.lawall@iu.org
+
+
+
+                                             Abstract—Browser fingerprinting is a growing technique for            The paper is structured as follows: Section I introduces
+
+
+
+
+arXiv:2411.12045v1 [cs.CR] 18 Nov 2024
+                                          identifying and tracking users online without traditional methods     browser fingerprinting and its privacy implications. In Section
+                                          like cookies. This paper gives an overview by examining the           II, the theoretical background explains how fingerprinting
+                                          various fingerprinting techniques and analyzes the entropy and
+                                          uniqueness of the collected data. The analysis highlights that        works and its legal challenges. Section III outlines techniques
+                                          browser fingerprinting poses a complex challenge from both            like HTTP Headers, Canvas, and WebGL Fingerprinting. Sec-
+                                          technical and privacy perspectives, as users often have no control    tion IV examines the impact of fingerprinting on privacy and
+                                          over the collection and use of their data. In addition, it raises     the regulatory landscape. Section V concludes with a summary
+                                          significant privacy concerns as users are often tracked without       of the findings, emphasizing the need for stronger privacy
+                                          their knowledge or consent.
+                                             Keywords-browser fingerprinting; device fingerprinting; track-     measures and further research on countermeasures.
+                                          ing; privacy.                                                                       II. T HEORETICAL BACKGROUND
+                                                                 I. I NTRODUCTION                               A. Fingerprinting
+                                             In the increasingly digitized world, the issues of online             Browser fingerprinting refers to collecting characteristic
+                                          privacy and data security are becoming more complex. Partic-          information that the browser directly or indirectly reveals
+                                          ularly in tracking — monitoring users and their devices across        about itself. Often used to track users, this technology has
+                                          different web servers — browser fingerprinting has emerged            also found applications in IT security, such as fraud detection.
+                                          as an effective technique for creating detailed user profiles.        Unlike tracking methods like cookies, browser fingerprinting
+                                          Unlike the storage of information via cookies, which requires         does not require storing data on the user’s computer, allowing
+                                          explicit user consent as mandated by the European General             the process to occur secretly and without consent [1, p. 1].
+                                          Data Protection Regulations (GDPR) guidelines, fingerprinting         Consequently, creating a new identity, similar to deleting
+                                          does not require such consent. A browser fingerprint can be           cookies, is not easily achievable, and GDPR privacy laws
+                                          generated in the background without any obvious signs to the          often provide little protection. Unlike cookie tracking, browser
+                                          end user, leaving them unaware of whether and to what extent          fingerprinting is not explicitly mentioned in the GDPR. It
+                                          they are being tracked.                                               should fall under the collection of identifiable information
+                                             It is possible to manipulate a device locally to alter its fin-    but website operators frequently claim “legitimate interest”,
+                                          gerprint. This is often not feasible for all users, unlike deleting   enabling such data collection without the user’s consent [2].
+                                          cookies. This invisible threat is not apparent to the general            Active transmission of data is not required for browser
+                                          public and raises significant privacy concerns, as individuals        fingerprinting, as loading a webpage can transmit various
+                                          can be tracked unnoticed. These profiles can contain private          pieces of information, such as the user’s preferred language,
+                                          information, depending on the server operators, including age         within the HTTP headers. This passive data collection pro-
+                                          group, ethnic origin, social circles, and interests of the affected   vides only a limited amount of information, so it is often
+                                          person.                                                               supplemented with active data collection methods. An active
+                                             Browser fingerprinting poses a threat to the privacy of the        approach typically employs JavaScript to interface with the
+                                          general public. Contrary to being a threat, it is an opportunity      browser and gather information, such as screen resolution,
+                                          to provide valuable information to enhance the authentication         installed add-ons, and graphics card data, merging them into
+                                          mechanisms. Both perspectives are explored throughout this            a unique fingerprint [3, pp. 1, 3].
+                                          paper. The focus will be on the various techniques of finger-            Similar to human fingerprints, browser fingerprinting relies
+                                          printing to understand how accurate and detailed user profiles        on the uniqueness of browser characteristics, which typically
+                                          can be created. The main research questions that this paper           do not change significantly with regular use. This allows for
+                                          seeks to answer are:                                                  accurate user identification over extended periods [3, p. 2].
+                                         RQ1 “What methods are used in browser fingerprinting and               However, not all collected data points are equally unique or
+                                                what user data are collected in the process?”                   stable, necessitating careful selection of information to achieve
+                                         RQ2 “How has the development of browser fingerprinting as              accurate results. The fingerprinting algorithm combines both
+                                                a user identification method influenced user privacy and        passively and actively collected data into a unique string.
+                                                data protection in the digital space?”                          Depending on the operator’s goals, adjustments can be made;
+for instance, using cookies, the fingerprint might be less stable   weigh their effectiveness and potential risks. Given the ever-
+but more unique, while tracking users without cookies requires      increasing number of techniques, only the most commonly
+high stability [4, pp. 1-5]. Eckersley’s study showed that          used, established, or novel methods will be presented here.
+participant browsers already had high entropy, indicating many
+unique characteristics sufficient for accurate fingerprinting,      A. HTTP Header Attributes
+though not stable enough for long-term accuracy. In recent             1) Definition and Basics: The HTTP request header is a
+years, potential entropy has increased with new techniques          part of every HTTP request exchanged between a client (web
+like HTML Canvas, WebGL-based hardware fingerprints, au-            browser) and a server, transmitting various functional and
+dio API fingerprints, plug-in-based fingerprints, and methods       compatibility-related information [10]. Although individual
+utilizing mouse movements or differences in HTML parsing            attributes are not unique, they can be combined to distinguish
+between browsers, making cross-browser user identification          a client. This explanation is based on HTTP version 1.1, with
+possible [3, pp. 4-5].                                              HTTP/2 maintaining most attributes within a modified header
+                                                                    frame [11].
+B. Concerns for Digital Privacy                                        2) Analysis: HTTP request headers include attributes that
+   Historically, the greatest threat to online tracking was posed   differ by browser and version. Effective fingerprinting re-
+by cookies, along with other technologies like Flash cookies,       quires selecting attributes that remain consistent over time.
+which have lost significance in recent years. Changes by            Reliable fields include User-Agent, Accept, Content-Encoding,
+browser manufacturers, such as Mozilla, which rendered many         and Content-Language, which provide valuable identification
+exploited technologies, so-called “super-cookies”, ineffective      information [4, p. 5] [12, p. 880]. The User-Agent, despite
+[5], and additional browsers planning to block or eliminate         lacking standardization, offers high uniqueness due to its
+third-party cookies in the coming years [6], have shifted the       detailed browser and OS information [13].
+landscape. Following the GDPR, the use of non-essential cook-          3) Advantages: The main advantage of using HTTP head-
+ies has been further restricted and standardized for the first      ers is their passive information collection, which occurs
+time, defining how users share their data through cookies [7].      automatically with each request. This method is efficient,
+In contrast, browser fingerprinting occurs in the background        unobtrusive, and compatible with most web servers, processing
+and leaves no stored information on the user’s computer. Thus,      data on the server side without a noticeable impact on the
+the use of fingerprints not only circumvents previous issues        client.
+related to local storage, such as privacy laws and technical           4) Disadvantages: HTTP header information is limited,
+limitations but also persists even when local data is deleted or    as most attributes provide minimal details. The User-Agent,
+when incognito mode is used.                                        while informative, can be easily altered by browser extensions,
+   A 2021 study of the Alexa Top 100,000 websites found that        reducing its reliability (i.e. User-Agent Switcher for Chrome).
+nearly 10% of the sites used scripts to generate fingerprints       Furthermore, using such technologies without consent can
+[8, pp. 11-12]. Comparing this to a similar 2014 study,             violate GDPR regulations, necessitating legal review before
+which recorded 5.5% of the top 100,000 sites using canvas           implementation [14].
+fingerprinting scripts, reveals an almost doubling of usage over
+seven years [9]. This suggests a shift towards online tracking      B. Enumeration of Browser Plugins
+using this technology, which is much harder to detect and              1) Definition and Basics: Browser plugins, whether pre-
+prevent compared to cookies. The creation of a fingerprint is       installed or user-added, have been a method for recognizing
+imperceptible to the user, with no simple way to effectively        systems, along with font detection. Most browser features are
+change or delete their fingerprint. Cookie banners give a false     indirectly modified, except for extensions. The demand for
+sense of security while tracking continues in the background        accurate enumeration of these extensions is high [12, pp. 878-
+without consent.                                                    880].
+   Thus, browser fingerprinting poses an active threat to pri-         2) Analysis: Many information-rich plugins, like Flash,
+vacy, as users often have no control over the collection and        have disappeared over the years. Since 2016, most browsers,
+use of their data. This stands in opposition to many current        including Firefox, no longer support the Netscape Plugin
+data protection principles, such as the GDPR.                       Application Programming Interface (NPAPI) plugin interface,
+                                                                    leading to the navigator.plugins object in modern browsers
+      III. M ETHODS OF B ROWSER F INGERPRINTING                     showing only standard plugins like PDF viewers [15]. This
+   In the context of browser fingerprinting techniques, the         limitation reduces the impact of plugins on fingerprinting but
+methods of data collection are varied and comprehensive.            still allows differentiation between systems and browsers. The
+Therefore, specific properties and criteria are used to select      direct detection of user-installed add-ons is not possible, lim-
+techniques. The following sections will encompass the ex-           iting the data’s significance [12, pp. 886-887]. However, new
+planation of the techniques in terms of their functionality         methods to enumerate extensions have emerged. Chromium-
+and their applications will be discussed to provide a detailed      based browsers can access extension settings via a local URL.
+understanding of their use. An evaluation based on the advan-       A GitHub project exploits this to check for over 1,000 exten-
+tages and disadvantages of each technique is also included to       sions by requesting internal resources and checking the status
+codes [16]. Additionally, ad blockers’ behavior in removing          be monitored and manipulated by extensions. Add-ons like
+unwanted content can be detected by creating elements they           CanvasBlocker allow users to prevent data retrieval or manip-
+typically block and checking for changes, revealing active           ulate Canvas data, continuously generating new fingerprints
+blocklists [17]. Another method involves reading the status          to prevent identification [19]. Finally, while implementing
+of handler protocols to identify installed programs like Skype       Canvas fingerprinting is “relatively simple”, analyzing and
+and Zoom.                                                            interpreting the data can be complex and may require expertise
+   3) Advantages: User-installed extensions offer high unique-       in the field [1, pp. 6-8].
+ness and stability due to the number of extensions.
+   4) Disadvantages: Insights into users’ privacy, including         D. WebGL Fingerprinting
+sensitive information like health conditions, religion, and polit-      1) Definition and Basics: WebGL fingerprinting is a tech-
+ical views, can be inferred [18, pp. 11-12]. The fingerprinting      nique utilizing the WebGL JavaScript API, based on OpenGL
+process relies on limited methods, making it prone to errors,        ES 2.0, allowing web applications to render both 2D and
+and requires continuous updates to maintain reliability.             3D graphics with high performance by directly accessing the
+                                                                     GPU [20]. Unlike Canvas fingerprinting, which focuses on 2D
+C. Canvas Fingerprinting                                             graphics and identifies software differences mainly through
+   1) Definition and Basics: Canvas fingerprinting involves          fonts and graphic libraries, WebGL fingerprinting provides
+generating a digital fingerprint using the Canvas element intro-     deeper and more precise detection capabilities. It captures
+duced in HTML5. It utilizes the Canvas API to draw a hidden          unique hardware information, particularly details about the
+2D graphic in the background. Variations in how different            graphics processor, distinguishing it significantly from Can-
+browsers and devices handle this image due to differences            vas fingerprinting and broadening its application for tracking
+in hardware acceleration, installed fonts, and graphic libraries     purposes [1, p. 4].
+result in a highly stable and unique fingerprint [1, pp. 1-3].          2) Analysis: WebGL fingerprinting uses a Canvas ele-
+   2) Analysis: A script embedded in a webpage adds an               ment to access the API. Similar to Canvas fingerprinting,
+invisible Canvas element that draws a predetermined 2D               it creates an invisible element performing 3D operations
+graphic in the background. Text can also be drawn using the          in the background to collect data without user interac-
+Canvas context, employing various fonts and sizes. WebFonts          tion. A straightforward application involves accessing spe-
+enable dynamic loading of fonts from the internet, allowing          cific variables, such as UNMASKED VENDOR WEBGL and
+specific fonts to be chosen to test for uniqueness in font           UNMASKED RENDERER WEBGL, using the getParameter
+rendering. The resulting image data can be extracted using           function in the WebGL context. These variables provide in-
+functions like getImageData and toDataURL, which can then            formation about the graphics hardware manufacturer (Vendor)
+be hashed to form a fingerprint, typically using a hashing           and model (Renderer). For example, a Vendor entry like
+algorithm. This hash is sent via a web request to a server           “Intel” indicates an integrated graphics unit, while “Nvidia”
+for processing and storage. Besides storing the fingerprint          combined with “GeForce GTX 970” as Renderer indicates a
+for later identification, another application method involves        dedicated graphics card. These details can reveal insights into
+comparing the fingerprint with an extensive database of known        the system being used [21, p. 17]. Privacy concerns have led
+fingerprints and corresponding system configurations, enabling       browsers like Apple’s WebKit to provide generic information
+reliable system profiling [1, pp. 2-4].                              instead of specific data to protect user privacy. Since 2020,
+   3) Advantages: Mowery and Shacham demonstrated that               WebKit has masked Vendor and Renderer information, as
+implementing Canvas fingerprinting is straightforward, re-           well as shading language details [22]. Firefox similarly groups
+quiring minimal lines of client-side code. It leverages basic        graphics processor models into categories instead of displaying
+JavaScript functions and can be deployed across all major            specific models. In practice, this means that a Nvidia card
+web applications. The fingerprinting process is discrete for         from the 900 series onward, for example, is reported as
+users and challenging to block because Canvas operations are         “GeForce GTX 980”. In summary, research investigating hard-
+common in web applications, making it difficult to distinguish       ware fingerprinting using HTML5 demonstrated the capability
+normal operations from fingerprinting scripts. The simplicity        to identify devices based on GPU performance. It utilizes the
+of fingerprint creation enables high speed, stability, unique-       graphics processor’s clock frequency and clock skew to render
+ness, and entropy, making it particularly valuable for real-time     complex 3D graphics, measuring GPU performance based on
+tracking applications [1, pp. 1-5].                                  the number of frames rendered within a period, providing
+   4) Disadvantages: Changes in browser environments, such           insights into the GPU’s frequency and core count [23, pp.
+as updates or graphic settings, can affect the stability of the      3-4].
+fingerprint. Variability in hardware and software configurations        3) Advantages: As demonstrated by Cao et al., WebGL can
+can lead to inconsistencies. As an active technique, executing       offer high uniqueness and stability [24]. Its direct interface
+code on the client side is necessary, posing risks of detection      with the system ensures consistency across browsers, making
+and potential blockage by blocklists targeting known finger-         it challenging for users to evade identification through simple
+printing scripts [1, pp. 3-7]. While imperceptible to users,         browser changes or reinstalls. Despite changes to enhance
+the limited interfaces to retrieve generated Canvas data can         WebGL’s resistance to fingerprinting, it reliably identifies
+users. The successor to WebGL, WebGPU, is currently in             Queiroz and Feitosa showed that mobile devices using Firefox
+development, promising even more privacy risks due to its          could be consistently recognized and grouped by their stable
+closer hardware access, allowing for classifications with up       fingerprints [27, p. 1119]. Techniques like DC are simple
+to 98% accuracy in 150 milliseconds, a reduction from the 8        to implement and offer high stability. Other promising tech-
+seconds WebGL took [25].                                           niques, especially when used together, could enhance potential
+   4) Disadvantages: The complexity of WebGL fingerprint-          but are more challenging to implement [28, pp. 1-3].
+ing is significantly higher compared to previous techniques,          4) Disadvantages: While audio fingerprinting offers high
+necessitating careful consideration whether a simpler Canvas       stability, it lacks uniqueness and accuracy on its own and
+approach combined with other methods might be accurate             should be used with other fingerprinting techniques [27, p.
+enough for specific use cases. Intensive tasks in a 3D envi-       1119]. Additionally, the Web Audio API can be disabled on
+ronment can also strain the target system, leading to longer       devices or manipulated by add-ons like “Canvas Blocker”,
+fingerprint creation times [1, p. 4]. Implementing WebGL           which also blocks and manipulates Canvas and WebGL.
+requires caution, as shown by the cases of Laperdrix et al.
+and Cao et al., and opting for a ready-made solution might         F. Font Fingerprinting
+be advisable. Moreover, WebGL shares Canvas’s vulnerability           1) Definition and Basics: Font fingerprinting is a browser
+to blocked or misread data if detection methods rely on            fingerprinting technique that identifies devices by recognizing
+differences in rendered graphics. Even novel methods like          installed fonts. This method creates unique digital fingerprints
+DrawnApart can be mitigated through countermeasures, such          by combining fonts with other data points, which can be used
+as limiting to a single EU [26, p. 12]. WebGL may also             for tracking and identification purposes [29, p. 314].
+not be available or disabled on some devices, necessitating           2) Analysis: After the end of Adobe Flash, a new method
+consideration of alternatives, such as using the 2D Canvas.        for font recognition was needed. JavaScript uses a fallback
+                                                                   mechanism to recognize fonts by comparing the dimensions
+E. Audio Fingerprinting                                            of texts in specific fonts with expected values. Invisible div
+   1) Definition and Basics: The Web Audio API is a                elements and the canvas element are used to identify installed
+JavaScript interface for processing and synthesizing audio sig-    fonts [29, p. 311] [30, p. 12]. The experimental Local Font
+nals in the web browsers, part of the HTML5 standard. It can       Access API requires user consent and is therefore not suitable
+identify systems through manufacturing differences in audio        for fingerprinting [31].
+hardware. Methods analyze signal processing characteristics,          3) Advantages: Font recognition offers high entropy and
+hardware differences, and system responses to specific audio       stability since fonts are rarely changed. This allows the
+signals for fingerprinting [27, pp. 1107-1109].                    identification of the operating system and installed software
+   2) Analysis: Audio fingerprinting involves various acoustic     packages like Office or Photoshop [3, p. 7].
+measurements to create a unique device fingerprint. It requires       4) Disadvantages: Without Flash, font recognition is done
+an AudioContext linking an AudioBuffer, Oscillator, and Com-       through “brute-force” methods, reducing accuracy if unknown
+pressor. The AudioBuffer represents a small audio segment,         fonts are installed. Similar fonts can lead to false positives.
+while the Oscillator generates a waveform at a defined fre-        Extensions and adjustments, such as those in Apple’s WebKit,
+quency. The Compressor manipulates the audio signal. The           can manipulate or restrict recognition [24, p. 10] [29, p. 311].
+unique waveform generated and manipulated reflects system
+characteristics, allowing a unique fingerprint to be created       G. Screen Fingerprinting
+using a hash function on the final waveform. This method,             1) Definition and Basics: Screen fingerprinting identifies
+known as “Dynamic Compressor (DC)”, is highly stable,              a device by analyzing various screen-related characteristics,
+producing the same fingerprint for the user each time using a      including screen resolution, pixel depth, color depth, and
+reliable hash function [27, pp. 1109-1111].                        browser window size. This method leverages the uniqueness
+   Another method is the “Fast Fourier Transform” (FFT), con-      of screen configurations and browser modifications, which can
+verting audio signals from the time domain to the frequency        create rare resolution combinations [32, p. 20].
+domain. It measures hardware implementation differences to            2) Analysis: JavaScript provides attributes for screen and
+identify characteristics. FFT is less stable than DC, often        browser window characteristics through the window.screen ob-
+requiring multiple attempts for consistent results. DC and FFT     ject, offering details like color depth (colorDepth), screen ori-
+are often used together for more reliable outcomes [27, pp.        entation (screenOrientation), and screen dimensions (screen-
+1111-1114]. Researchers compared the techniques, including         Height, screenWidth). Values, such as window.innerWidth and
+custom-designed ones, alongside DC and FFT. These included         window.innerHeight, determine the browser window’s inner
+creating “Custom Signals”, “Merged Signals”, and analyzing         area, which can be altered by toolbars or bookmark bars [24,
+generated AM and FM waves. All techniques showed good              p. 3].
+stability, averaging two to four attempts for fingerprint match-      3) Advantages: Screen and window resolution information
+ing [28, pp. 3-5].                                                 typically have high entropy, making them useful for stabiliz-
+   3) Advantages: The generated fingerprints are highly sta-       ing fingerprints when combined with other techniques. This
+ble and can differentiate systems based on their properties.       method is particularly effective for distinguishing between
+desktop, tablet, and mobile devices, as these have distinct       used to enhance the presentation of HTML elements. Over
+resolutions and aspect ratios compared to standardized desktop    time, the CSS specification has expanded to include selectors
+screens [27, p. 277].                                             and filters, enabling limited dynamic selections, which this
+   4) Disadvantages: Since values are derived from browser        technique leverages [36, p. 10].
+attributes rather than hardware tests, they can be limited or        2) Analysis: Until 2010, the :visited selector could identify
+altered by extensions or privacy settings. Browsers like TOR      if a website had been visited by changing the link color,
+set the window to a fixed size of 1000x1000 pixels, reducing      detectable via JavaScript. After this was patched, researchers
+uniqueness, and browsers like Firefox always report a color       explored time-based methods to read user history, but these
+depth of 24. Additionally, users with multiple monitors or        required JavaScript and were impractical [37, p. 4]. In 2015,
+those using zoom functions can affect the accuracy of screen      Takei et al. introduced a JavaScript-free method using CSS
+fingerprinting, as there is no reliable way to determine the      properties and multiple @media queries to fetch URLs based
+zoom factor directly, which reduces entropy [24, p. 10].          on defined rules. The server could then identify system proper-
+                                                                  ties like screen dimensions, resolution, touchscreen presence,
+H. WebRTC Fingerprinting                                          installed fonts, browser, and OS from the requesting IP address
+   1) Definition and Basics: WebRTC is a standard and ac-         and URL parameters [38, p. 3-5]. A current GitHub project
+cessible JavaScript interface available in most browsers. It      demonstrates this method’s practical capabilities [39].
+facilitates real-time communication over stateless HTTP by           3) Advantages: CSS fingerprinting’s independence from
+establishing direct connections between participants, allowing    JavaScript allows it to identify even cautious users who block
+the extraction of local network adapter information. This can     JavaScript or use extensions like NoScript. This technique can
+reveal private and public IP addresses, which can be used for     even detect if JavaScript is disabled via noscript tags [38, p.
+fingerprinting or identifying users behind proxies or VPNs [30,   2]. Due to its limited use and lesser-known status, no effective
+p. 12]. It also provides information about connected devices,     user solutions currently exist to prevent it.
+such as microphones, webcams, and speakers.                          4) Disadvantages: Takei et al.’s method provides limited
+   2) Analysis: Unlike other browser mechanisms like camera       data, which, without JavaScript, can only be supplemented by
+or microphone access, establishing a WebRTC connection            techniques like header analysis. Oliver Brotchie notes in his
+requires no permissions or user notifications. After connecting   project repository that the method is not currently scalable, as
+to the target computer via a Session Traversal Utilities for      each request requires over 1MB of CSS files to be downloaded.
+NAT (STUN) server, IP addresses can be read from the              However, he warns that upcoming CSS Values 4 implemen-
+RTCPeerConnection object as iceCandidates [33, p. 667]. This      tation could reduce download sizes significantly, making the
+data can be used for fingerprinting, and WebRTC can further       method more practical. Additionally, font recognition relies on
+enumerate the local network to build a unique profile of          brute-forcing, which can be noticeable in network traffic.
+the target’s environment. It can also read all local adapter
+addresses, including those for VPNs and virtual machines          J. Additional JavaScript Attributes
+[33, p. 667-668]. The DetectRTC project [34] demonstrates
+WebRTC’s capabilities, highlighting information about micro-         1) Definition and Basics: Most of the previously dis-
+phones, webcams, and speakers. While exact device names           cussed techniques actively use JavaScript to extract infor-
+require permissions, WebRTC can read Media Device IDs,            mation from various interfaces. Additional possibilities are
+which can contribute to unique fingerprints.                      briefly mentioned here to provide a more comprehensive
+   3) Advantages: Extracting private and public IPs provides      picture. Since these techniques share many characteristics with
+deep insights, especially for identifying targets behind VPNs     other JavaScript-based methods, listing their pros and cons is
+or proxies. No other technique can silently reveal addresses      omitted.
+behind Network Address Translation (NAT) [35, p. 273]. The           2) Analysis: The navigator object in browsers provides
+collected data is highly unique; a study with 80 devices found    information, such as DoNotTrack status, user agent details,
+over 97% uniqueness using only WebRTC [33, p. 668].               platform, languages, cookies usage, granted and available per-
+   4) Disadvantages: WebRTC might be disabled in the target       missions, and time zone [29, p. 9]. JavaScript implementation
+browser, or extensions might block its usage without user         varies between browsers and versions, and Mowery et al.
+consent. Accessing Media Device IDs requires permission,          demonstrated that these differences are measurable and can
+alerting users to potential background activities, making it      indicate the software and hardware used [1].
+unsuitable for stealth operations. Additionally, WebRTC relies       Additionally, there are differences in the availability and
+on STUN servers, either self-hosted or third-party, adding        execution of functions, which offers an alternative way to
+dependency considerations for its use.                            detect user agents if manipulated by extensions. Another
+                                                                  technique that caused concern among Tor users is the use of
+I. CSS Fingerprinting                                             the getClientRects function to obtain precise DOM element
+   1) Definition and Basics: Different to the active finger-      data, even with Canvas disabled. These factors can vary based
+printing techniques using JavaScript, CSS fingerprinting is       on implementation, font sizes, and screen resolutions, enabling
+a passive method. CSS is a stylesheet language primarily          identification in the otherwise anonymous browser [40]. This
+vulnerability has been fixed in Tor but remains exploitable in      insights into the person’s behavior behind the screen. However,
+other browsers [41].                                                the technique is still in its initial stage and remains a theoretical
+   3) Advantages: JavaScript-based fingerprinting techniques        approach not yet tested in the real world. It is unlikely to be
+are highly versatile and widely applicable since JavaScript         reliably used by actors in the near future [42, p. 6].
+is essential for web functionality. These methods can collect
+a broad range of information, such as user agent details,                                   IV. D ISCUSSION
+time zones, and system settings, often without requiring user          Browser fingerprinting can be used positively for security,
+consent or visibility. The stealthy nature of JavaScript fin-       as shown by technologies like BrFast and private, passive
+gerprinting allows it to operate in the background, making          user recognition methods. However, there’s a risk of misuse,
+it difficult for users to detect. Moreover, JavaScript-based        especially in advertising. Personalized ads significantly impact
+attributes work consistently across different browsers, enabling    Generation Z, who discover products primarily through social
+effective cross-browser tracking.                                   media. The advertising industry, driven by creating accurate
+   4) Disadvantages: However, JavaScript fingerprinting is          user profiles, heavily invests in digital advertising, with data-
+limited by browser-specific implementations, which can result       driven ads accounting for 60-70% of digital ad revenue in
+in inconsistent data collection. Privacy-focused browsers like      Germany. Traditionally, data collection relied on cookies, but
+Tor or extensions, such as NoScript, actively block or obscure      users developed ways to avoid tracking, such as deleting
+JavaScript-based tracking, reducing its effectiveness. Addition-    cookies or using incognito mode. Unlike cookies, browser
+ally, users are becoming more aware of privacy risks and in-        fingerprints are collected in the background and are not easily
+creasingly use tools to disable or modify JavaScript functions.     altered. GDPR regulations mandate user consent for data
+Finally, updates to browsers may close vulnerabilities or alter     collection, but enforcement is inconsistent, and compliance
+features that JavaScript fingerprinting relies on, decreasing its   with fingerprinting guidelines remains unclear, even with new
+long-term viability.                                                laws like Germany’s TTDSG [45].
+                                                                       Online tracking is ubiquitous, affecting nearly all user
+K. Advanced Techniques Using Machine Learning                       groups. A 2016 study of the top 1 million websites revealed
+   1) Definition and Basics: Most active techniques discussed       extensive tracking, with services like Google and Facebook
+so far use JavaScript to gather hardware and software in-           present on over 10% of sites. Post-GDPR, fingerprinting
+formation. They rely on unique data combinations based              scripts increased to 68.8% of the top 10,000 sites. A study with
+on implementation quirks or directly available information.         234 participants found that demographics like age, gender,
+Newer methods often employ “side-channels”, capturing addi-         education, IT background, and privacy awareness influenced
+tional data by observing behavioral differences during various      trackability, with men and those with higher education being
+operations within the execution environment. Methods like           less trackable. Despite understanding fingerprinting, many par-
+plugin enumeration (cf. Section III-B), font fingerprinting (cf.    ticipants believed they could protect themselves from it. The
+Section III-F), and CSS fingerprinting (cf. Section III-I) use      AmIUnique study, with over 100,000 fingerprints, indicated
+this approach in simple forms by testing known combinations         a bias towards more privacy-aware internet users. Current
+to gain indirect information. These side-channel methods can        research from Friedrich-Alexander-University shows that most
+be implemented with minimal effort but can also be used             study participants are male and well-educated, suggesting that
+in more sophisticated ways with machine learning to gather          while almost everyone is affected by browser fingerprinting,
+otherwise unobtainable information [42, p. 1].                      only a small, informed group actively researches and under-
+   2) Analysis: Wang et al. explored using cache usage, mem-        stands it [46].
+ory consumption, and CPU activity to identify visited web-             Browser fingerprinting, as explored through various meth-
+sites. Previously, CSS selectors were used to reveal browsing       ods in this paper (cf. Table I), represents a comprehensive
+history, posing significant privacy risks and leading to prompt     and evolving threat to digital privacy. Each fingerprinting
+fixes. Side-channel techniques employ various tricks to ana-        technique, from HTTP Header Attributes to more sophisticated
+lyze system behavior more accurately. Complex calculations          approaches like Canvas and WebGL Fingerprinting, offers
+stress the hardware in the background, and machine learning         unique data points, but their power lies in their combinatorial
+models categorize the results with expected values from known       use. While individual methods may not be highly unique or
+sites. Tests showed 80-90% accuracy in identifying websites         stable, their integration enables more persistent and accurate
+[42, p. 3-5]. Further research is needed, but implementations       user identification across devices and browsers. Techniques
+using WebAssembly [43] and the Performance API [44] are             like WebRTC and Font Fingerprinting complement traditional
+conceivable.                                                        methods by exposing additional layers of system and network
+   3) Advantages: This method is invisible to the user and          data. Furthermore, the advancement of machine learning-
+provides insightful information not available through conven-       based fingerprinting is pushing the boundaries of tracking,
+tional means. Currently, there are no methods to protect users      allowing for the analysis of side-channel behaviors, such as
+from such techniques [42, pp. 1-3].                                 CPU or memory usage. This convergence of methods creates
+   4) Disadvantages: While previous techniques aimed to             a powerful, multi-dimensional profiling system that is increas-
+identify a user over time, this method could offer dangerous        ingly resistant to countermeasures, challenging both privacy
+                                                                TABLE I
+                                                 OVERVIEW OF F INGERPRINTING M ETHODS
+
+  Fingerprinting Method      Uniqueness   Stability    Entropy      Impact on User Privacy                 Defense Techniques
+                                                                    Moderate impact: limited detail but
+  HTTP            Header                                                                                   Altering or masking headers (e.g.,
+                             Low          Moderate     Low          useful when combined with other
+  Attributes                                                                                               randomizing User-Agent).
+                                                                    methods.
+  Enumeration of Browser                                            High impact: reveals sensitive data,   Disabling plugin enumeration,
+                             Moderate     High         High
+  Plugins                                                           such as installed plugins.             avoiding unnecessary add-ons.
+                                                                    High impact: generates unique fin-     CanvasBlocker extension to block
+  Canvas Fingerprinting      High         Moderate     High
+                                                                    gerprints based on rendering.          or manipulate rendering.
+                                                                    High impact: collects detailed         Block or manipulate WebGL out-
+  WebGL Fingerprinting       High         High         High
+                                                                    hardware data for tracking.            puts.
+                                                                    High impact: captures unique audio     Disable Web Audio API, use pri-
+  Audio Fingerprinting       Moderate     High         Moderate
+                                                                    processing details.                    vacy extensions.
+                                                                    High impact: identifies installed      Limit font access with privacy-
+  Font Fingerprinting        High         High         Moderate
+                                                                    fonts, making it persistent.           focused browsers (e.g., Tor).
+                                                                    Moderate impact: uses screen res-
+                                                                                                           Fix window size or limit resolution
+  Screen Fingerprinting      Moderate     High         Low          olution and window size but less
+                                                                                                           reporting with privacy browsers.
+                                                                    effective on mobile devices.
+                                                                    Very high impact: exposes real IP      Disable WebRTC, use extensions
+  WebRTC Fingerprinting      Very High    High         Very High
+                                                                    addresses, even behind VPNs.           that block data collection.
+                                                                    Low impact: provides limited sys-      Limit or disable CSS fingerprinting
+  CSS Fingerprinting         Low          Moderate     Low
+                                                                    tem and style information.             through extensions or scripts.
+                                                                    Moderate impact: uses various          Disable unnecessary JavaScript
+  JavaScript Attributes      Moderate     High         Moderate
+                                                                    browser features for tracking.         functions or use privacy extensions.
+                                                                    Very high impact: uses side-           Limit access to Performance API
+  Advanced       Machine
+                             Very High    Very High    Very High    channel data (e.g., CPU/cache) for     and WebAssembly, emerging de-
+  Learning Fingerprinting
+                                                                    tracking.                              fenses needed.
+
+
+
+frameworks and user efforts to remain anonymous online.             for news sites, which often misuse collected data without user
+Therefore, the future of browser fingerprinting lies in this        consent.
+synergistic exploitation of both passive and active methods,            Blending in with the Masses: Reducing APIs and data
+making it a critical issue in the broader context of digital        sources for fingerprinting can ironically make users more iden-
+surveillance and privacy regulation.                                tifiable [47]. Thus, widely adopted browsers and protection
+                                                                    mechanisms should be used to stay less conspicuous.
+                          V. C ONCLUSION                                Browser Choice: Choose browsers with robust privacy pro-
+A. Summary of the Research Outcome                                  tections. On iOS, Safari is recommended due to its advanced
+                                                                    tracking protection and large user base [48]. For Android,
+   This contribution has examined browser fingerprinting, a
+                                                                    the Mull browser is highly rated for fingerprinting protection,
+growing technique in online tracking. It has demonstrated that
+                                                                    while Brave is a good, widely-used alternative. On desktops,
+browser fingerprinting is a sophisticated method for identifying
+                                                                    Brave, Librewolf, and Mullvad browsers are recommended for
+and tracking users online without traditional methods like
+                                                                    their privacy features and user bases [49].
+cookies.
+                                                                        Browser Extensions: Limit the use of browser extensions,
+   The analysis highlighted that browser fingerprinting poses       as they can become sources of unique information. While some
+a complex challenge from both technical and privacy per-            extensions block known trackers or modify API outputs, these
+spectives. While it provides companies and advertisers with         protections are often already built into recommended browsers
+detailed insights into user behavior for targeted advertising, it   like Brave and Librewolf [18] [47].
+raises significant privacy concerns as users are often tracked
+without their knowledge or consent. Despite stricter privacy        C. Future Research
+laws like the GDPR in the EU, browser fingerprinting remains           Future research in browser fingerprinting should focus on
+a grey area. Anti-fingerprinting techniques are limited and         several key areas. First, countermeasures and defense mech-
+continually evolving to keep up with new tracking methods.          anisms need to be explored further, especially in mitigating
+   In conclusion, browser fingerprinting plays and will con-        the newer techniques that leverage machine learning and
+tinue to play a significant role in the digital landscape.          side-channel attacks. These advanced methods can bypass
+Both users and regulatory bodies must increase awareness of         traditional privacy safeguards, such as disabling JavaScript or
+browser fingerprinting practices and their implications.            using incognito modes, making the development of more ro-
+                                                                    bust anti-fingerprinting technologies imperative. Additionally,
+B. Implications for Practice                                        research should explore the ethics and regulatory frameworks
+  Consent and Cookies: Always accept only the necessary             surrounding fingerprinting, examining how existing privacy
+cookies in cookie banners and regularly delete cookies to hin-      and data protection laws like GDPR can be adapted to better
+der tracking and fingerprinting. This is particularly important     address fingerprinting practices. Another promising direction
+is improving cross-device tracking prevention by understand-                     [20] “WebGL: 2D and 3D graphics for the web,” accessed: 2024-09-27.
+ing how fingerprinting works across different platforms and                           [Online]. Available: https://developer.mozilla.org/en-US/docs/Web/API/
+                                                                                      WebGL API
+hardware. Lastly, investigating user awareness and educational                   [21] T. Stephenson, “A Comparative Study on Analyses of Browser Finger-
+tools on fingerprint privacy risks will help empower the general                      printing,” Ph.D. dissertation, Wesleyan University, 2023.
+public to protect their digital identities more effectively. Thus,               [22] “WebKit,”             accessed:            2024-09-27.         [Online].
+                                                                                      Available:                    https://github.com/WebKit/WebKit/commit/
+future research should focus on developing more effective                             ae710d34c23858295b385e3f95ad7f6edd29f9d7
+privacy techniques to balance commercial interests and user                      [23] G. Nakibly, G. Shelef, and S. Yudilevich, “Hardware Fingerprinting
+privacy rights.                                                                       Using HTML5,” arXiv preprint arXiv:1503.01408, 03 2015.
+                                                                                 [24] Y. Cao, S. Li, and E. Wijmans, “(Cross-)Browser Fingerprinting via
+                              R EFERENCES                                             OS and Hardware Level Features,” in Network and Distributed System
+                                                                                      Security Symposium, 2017.
+ [1] K. Mowery and H. Shacham, “Pixel perfect: Fingerprinting canvas in          [25] M. Mantel. (2022) Browser-Fingerprinting: PCs, Smartphones & Co.
+     HTML5,” Proceedings of W2SP, vol. 2012, 2012.                                    lassen sich über die GPU tracken. Accessed: 2024-09-27. [Online].
+ [2] K. Szymielewicz and B. Budington. (2018) The GDPR                                Available:      https://www.heise.de/news/Browser-Fingerprinting- PCs-
+     and Browser Fingerprinting: How It Changes the Game for                          Smartphones-Co-lassen-sich-ueber-die-GPU-tracken- 6345233.html
+     the Sneakiest Web Trackers. Accessed: 2024-09-27. [Online].                 [26] Laor et al., “DRAWNAPART: A Device Identification Technique
+     Available: https://www.eff.org/de/deeplinks/2018/06/gdpr-and-browser-            based on Remote GPU Fingerprinting,” ArXiv, vol. abs/2201.09956,
+     fingerprinting- how-it-changes-game-sneakiest- web-trackers                      2022. [Online]. Available: https://api.semanticscholar.org/CorpusID:
+ [3] D. Zhang, J. Zhang, Y. Bu, B. Chen, C. Sun, and T. Wang, “A                      246276013
+     Survey of Browser Fingerprint Research and Application,” Wireless           [27] J. S. Queiroz and E. L. Feitosa, “A Web Browser Fingerprinting
+     Communications and Mobile Computing, vol. 2022, no. 1, p. 3363335,               Method Based on the Web Audio API,” Comput. J., vol. 62, pp.
+     2022. [Online]. Available: https://onlinelibrary.wiley.com/doi/abs/10.           1106–1120, 2019. [Online]. Available: https://api.semanticscholar.org/
+     1155/2022/3363335                                                                CorpusID:86644316
+ [4] P. Eckersley, “How unique is your web browser?” in Privacy Enhancing        [28] S. Chalise and P. Vadrevu, “A Study of Feasibility and Diversity of Web
+     Technologies, M. J. Atallah and N. J. Hopper, Eds. Berlin, Heidelberg:           Audio Fingerprints,” arXiv preprint arXiv:2107.14201, 2021.
+     Springer Berlin Heidelberg, 2010, pp. 1–18.                                 [29] A. Gómez-Boix, P. Laperdrix, and B. Baudry, “Hiding in the Crowd:
+ [5] S. Englehardt and A. Edelstein. (2021) Firefox 85 Cracks Down on                 an Analysis of the Effectiveness of Browser Fingerprinting at Large
+     Supercookies. Accessed: 2024-09-27. [Online]. Available: https://blog.           Scale,” in Proceedings of the 2018 World Wide Web Conference, ser.
+     mozilla.org/security/2021/01/26/supercookie- protections/                        WWW ’18. Republic and Canton of Geneva, CHE: International
+ [6] E. Woollacott. (2021) Browser fingerprinting more prevalent on the               World Wide Web Conferences Steering Committee, 2018, p. 309–318.
+     web now than ever before. Accessed: 2024-09-27. [Online]. Avail-                 [Online]. Available: https://doi.org/10.1145/3178876.3186097
+     able:    https://portswigger.net/daily-swig/browser-fingerprinting- more-   [30] S. Englehardt and A. Narayanan, “Online Tracking: A 1-million-site
+     prevalent- on-the-web-now-than-ever-before-research                              Measurement and Analysis,” in Proceedings of the 2016 ACM SIGSAC
+ [7] R. Koch. (2019) Cookies, the GDPR, and the ePrivacy Directive.                   Conference on Computer and Communications Security, ser. CCS ’16.
+     Accessed: 2024-09-27. [Online]. Available: https://gdpr.eu/cookies/              New York, NY, USA: Association for Computing Machinery, 2016,
+ [8] U. Iqbal, S. Englehardt, and Z. Shafiq, “Fingerprinting the Fingerprint-         p. 1388–1401. [Online]. Available: https://doi.org/10.1145/2976749.
+     ers: Learning to Detect Browser Fingerprinting Behaviors,” in 2021               2978313
+     IEEE Symposium on Security and Privacy (SP). IEEE, 05 2021, pp.             [31] “Local Font Access API,” accessed: 2024-09-27. [Online]. Avail-
+     1143–1161.                                                                       able: https://developer.mozilla.org/en-US/docs/Web/API/Local Font
+ [9] G. Acar. (2014) Browser Fingerprinting and the Online-                           Access API
+     Tracking Arms Race. Accessed: 2024-09-27. [Online]. Avail-                  [32] P. Laperdrix, N. Bielova, B. Baudry, and G. Avoine, “Browser
+     able: https://www.esat.kuleuven.be/cosic/news/the-web-never-forgets-             Fingerprinting: A Survey,” ACM Trans. Web, vol. 14, no. 2, apr 2020.
+     persistent- tracking- mechanisms-in-the-wild/                                    [Online]. Available: https://doi.org/10.1145/3386040
+[10] “Request header,” accessed: 2024-09-27. [Online]. Available: https://       [33] A. Reiter and A. Marsalek, “WebRTC: your privacy is at risk,” in
+     developer.mozilla.org/en-US/docs/Glossary/Request header                         Proceedings of the Symposium on Applied Computing, ser. SAC ’17.
+[11] “HTTP/2 fingerprinting: A relatively-unknown method for web                      New York, NY, USA: Association for Computing Machinery, 2017, p.
+     fingerprinting,” accessed: 2024-09-27. [Online]. Available: https://             664–669. [Online]. Available: https://doi.org/10.1145/3019612.3019844
+     lwthiker.com/networks/2022/06/17/http2-fingerprinting.html                  [34] “DetectRTC,” accessed: 2024-09-27. [Online]. Available: https://github.
+[12] P. Laperdrix, W. Rudametkin, and B. Baudry, “Beauty and the Beast:               com/muaz-khan/DetectRTC
+     Diverting Modern Web Browsers to Build Unique Browser Fingerprints,”        [35] V. Bernardo and D. Domingos, “Web-based Fingerprinting Techniques,”
+     in 2016 IEEE Symposium on Security and Privacy (SP), 2016, pp. 878–              in Proceedings of the 13th International Joint Conference on
+     894.                                                                             E-Business and Telecommunications, ser. ICETE 2016. Setubal,
+[13] “User-Agent,” accessed: 2024-09-27. [Online]. Available: https://                PRT: SCITEPRESS - Science and Technology Publications, Lda,
+     developer.mozilla.org/en-US/docs/Web/HTTP/Headers/User-Agent                     2016, p. 271–282. [Online]. Available: https://doi.org/10.5220/
+[14] B. Wolford. (2024) What are the GDPR consent requirements?                       0005965602710282
+     Accessed: 2024-09-27. [Online]. Available: https://gdpr.eu/gdpr-            [36] T. Bujlow, V. Carela-Español, J. Solé-Pareta, and P. Barlet-Ros, “A
+     consent-requirements/                                                            Survey on Web Tracking: Mechanisms, Implications, and Defenses,”
+[15] “Navigator: plugins property,” accessed: 2024-09-27. [On-                        Proceedings of the IEEE, vol. 105, no. 8, pp. 1476–1510, 2017.
+     line]. Available: https://developer.mozilla.org/en-US/docs/Web/API/         [37] L. Olejnik, C. Castelluccia, and A. Janc, “Why Johnny Can’t Browse
+     Navigator/plugins                                                                in Peace: On the Uniqueness of Web Browsing History Patterns,” 12th
+[16] “Extension Detector,” accessed: 2024-09-27. [Online]. Available: https://        Privacy Enhancing Technologies Symposium (PETS 2012), 07 2012.
+     github.com/z0ccc/extension- detector                                             [Online]. Available: https://petsymposium.org/2012/papers/hotpets12-4-
+[17] “How ad blockers can be used for browser fingerprinting,”                        johnny.pdf
+     accessed: 2024-09-27. [Online]. Available: https://fingerprint.com/         [38] N. Takei, T. Saito, K. Takasu, and T. Yamada, “Web Browser Finger-
+     blog/ad-blocker-fingerprinting/                                                  printing Using Only Cascading Style Sheets,” in 2015 10th International
+[18] S. Karami, P. Ilia, K. Solomos, and J. Polakis, “Carnus: Exploring the           Conference on Broadband and Wireless Computing, Communication and
+     Privacy Threats of Browser Extension Fingerprinting,” in 27th Annual             Applications (BWCCA), 2015, pp. 57–63.
+     Network and Distributed System Security Symposium, NDSS 2020, San           [39] “CSS-Fingerprint,” accessed: 2024-09-27. [Online]. Available: https://
+     Diego, California, USA, February 23-26, 2020. The Internet Society,              github.com/OliverBrotchie/CSS-Fingerprint
+     2020.                                                                       [40] “Advanced Tor Browser Fingerprinting,” accessed: 2024-09-
+[19] “CanvasBlocker,” accessed: 2024-09-27. [Online]. Available: https://             27. [Online]. Available: http://jcarlosnorte.com/security/2016/03/06/
+     github.com/kkapsner/CanvasBlocker                                                advanced- tor-browser-fingerprinting.html
+[41] “Investigate impact of fingerprinting via getClientRects(),” accessed:
+     2024-09-27. [Online]. Available: https://gitlab.torproject.org/tpo/
+     applications/tor-browser/-/issues/18500
+[42] H. Wang, H. Sayadi, A. Sasan, P. D. Sai Manoj, S. Rafatirad, and
+     H. Homayoun, “Machine Learning-Assisted Website Fingerprinting At-
+     tacks with Side-Channel Information: A Comprehensive Analysis and
+     Characterization,” in 2021 22nd International Symposium on Quality
+     Electronic Design (ISQED), 2021, pp. 79–84.
+[43] “WebAssembly,” accessed: 2024-09-27. [Online]. Available: https://
+     developer.mozilla.org/en-US/docs/WebAssembly
+[44] “High precision timing,” accessed: 2024-09-27. [Online]. Avail-
+     able: https://developer.mozilla.org/en-US/docs/Web/API/Performance
+     API/High precision timing
+[45] “Browser Fingerprinting und das TDDDG: Erlaubt oder nicht? [Browser
+     Fingerprinting and the TDDDG: Allowed or not?],” accessed: 2024-09-
+     27. [Online]. Available: https://dr-dsgvo.de/browser-fingerprinting- und-
+     das-ttdsg/
+[46] G. Pugliese, C. Riess, F. Gassmann, and Z. Benenson, “Long-Term
+     Observation on Browser Fingerprinting: Users’ Trackability and Per-
+     spective,” Proceedings on Privacy Enhancing Technologies, vol. 2020,
+     pp. 558–577, 05 2020.
+[47] N. Al-Fannah and C. Mitchell, “Too little too late: can we control
+     browser fingerprinting?” Journal of Intellectual Capital, vol. ahead-of-
+     print, 01 2020.
+[48] K. Kollnig, A. Shuba, M. Van Kleek, R. Binns, and N. Shadbolt,
+     “Goodbye Tracking? Impact of iOS App Tracking Transparency and
+     Privacy Labels,” in Proceedings of the 2022 ACM Conference on
+     Fairness, Accountability, and Transparency, ser. FAccT ’22. New
+     York, NY, USA: Association for Computing Machinery, 2022, p.
+     508–520. [Online]. Available: https://doi.org/10.1145/3531146.3533116
+[49] X. Lin, F. Araujo, T. Taylor, J. Jang, and J. Polakis, “Fashion Faux
+     Pas: Implicit Stylistic Fingerprints for Bypassing Browsers’ Anti-
+     Fingerprinting Defenses,” in 2023 IEEE Symposium on Security and
+     Privacy (SP), 2023, pp. 987–1004.
+

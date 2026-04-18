@@ -1,0 +1,831 @@
+              Understanding Server-side Commercial Fingerprinting
+                                        Elisa Luo                                                                     Tom Ritter
+                                    UC San Diego                                                                        Mozilla
+                                   La Jolla, CA, USA                                                            San Francisco, CA, USA
+                                   e4luo@ucsd.edu                                                                 tom@mozilla.com
+
+                                    Stefan Savage                                                              Geoffrey M. Voelker
+                                    UC San Diego                                                                     UC San Diego
+                                   La Jolla, CA, USA                                                               La Jolla, CA, USA
+                                  ssavage@ucsd.edu                                                                 voelker@ucsd.edu
+
+Abstract                                                                                      the more controversial use of fingerprinting is for the purpose of
+Browser fingerprinting is a covert technique for implicitly identify-                         re-identification in support of targeted advertising. It is this use
+ing Web users using combinations of system attributes provided                                case, and its ability to side-step modern anti-tracking protections,
+by the browser. However, most studies of fingerprinting have fo-                              which represents the most significant privacy concern and one of
+cused on the attributes themselves and how discriminating they                                the primary drivers of research in the space.
+might be. In this paper, we explore the discriminatory power of                                  However, most existing work has focused on this problem from
+fingerprinting in practice, as seen through the lens of a commer-                             the standpoint of those observed: understanding the relative en-
+cial fingerprinting service. Using grey-box testing of the largest                            tropy of different attributes and how uniquely one might be identi-
+commercial fingerprinting service, we selectively mutate inputs                               fied via combining them, or measuring the sets of API calls used
+to infer key aspects of their approach. In this way, we empirically                           by fingerprinting scripts in practice. However, modern commer-
+characterize the relative importance of attributes, and how they are                          cial fingerprinters export extracted browser attributes to stateful
+combined with server-side state about cookies and IP addresses to                             services that, together with millions of other fingerprints, and com-
+build a fingerprinting service considerably more robust than pure                             bined with additional data such as cookies and IP address, are used
+client-side approaches.                                                                       to create concrete “visitor identifiers” for their customers to use.
+                                                                                              Ultimately, it is the quality of these identifiers that represent the
+CCS Concepts                                                                                  current and future privacy impact of fingerprinting in practice.
+                                                                                                 In our work, we focus on fingerprinting through this commer-
+• Information systems → World Wide Web; • Security and
+                                                                                              cial, server-side lens: how are the underlying features used in
+privacy → Privacy protections.
+                                                                                              practice and how robust is the overall service in the face of anti-
+                                                                                              fingerprinting functionality? Through empirically analyzing finger-
+Keywords
+                                                                                              printing scripts in the wild, we identify commercial services that
+Online Tracking; Browser Fingerprinting                                                       employ server-side fingerprinting. As a case study, we then become
+ACM Reference Format:                                                                         a customer of the Fingerprint Pro service [22], a commercial offering
+Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker. 2026. Un-                      of the most popular vendor in the market. By using Fingerprint Pro,
+derstanding Server-side Commercial Fingerprinting. In Proceedings of the                      we synthesize a server-side oracle to enable grey-box testing. Then,
+ACM Web Conference 2026 (WWW ’26), April 13–17, 2026, Dubai, United                           via carefully controlled experiments, using instrumented browsers
+Arab Emirates. ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/
+                                                                                              to selectively mutate individual attributes, direct management of
+3774904.3792687
+                                                                                              cookies, and distinct hosting to control for IP address, we infer and
+                                                                                              empirically map their impact on the service’s “visitor identifier”.
+1     Introduction
+                                                                                                 From this data, our paper offers three contributions: a) iden-
+Web browser fingerprinting is a side-channel technique for distin-                            tifying the most salient browser attributes in use (i.e., the most
+guishing otherwise anonymous visitors based on a collection of                                determinative on inferred identification), b) how the service inte-
+variable attributes (e.g., OS type, fonts installed, etc.). While such                        grates the use of exogenous features, in particular cookies and IP
+technology is sometimes employed to defend against attackers,1                                address, and c) how robust this overall combination is to existing
+1 For example, a bank may use fingerprinting to infer if a visitor to their site is using a   anti-fingerprinting measures.
+different machine than they previously used to login [50], and thus invoke additional
+protections (e.g., against session cookie-stealing attacks). Other sites may use finger-
+printing to infer that large numbers of apparently distinct requests likely originate
+                                                                                              2   Background and Related Work
+with the same machine and thus may reflect (malicious) bot automation.                        The ability to re-identify individual Web users through the unique-
+                                                                                              ness of attributes accessible through their browser was first pro-
+                                                                                              posed by Eckersley in 2010 [14]. This study was also the first
+This work is licensed under a Creative Commons Attribution 4.0 International License.         to quantify the uniqueness (and thus privacy risk) of individual
+WWW ’26, Dubai, United Arab Emirates                                                          browser attributes using information entropy. There have since been
+© 2026 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-2307-0/2026/04                                                            a range of similar studies, offering uniqueness measures between
+https://doi.org/10.1145/3774904.3792687                                                       33% and 90% depending on the number of attributes considered
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                            Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+                                                                            { "X0MqRRovL3c=": "df7f17b38f494b11f513ba43327e6549", "JV0QW2M3F2s=":
+       Vendor                  Type       Attribute Exfiltration            "c3f34134fb8affb871fdd2b1ace3d9ef", "VQ0gCxBmKzs=": "Mozilla",
+                                                                            "WiZvIBxKaxU=": "Apple M1, or similar", "Ui5nKBdHZhg=": "WebGL 1.0",
+       Akamai𝑆                 Server     POST                              "MVEEV3c9BWM=": ["ANGLE_instanced_arrays","EXT_blend_minmax","...",
+       Fingerprint Pro         Server     POST                              "WEBGL_provoking_vertex"], ... }
+       mail.ru                 Client     –                                 Figure 1: Example Human Security fingerprinting payload
+       Imperva𝑆                Server     POST                              (truncated, full version in Appendix A.5). Key names are
+       Human Security𝑆         Server     Cookie                            encrypted (decoding the Base64 yields non-sensical results).
+       Sift Science𝑆           Server     GET
+       InsurAds                Client     –                                    This paper focuses on squarely on this understudied aspect: how
+       Adscore𝑆                Server     POST + Beacon                     a server-side commercial fingerprinting service integrates browser
+                                                                            attributes and other information in practice.
+Table 1: Types of fingerprinting services, their method for ex-
+filtrating attributes, and whether they are 𝑆 security-oriented.            3     Server-side Fingerprinting
+                                                                            Not all modern fingerprinting services engage in server-side fin-
+and how browsers were sampled [3, 29, 35]. Most recently, a 2024            gerprinting. To identify popular services that do, we used eight of
+study [6] examined the entropy of correlated browser attributes as          the most popular fingerprinting services identified by Luo et al.’s
+seen by real-world websites, and confirmed that, in practice, many          2025 study [37], which used canvas rendering behavior to identify
+attributes can be highly correlated and that entropy is a reason-           specific fingerprinting services.2 We determined that six of them
+able proxy for fingerprinting risk. All of these studies reveal that        use server-side fingerprinting (Table 1).
+the exact data collection and fingerprint computation methodol-                In this section, we describe our method for distinguishing be-
+ogy can heavily influence the computed privacy risk of particular           tween client and server-side fingerprinting, how server-side fin-
+fingerprintable attributes.                                                 gerprinters exfiltrate browser attribute data, and which browser
+    However, key to the ability to track individual users longitu-          attributes they exfiltrate. We emphasize that server-side finger-
+dinally is the stability of fingerprints over time (i.e., the extent        printing is more privacy-invasive because it transmits user browser
+changes in software or user environments cause attributes to mu-            attributes to a third party (as opposed to a hash of them).
+tate) [14, 54]. Vastel et al. empirically observed that almost half (45%)
+of user fingerprints change after a single day, but also provided an        3.1      Identifying Server-side Fingerprinting
+algorithm tracking many users for over 50 days [54].                        We determined whether a fingerprinting service exfiltrates browser
+    Another line of work has focused on measuring how browser               attributes to their servers by capturing the network requests of their
+fingerprinting appears in-the-wild. This includes studies measuring         scripts executing in browser sessions. For each service, we captured
+the prevalence of browser fingerprinting across the Web, both in            network behavior when visiting multiple customer sites of each
+the context of user tracking [15] and security uses [13, 50]. Several       service (Appendix A.2). For the sites that we visited, the network
+studies have also assessed the use of particular JavaScript APIs in         behavior was consistent across service customers. We identified
+fingerprinting scripts using static [32] and dynamic [36] methods.          six of the eight services as engaging in server-side fingerprinting
+    Finally, much of this work is implicitly built around the notion        using a variety of mechanisms for exfiltrating data. The scripts for
+that fingerprints are computed deterministically and statically —           Akamai, Fingerprint Pro, Imperva, and Adscore perform an HTTP
+i.e., that a client-side hash of browser attributes is sufficient to        POST request to a service endpoint with browser attribute data sent
+identify a unique visitor. However, commercial fingerprinters can           as the request payload. Sift Science performs a GET request for a
+implement server-side fingerprinting. With parallels to server-side         1x1 pixel gif from hexagon-analytics.com with browser attribute
+tracking [27], server-side fingerprinting scripts exfiltrate browser        data encoded as query parameters (Figure 4 in Appendix A.5). Hu-
+attributes to a centralized location and hence can implement a range        man Security stores browser attributes in the px_fp cookie (and in
+of re-identification algorithms instead of being limited to exact-hash      browser local storage) that is sent to their servers in subsequent
+matching. Thus, the entropy of a particular browser attribute may           requests (that also collect and send behavioral data) [31].
+not reflect its true impact on the ability to identify unique visitors.        Two of the eight services do not engage in server-side finger-
+    However, there has been limited research on the operation of            printing. InsurAds, an advertisement attention and analytics plat-
+commercial fingerprinting services. To the best of our knowledge,           form, also sets a cookie included in subsequent network requests to
+there are only two studies that touch on commercial fingerprinting          their endpoint. However, the cookie only includes an ID computed
+practices. Nikiforakis et al. [46] analyzed the scripts of three com-       client-side from the attributes its script collects. Similarly, mail.ru’s
+mercial fingerprinting services: BlueCava (now defunct), Iovation,          fingerprinting script computes the hash client-side.
+and ThreatMetrix. While they identified several new fingerprint-
+ing surfaces (e.g., plugins and Flash), they did not analyze internal       3.2      Browser Attributes Exfiltrated
+algorithms, i.e., how these services used such features to perform          We analyzed the browser fingerprinting payloads of the six server-
+re-identification. Similarly, Azad et al. [1] performed grey and black-     side fingerprinting services to identify what attributes they exfil-
+box analyses on commercial bot detection services and found that            trate. Imperva and Adscore encrypt their payloads, while Akamai,
+all but one used browser fingerprinting. Again, they focused on the         2We included the three most popular services identified in [37] (FingerprintJS, mail.ru,
+service’s efficacy in protecting against common bot-based attacks           Akamai), which account for the majority of sites (66%) while the remaining have a
+(e.g., scraping) rather than re-identifying specific users.                 prevalence of just 1–2% each.
+Understanding Server-side Commercial Fingerprinting                                                                  WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates
+
+
+        Vendor                     # Keys          # Hashed          Features Hashed
+        Akamai𝑆                    24 → 132               1          canvas (hash of 3 rendered canvas readouts via toDataURL)
+        Fingerprint Pro            41 → 122               8          canvas (geometry + text), math lib, WebGL (parameters, extensions + 3 more)
+        Human Security𝑆            65                     6          AudioContext (getChannelData), 4 canvas readouts, WebGL context parameters
+        Sift Science𝑆              72                     7          MIME types, plugins, canvas (readout and HTMLCanvas context parameters)
+
+Table 2: Number of browser attributes exfiltrated and how many are hashed. Some keys correspond to multiple browser
+attributes bundled together in one key-value field (e.g., Navigator properties), and we show the number of bundled attributes
+expanded from the number of keys as keys → bundled. 𝑆 Denotes a security-oriented service.
+
+
+Fingerprint Pro, Human Security, and Sift Science have payloads                             server-side fingerprinting can re-identify users even when browser
+with readable (e.g., Base64 encoded) content.3 Thus, we focus on                            attributes change (“fuzzy matching”) — functionality that client-side
+the payloads of these four services. This process requires effort be-                       fingerprinting does not provide. We characterize which browser
+cause most services send the browser fingerprint payload in JSON                            attributes its re-identification is most sensitive to, and the extent
+format with varying degrees of obfuscation and minification (Fig-                           to which server-side re-identification incorporates other more sta-
+ure 1 shows a truncated example of a Human Security payload,                                ble features (e.g., IP address, cookies) that are also not typically
+and Appendix A.5 shows three complete examples). As a result,                               supported by client-side fingerprinting.
+the names of keys themselves did not provide much insight into
+which browser attributes they correspond to (and some attributes                            4.1     Fingerprint Pro
+are hashed, further obfuscating their identity).                                            For our fine-grained experiments, we became a customer of the
+   For payload fields with obfuscated keys and unhashed values,                             Fingerprint commercial fingerprinting service. Fingerprint is based
+we identified the browser attributes associated with the keys by                            on the widely-used source-available library FingerprintJS [24], but
+comparing the values in the payloads with the (known) values of                             implements server-side identification techniques [21]. We provide
+the attributes of the browser we used to execute the fingerprint-                           a deep case study of Fingerprint Pro over other commercial finger-
+ing script. For payload fields that were hashed, we inferred which                          printing vendors for a combination of reasons. It is the only popular
+browser attributes they correspond to by individually mutating a                            service that exposes a computed fingerprint, the “visitor identifier”
+wide range of browser attributes (using the framework we will de-                           (VID), to the customer. It is also the only popular service that mar-
+scribe in Section 4.2) and looking for consistent correlated changes                        kets flexible use: re-identification of “anonymous users” [16] as
+to one of the payload fields in the fingerprint payload.                                    well as bot detection and other security use cases. Finally, it has
+   Table 2 summarizes the total number of browser attributes con-                           a low barrier for becoming a customer. For the other vendors in
+tained in the fingerprint payloads, the number of attributes that                           Section 3, a live conversation with a salesperson or representative
+are hashed, and a short list of hashed attributes (complete list in                         was required to purchase or demo their service.
+Appendix A.3). Note that not all fields in the fingerprinting payload                          We purchased the “Pro” tier of Fingerprint’s service and inte-
+correspond to a specific browser attribute (e.g., some are checksums                        grated their fingerprinting script on a Web site we control. We then
+and timestamps).                                                                            performed controlled browser experiments visiting our site, vary-
+   We highlight hashed attributes because they make it more dif-                            ing browser attributes across visits, and used Fingerprint’s server
+ficult for fingerprinting services to detect the use of privacy tools                       API to programmatically retrieve the result of each “identification
+(Section 5). Hashed values reduce overhead for the fingerprinter                            event”, including the computed visitor identifier.
+(e.g., raw canvas data can be kilobytes), but they reduce finger-                              Additionally, Fingerprint Pro provides a “Browser Tampering”
+printer visibility into browser behavior. Privacy tools can more                            signal: an anomalyScore between 0 and 1 reports how improbable
+freely modify the values of hashed browser attributes (e.g., add ran-                       a browser fingerprint is based on their statistical model [18].4 Fin-
+dom noise) without the fingerprinter detecting either the modifica-                         gerprint Pro also detects the use of incognito modes, virtualization
+tions or the use of that specific tool (which can be a fingerprintable                      software, VPNs, privacy-focused settings (e.g., those implemented
+signal itself [11]). Fingerprinters also cannot use hashed values to                        by the Brave browser), and offers an IP reputation score and bot
+detect internal inconsistencies within a browser fingerprint [18, 56].                      detection system (based upon the open-source BotD [23] library).
+   Note that we chose to inspect fingerprinting request payloads                            These signals are available to customers for every site visit.
+directly instead of using browser API introspection (e.g., Open-                               Having access to Fingerprint Pro’s customer dashboard provides
+WPM [15]) because the payloads provide a direct view into the                               a unique opportunity to perform a grey-box evaluation of a com-
+format (e.g., hashed or not) and content of exfiltrated data.                               mercial fingerprinting service. Although we do not have visibility
+                                                                                            into its backend models or algorithms, the visitor ID and browser
+4     Evaluation of Re-identification                                                       signals provide a useful form of ground truth. Our findings may not
+In this section we empirically evaluate user re-identification from                         be generalizable to the entire server-side fingerprinting ecosystem
+the perspective of a server-side fingerprinter. We extensively eval-                        (other services may employ different algorithms, etc.), but our case
+uate the behavior of a popular commercial service, and show that
+3While Fingerprint Pro also encrypts their payload prior to transmitting to their server,   4 Fingerprint Pro by default deems fingerprints with an anomalyScore above 0.5 to be
+we are able to inspect the payload content server-side (Section 4.1).                       engaging in browser tampering.
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                                  Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+study of Fingerprint Pro provides an experimental framework for                        60
+                                                                                       50                                                   50
+future research in this space.                                                                                                              40
+
+                                                                           Frequency                                            Frequency
+                                                                                       40
+                                                                                       30                                                   30
+4.2     Spoofing Browser Fingerprints                                                  20                                                   20
+                                                                                       10                                                   10
+Our experiments rely on being able to spoof and mutate arbitrary
+                                                                                        0                                                    0
+browser attributes. To implement this functionality, we extended                            02 5   10    15    20    25   30                     02 5   10 15 20 25 30 35
+                                                                                        Cohort Size (# identical server VIDs)                Cohort Size (# identical server VIDs)
+the coverage of FP-Spoofer created by Lin et al. [36], a browser
+extension that can comprehensively spoof particular fingerprinting-                           (a) Mac Cohorts                                     (b) Windows Cohorts
+related browser properties and APIs.5                                      Figure 2: Frequency of cohorts of size 𝑛 > 1. Each cohort
+   Specifically, FP-Spoofer is able to emulate most Navigator, Win-        consists of 𝑛 browser fingerprints with unique FingerprintJS
+dow, and Screen properties, and make the HTTP request header con-          (client) hashes, but the same Fingerprint Pro (server) VID.
+sistent with spoofed properties. The extension also can forge can-
+vas fingerprinting-related values toDataURL and getImageData,
+WebGL-related values (e.g., getExtension, getParameter, and                Apify uses a Bayesian network based on distributions of real users’
+getSupportedExtensions), emulate font fingerprinting (through              browser attributes to generate realistic browser fingerprints. For
+spoofing offsetHeight and offsetWidth properties of span ele-              each combination of browser attributes generated by Apify, we
+ments), canvas font fingerprinting through CanvasRenderingCon-             provided the attributes as inputs to FP-Spoofer and visited our
+text2D’s measureText, and AudioContext fingerprinting through              test site that uses the Fingerprint Pro service. In total, we made
+AudioBuffer’s getChannelData. In all, FP-Spoofer can fool AmI-             2,000 visits with unique synthetic fingerprints (1,000 Chrome on
+Unique [2] in addition to several commercial, real-world browser           MacOS and 1,000 Chrome on Windows).
+fingerprint-based authentication systems [36].                                We ensured that all generated fingerprints are unique under the
+   We extended the spoofing capabilities of FP-Spoofer to include          traditional client-side model of fingerprinting by validating that
+several new fingerprinting categories that we discovered Finger-           their open source FingerprintJS hash is unique (by visiting a sepa-
+print Pro to be using when inspecting their fingerprint payload            rate Web page that uses the open-source version of FingerprintJS).
+(Section 3.2), and that we have not seen reported in previous work.           Synthetic fingerprint uniqueness. In total, 66.7% of synthetic
+The first spoofs the getBoundingClientRect function. Similar to            MacOS fingerprints had unique Fingerprint Pro visitor identifiers
+font preference fingerprinting, this technique measures the height         (VIDs), and 76.2% of Windows fingerprints had unique VIDs. For
+and width of rendered MathML (Math Markup-Language) [47] and               different fingerprint cohorts labeled with the same VID by Finger-
+emojis. The second spoofs WebGL’s getShaderPrecisionFormat                 print Pro, Figure 2 shows the distribution of cohort size for cohorts
+function. Finally, we added the ability to spoof additional WebGL pa-      greater than one. The most common cohort size by far is two, mean-
+rameter attributes (identified from fields in the fingerprint payload      ing that a pair of synthetic browser fingerprints with different exact
+and traced back to getParameter calls the script makes).                   hashes share the same Fingerprint Pro VID.
+   After setting the desired browser attribute values, we used a              Least important attributes. For each cohort of size two, we
+browser with the FP-Spoofer extension to visit our test Web site.          counted the attributes that were allowed to be different, yet still
+We ensured that FP-Spoofer does not trigger any of Fingerprint             resulted in the same VID. Attributes related to screen size (e.g.,
+Pro’s bot detection or browser tampering signals by evading com-           screen.outerHeight) and browser and OS version (e.g., navigator.
+mon ways a browser may be deemed suspicious (e.g., we evade                fullVersionList) were the most frequent attributes different between
+browser tampering detection via reflection [38] by spoofing the            fingerprints in the same cohort (Table 5 in Appendix A.4).
+value of toString for the native browser APIs we modify).                     Most important attributes. Then, for pairs of fingerprints that
+   To experiment with many different browser attributes, we used           yielded the same VID, we counted the browser attributes that most
+Selenium to automate the process of visiting our site to test the          commonly remained the same.6 The colorDepth, hardwareConcur-
+Fingerprint Pro service. We needed to use an anti-detect version           rency and pixelDepth attributes remained the same for 100% of
+of ChromeDriver [53], as Fingerprint Pro is indeed able to detect          cohorts for both MacOS and Windows, and Windows fingerprints
+traditional Web drivers. We confirmed that there was no difference         had 100% consistency for maxTouchPoints, and MacOS had 100%
+in manually visiting our site versus visiting it with our automated        consistency for deviceMemory (Table 6 in Appendix A.4). Thus,
+browser by performing several manual checks on our experiments.            these are attributes that, with high probability, must be the same
+                                                                           for Fingerprint Pro to generate the same VID.
+4.3     Server vs. Client Fingerprint Uniqueness                              Takeaways. We empirically found clear differences in a real-
+To provide an initial framework for understanding what nuances             world server-side browser fingerprinting service when compared
+using server-side fingerprinting techniques adds, we analyzed the          to a popular client-side library. Further, we provide a first look at
+difference in fingerprint uniqueness between Fingerprint Pro and           the browser attributes that can differ between fingerprints with
+a client-side browser fingerprinting approach (which relies on an          the same server-side VID, e.g., browser window dimensions, which
+exact hash of the collected browser attributes).
+   Methodology. To create thousands of realistic (and internally            6We removed from consideration any attributes with inherently low diversity, i.e.,
+consistent) browser fingerprints, we used Apify’s Fingerprint Suite [4].    attributes that would be consistent within all browser fingerprints originating from the
+                                                                            same browser-OS combination (e.g., navigator.platform, navigator.vendor), as well as
+5 Our modifications to FP-Spoofer are available upon request.               attributes for which Apify generated a very skewed distribution (e.g., screen.hasHDR).
+Understanding Server-side Commercial Fingerprinting                                          WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates
+
+
+can easily vary even for a given user. The “most important” at-            Attribute                               Base     New IP      Private
+tributes — those that must be the same within a cohort — correlate         User-agent (up/downgrade ver)            N         N            N
+to fundamental hardware characteristics that are relatively stable.        User-agent (complete change)             T         T            T
+                                                                           HTTP Accept Header                       Y         Y            N
+4.4     Single-Attribute Modification                                      HTTP Content Language                    B         B            B
+To better understand the user re-identification process under a            Screen Resolution                        N         N            N
+popular instance of the server-side model of browser fingerprinting,       colorDepth                               Y         Y            Y
+we empirically evaluate the effect of modifying individual browser         JS Fonts (List)                          N         Y            N
+attributes on the Fingerprint Pro visitor identifier.                      Platform                                 T         T            T
+                                                                           Do Not Track                             N         N            N
+4.4.1 Methodology. At a high level, we (1) create a unique baseline        Plugins (List)                           N         N            N
+fingerprint based on a set of browser attribute values; (2) visit our      Canvas (toDataURL)                       N         Y            N
+test site that uses Fingerprint Pro to generate a baseline server-side     WebGL Renderer / Vendor                  Y         Y            N
+VID𝑏 ; (3) modify one specific browser attribute value; (4) revisit        WebGL Extensions (List)                  Y         Y            N
+the site that uses Fingerprint Pro, generating a VID𝑚 based on             WebGL Context Attributes                 Y         Y            N
+the modification, and (5) compare VID𝑏 and VID𝑚 to determine               WebGL Shader Precisions                  N         Y            N
+whether Fingerprint Pro successfully re-identified the browser in
+                                                                           WebGL Context Parameters                 N         N            N
+spite of the attribute modification (VID𝑏 == VID𝑚 ) or Fingerprint
+                                                                           Unmasked WebGL Rend./Vendor              Y         Y            N
+Pro characterized the two sites visits as different users (VID𝑏 !=
+                                                                           Math operations                          Y         Y            N
+VID𝑚 ). We describe each of these steps in more detail.
+                                                                           AudioContext                             N         N            N
+   Generating a Baseline Fingerprint. For each browser attribute
+we test, we start by creating a baseline fingerprint that we use as a      Emoji𝑅                                   N         N            N
+basis of comparison. It is important that the baseline fingerprint is      MathML𝑅                                  N         N            N
+both unique (so we are identified as a new user) and consistent (so        Font preferences𝑅                        N         N            N
+we are not identified as a bot or a user who is tampering with the         hardwareConcurrency                      Y         Y            Y
+browser).                                                                  deviceMemory                             N         N            N
+   To generate unique baseline fingerprints, as in Section 4.3 we          oscpu𝐷                                   T         T            T
+used Apify’s Fingerprint Suite [4], which generates synthetic (but         vendor                                   T         T            T
+realistic) browser fingerprints as a set of browser attributes. We
+                                                                         Table 3: Results of modifying a single browser attribute for
+then use the server-side information provided by Fingerprint Pro
+                                                                         the baseline (“Base”), different IP address (“New IP”), and
+to ensure that the baseline set of browser attributes constitutes
+                                                                         VPN (“Private”) configurations. Y stands for VID changed;
+a new and consistent fingerprint. If Fingerprint Pro signals the
+                                                                         N: VID unchanged (i.e., successful re-identification); T: VID
+fingerprint as “Browser Tampering”, “Bot”, or having visited our
+                                                                         changed + tampering detected; B: VID changed + bot detected.
+test site previously, we discard the fingerprint and retry with a        𝑅 getBoundingClientRect-based fingerprinting techniques.
+different Apify-generated set of attributes. These steps ensure that     𝐷 Now deprecated in Chrome.
+the baseline fingerprint constitutes a new, unique, and realistic user
+from the perspective of the server-side fingerprinting service.
+   Attribute Selection. The browser attributes we started with               After creating and sending the baseline fingerprint, we modified
+are known to be used by fingerprinters, including Fingerprint            one browser attribute at a time and observed the effect on the re-
+Pro. We include the attributes Laperdrix et al. [34] collected from      turned VID. Specifically, we checked if the VID𝑚 changed relative to
+the fingerprinting literature in 2020. These include HTTP header         the baseline VID𝑏 (indicated by “Y”/”N” in Table 3) and recorded any
+values (first block in Table 3) and browser information available        additional signals Fingerprint Pro’s dashboard provides (browser
+via JavaScript APIs (block 2). We then added attributes we dis-          tampering “T” and bot detection “B”). We also validated that the
+covered Fingerprint Pro also collects (Section 3.2), including five      client-side FingerprintJS hash is different after we modified the
+WebGLRenderingContext attributes (block 3), various APIs never           specific browser attribute (except for “MathML” and “Emoji”, which
+intended to provide discriminatory power between browsers [12]           are not used by FPJS). Finally, to validate that the change in VID is
+(block 4), and hardware characteristics (block 5).                       not spurious, we reverted to the baseline fingerprint and confirmed
+   We note that while most of the attributes that we mutate provide      Fingerprint Pro returns the same VID as in the baseline step (VID𝑏 ).
+fine-grained discriminatory power between similar browsing con-          For each browser attribute we mutated, we ensured that the new
+figurations, a handful (marked in bold in Table 3) fundamentally         value was realistic for each attribute (e.g., for deviceMemory we
+differentiate between distinct browsing configurations. Importantly,     ensured that it was one of the possible values reported [39]). For
+modifying the attributes marked in bold in isolation can lead to         all except for the bold fundamental browser attributes, the exact
+major internal fingerprint inconsistencies, and hence could be used      value we changed the attribute to (so long as it was different) did
+to detect malicious and/or automated requests [56].                      not matter in terms of the signals visible in the dashboard.
+   Attribute Modification Test. The goal of the attribute modi-              Eliminating Confounding Factors. Each time we changed the
+fication experiment is to understand if fine-grained changes to a        browser fingerprint, we used a new browsing session and cleared
+specific browser attribute results in a new server-side visitor ID.      all cookies between visits. We also performed all experiments from
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                                Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+a variety of campus and residential IP addresses with good repu-                 deviceMemory, which by default browsers already report impre-
+tation (as determined by Fingerprint Pro). Finally, to account for               cisely to curtail fingerprinting [39].
+potential differences in the re-identification algorithm between                    Browser Tampering and Bot Detection. None of the attribute
+different browsers and OSes, we replicated the experiments with                  changes except for the aforementioned Content-Languages header
+four different Chromium-based configurations: Chrome and Edge                    triggered bot detection. We suspect the reason is that Fingerprint
+on both MacOS and Windows (which have a combined estimated                       Pro’s bot detection is based on static signals like webdriver [55].
+market share of 75% [51]). We found no differences in results among              However, for the fundamental browser and hardware attributes
+the browser-OS combinations.                                                     (bold in Table 3), modifying them did trigger the browser tampering
+                                                                                 signal. Hence, Fingerprint Pro does not appear to use fine-grained
+4.4.2 Results. Using this methodology, we tested the effect of mu-               features to detect browser inconsistencies.9
+tating 26 distinct browser attributes. We describe the results of                   Takeaways. For half (13/26) of the attributes in Table 3, when
+these tests in terms of each category of attributes.                             modified in isolation, client-side fingerprinting returns a new visitor
+   HTTP headers.7 The user-agent string provides identifying                     identifier (i.e., the exact hash changes), while a server-side finger-
+information about the browser and OS. We tested both changing                    printer does not. As a server-side fingerprinter, Fingerprint Pro
+fine-grained information within the user-agent string (browser or                appears to place less weight on browser attributes that have been
+OS version) — which did not result in a new VID (“N” in Table 3) —               widely reported as high entropy (e.g., canvas rendering). Critically,
+and changing the string completely (a completely different browser               while these types of attributes provide high discriminatory power
+or OS) — which resulted in the browser being identified with a dif-              between very similar browsing setups, through the lens of a server-
+ferent VID (“Y” in Table 3). However, such coarse-grained changes                side fingerprinter, differences in these features in isolation does not
+in isolation resulted in fingerprint inconsistencies and Fingerprint             reliably indicate a different user. This point is further reinforced by
+Pro reported a high browser tampering anomalyScore (~0.99). Re-                  the fact that, when changed in combination with IP address, several
+porting a browser or OS in the user-agent string that differs from               such attributes yield a new visitor identifier (Section 4.5).
+values inferred through other browser attributes (e.g., “vendorFla-                 Thus, Fingerprint Pro appears to prioritize re-identification sta-
+vors” [26]) results in unique VIDs, but Fingerprint Pro understand-              bility over precision. However, it is likely that server-side finger-
+ably deems it suspicious behavior. Modifying the HTTP Accept                     printers have enough external information (e.g., cookies, IP address)
+header (detailing MIME types) in isolation also results in a new VID.            to still re-identify users with similar fingerprints even without many
+While it is not high in information entropy [34] (not highly unique              of the high-entropy fingerprinting surfaces. Instead, they can focus
+among users), when different it becomes a distinguishing feature. Fi-            on attributes that more certainly indicate a new visitor.
+nally, the HTTP Content-Language header, when modified, results
+in a new VID but triggers Fingerprint Pro’s bot detection (language              4.5     Exogenous Factors
+inconsistencies are a characteristic of automated requests [25]).
+                                                                                 Unlike client-side fingerprinting, server-side re-identification is
+   Attributes in Fingerprinting Literature. We evaluated eight
+                                                                                 not just a straightforward hash of browser attributes. In particular,
+attributes commonly used in prior fingerprinting studies focused
+                                                                                 server-side re-identification can take into account additional factors
+on measurements of entropy. In our experiments, only one (Color
+                                                                                 of the browsing session when deciding on a visitor identifier. Thus,
+Depth) yielded a new VID when changed in isolation. Modifying
+                                                                                 we repeated the above attribute modification tests under three
+any of the highest entropy attributes (as reported in [29]), such as
+                                                                                 additional browsing conditions: changing the IP address, using
+the canvas rendering and list of plugins, did not result in new VIDs.
+                                                                                 private browsing, and allowing cookies and local storage.
+One possible explanation is that many anti-fingerprinting tools
+                                                                                    IP Address. IP address can be a powerful tracking vector, en-
+(that we analyze in Section 5) have focused on these high-entropy
+                                                                                 abling cross-browser fingerprinting [7] and cookie respawning [28].
+attributes, and hence Fingerprint Pro has taken this focus by tools
+                                                                                 Indeed, it can remain relatively stable over time for many users [41],
+into account in its server-side algorithms.
+                                                                                 with the caveat that multiple users can share a single IP in various
+   WebGL Attributes. Many of the WebGLRenderingContext at-
+                                                                                 cases (NATs, VPNs, etc.). When used in combination with browser
+tributes we tested resulted in a new VID. While WebGL rendering
+                                                                                 fingerprinting, IP address can enhance user re-identification.
+itself is a relatively-studied fingerprinting surface [42], the entropy
+                                                                                    Thus, we tested if modifying the IP address in conjunction with
+of attributes accessible through the WebGL object (e.g., shaderPre-
+                                                                                 modifying a specific browser attribute changes Fingerprint Pro’s
+cisions) remains comparatively unknown.
+                                                                                 server-side re-identification behavior. Using a SOCKS5 proxy man-
+   Invasive Fingerprinting Surfaces. Of the “invasive” finger-
+                                                                                 aging many IP address ranges, we repeated the attribute modifica-
+printing APIs we tested, only changes in math library operations
+                                                                                 tion test while switching to an IP address (after sending the baseline
+tested by Fingerprint Pro (e.g., sin, pow, PI) resulted in a new VID.8
+                                                                                 fingerprint) within the same /24, same /16, and same Autonomous
+   Hardware Attributes. Changing any of the hardware attributes
+                                                                                 System. We also tested with an IP address with a completely differ-
+(except one) resulted in a new VID, but these changes also triggered
+                                                                                 ent geolocation by using a virtual private network (VPN) (with the
+Fingerprint Pro’s browser tampering detection. The exception was
+                                                                                 caveat that Fingerprint Pro is able to detect the VPN).
+                                                                                    As shown in the second results column of Table 3, upon switching
+7While the browser’s Navigator interface provides programmatic access to these   to a new IP address outside the same /24, Fingerprint Pro returned
+attributes, Fingerprint Pro reads these values from the HTTP header.
+8While we used Chrome, we note that Firefox implements standardization of some   9 For example, while it is possible for canvas rendering to identify particular device
+math operations [44].                                                            types [10], we did not find any evidence of Fingerprint Pro using such information.
+Understanding Server-side Commercial Fingerprinting                                                           WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates
+
+
+new VIDs for three additional browser attributes: Canvas, JS Fonts,                   4.6     Limitations
+and WebGL Shader Precisions. However, there was no difference in                      While we have the advantage of having some ground truth via the
+re-identification behavior from “Base” (keeping the same IP address)                  information Fingerprint Pro provides in its customer dashboard, we
+when switching between IP addresses within the same /24.                              do not have visibility into the model and algorithms they use. In our
+   Private Browsing. Using a private (incognito) mode when                            experiments, we made a best effort to control for several potential
+browsing the Web is advertised [30] to be more private. Indeed, the                   confounding factors: we ensured that the baseline fingerprint is
+private browsing modes of major browsers offer some heightened                        always deemed unique, we performed all experiments from campus
+privacy measures, including removing all cookies upon beginning                       and residential IP addresses (removing IP reputation as a factor)
+a new session. Thus, tracking users across the switch to private                      and repeated experiments for different OS/browser combinations.
+browsing mode solely using (first or third-party) cookies becomes                        However, there may be other factors server-side fingerprinting
+impossible. However, browser fingerprinting can be a viable method                    algorithms use that we were unable to control for. Further, due to
+for tracking users as they switch between normal and private brows-                   the combinatorial complexity, we did not test the effect of modifying
+ing since it does not rely on any locally stored information.                         multiple attributes, and it is possible that modifying combinations
+   For many of the browser attributes we tested in Section 4.4,                       of the attributes that did not result in a new VID when modified
+modifying them in isolation led to a new VID; however, switching                      in isolation would result in a new one. There also could be non-
+from normal to private browsing in conjunction with modifying                         determinism in their models that we could not identify and thus
+that browser attribute no longer resulted in a new VID (third results                 control for. Finally, we did not explicitly test the effect of timing
+column of Table 3): Fingerprint Pro successfully re-identified the                    between visits: the modified fingerprint was always immediately
+browser switching to private mode. The only two (non-tampering                        sent after the baseline, but the time between user visits may also
+or bot-detection) attributes that still result in a new VID after switch-             be taken into account by server-side fingerprinting algorithms.
+ing to private browsing are colorDepth and hardwareConcurrency,
+which correspond to stable hardware traits of the device.
+                                                                                      5     Privacy Implications
+   Our tests indicate that Fingerprint Pro has a higher tolerance
+for fine-grained changes to particular browser attributes if they                     As a final experiment, we used the attribute modification tests in the
+detect the user has switched from standard to private browsing                        context of the most popular anti-fingerprinting defenses (as rated
+mode. Indeed, some browsers build-in additional fingerprinting                        by [34]). Specifically, we empirically evaluated if particular privacy-
+protections when using a private mode [5, 43].                                        enhancing tools (PETs)11 still prevented re-identification through
+   Cookies and Local Storage. Unlike browser fingerprints and                         the server-side model of browser fingerprinting (as opposed to a
+IP address, which can be ephemeral, a persistent way to track users                   client-side fingerprinter). We visited our test page with a browser
+is to use information stored locally in a user’s browser, such as                     configured with a variety of PETs to determine if Fingerprint Pro
+cookies and local storage. For each visit to a site using Fingerprint                 could still re-identify it between sessions (without using cookies),
+Pro, its fingerprinting script sets two cookies and two local storage                 and Table 4 summarizes our results. Unless otherwise stated, we
+variables. We performed the attribute modification tests again, but                   also performed the visits from the same IP address. As a baseline, we
+instead of starting a new session between sending the baseline and                    confirmed that all anti-fingerprinting tools successfully defended
+modified fingerprints, we persisted the cookies and local storage                     against the widely-used [37] client-side FingerprintJS [24].
+variables Fingerprint Pro set for the baseline fingerprint. We also                      Browser Built-in Defenses. We tested four privacy-oriented
+tested keeping the same cookies and deleting the local storage                        browsers, each with different (advertised) levels of privacy pro-
+variables, and vice versa.                                                            tection. First, Firefox’s Strict Enhanced Tracking Protection (ETP)
+   While the local storage variables had no effect, persisting the                    mode adds persistent random noise to canvas fingerprints between
+cookies Fingerprint Pro sets (_vid_t and _iidt) overrules any                         browsing sessions and offers standardization in the list of fonts re-
+and all individual modifications to browser attributes. Even when                     ported and math operations [43]. As with the results in Section 4.4,
+completely changing the browser fingerprint (new browser, OS, IP                      however, Fingerprint Pro is able to fuzzy-match over the random-
+address, etc.) but keeping the two cookies, Fingerprint Pro returns                   ized canvas (and may have learned to do so because of the very
+the same VID (despite it triggering the browser tampering signal).                    existence of this defense), and it is able to re-identify our browser
+   The _vid_t and _iidt cookies had a Samesite policy of Lax                          despite the standardization of fonts and math operations (likely
+and None, respectively, so they both can be used in cross-site re-                    through other attributes and IP address).
+quests [40]. With these settings, Fingerprint Pro can use the cookies                    Firefox’s Resist Fingerprinting (RFP) offers a significantly height-
+to re-identify users (deterministically) across Web sites. Moreover,                  ened level of browser fingerprinting defenses, which include the uni-
+both cookies Fingerprint Pro sets have an Expires/Max-Age of one                      form reporting of values returned by many fingerprintable browser
+year.10 Given that user fingerprints naturally change and evolve                      APIs (e.g., hardwareConcurrency, pixelDepth) and blocking of can-
+over time [54], the ability to reliably track user fingerprint evolu-                 vas readback on top of the protections already offered by ETP. These
+tions over long periods of time via cookies can provide invaluable                    attribute modifications in combination were sufficient to generate
+information for a server-side browser fingerprinter.                                  new Fingerprint Pro VIDs, preventing re-identification.
+
+
+10 In Safari, cookies originating from a 3rd-party IP address have a Max-Age of one   11We focused on PETs that modified browser attributes, rather than block the fin-
+week [57], but Fingerprint Pro offers ways to circumvent such policies such as by     gerprinting script entirely (e.g., ad blockers, which are also commonly evaded by
+proxying their service through Cloudflare [19].                                       fingerprinters including Fingerprint Pro [20, 37]).
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                              Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+    Privacy-Enhancing Tool                       Anti-Fingerprinting Measures                       Client-Side          Server-Side          Server + VPN
+                                                 + Canvas randomization
+    Firefox Strict ETP [43]**                                                                               Y                   N                      Y
+                                                 + Font and math operation uniformity
+    FF.resistFingerprinting (RFP) [44]**         + Many APIs report uniform values                          Y                   Y                      Y
+    Brave Browser [9]**                          + Some API restriction + randomization                     Y                   N                      Y
+    Tor browser [52]                             + Heavy API restriction + uniform reporting                Y                   Y                      Y
+    Canvas Blocker [33]                          + Add persistent random noise to Canvas
+                                                                                                            Y                   N                      Y
+    Canvas Defender [45]                         + Or block Canvas API entirely
+    User-Agent Switchers [48, 49]                + Change browser user-agent string                         Y                   Y*                    Y*
+    Font [59], AudioContext [58], &
+                                                 + Add random noise to the respective APIs                  Y                   N                      N
+    WebGL Fingerprint Defender [58]
+Table 4: Efficacy of privacy-enhancing tools against client-side fingerprinting (FingerprintJS), server-side (Fingerprint Pro), and
+server-side using a VPN. **With Firefox ETP/RFP and Brave, we test re-identifiability between separate browsing sessions.
+*Only if the UA is switched to a different OS/Browser (which is detected as browser tampering signals due to OS inconsistencies).
+
+   Brave is a privacy-oriented browser that defends against finger-           server-side Fingerprint Pro (which largely uses the same attributes),
+printing by “farbling” (randomizing) the outputs of various browser           is able to defeat the majority of them. We find this seemingly minor
+APIs: HTMLCanvas, AudioContext, plugins, WebGL debug info (e.g.,              choice of where to implement fingerprint generation — on the client
+Unmasked Renderer/Vendor) and more [8]. Recall from Section 4.4               or the server — can have such a significant impact is unintuitive,
+that modifying several of the browser attributes that Brave farbles           but indeed reflects a deep and qualitative distinction.
+in isolation (e.g., Unmasked Renderer, WebGL Shader Precisions) re-               Server-side fingerprinting services can combine raw attribute
+sults in a new VID. In our tests with Brave, though, Fingerprint Pro          data with long-term state — both about an individual machine as well
+is able to re-identify the browser and returns the same VID across            as the cohort of machines with similar collections of attributes. This,
+sessions. Indeed, when visiting our test site with Brave, Fingerprint         in turn, allows server-side fingerprinters to automatically train their
+Pro’s dashboard signals the use “privacy settings” (only triggered            fingerprinting algorithms using cookies (when available) and stable
+when using Brave and not Firefox’s RFP) and most likely adapts                IP addresses as implicit supervisory signals.12 Moreover, given the
+their re-identification method with knowledge of Brave’s built-in             known challenges of fingerprint stability [54], the availability of a
+fingerprinting protections [17].                                              large state database, with constant feedback, provides precisely the
+   Finally, Tor offers reliable protection against re-identification on       signals needed to adapt to organic changes in browser attributes
+the server (including changing the IP address). However, as a trade-          (e.g., due to browser or OS updates) and allows the selective use
+off, it has a well-known reputation of breaking site functionality.           of lower-entropy attributes where necessary instead of a “one size
+   Browser Extension-Based tools. We also tested the most                     fits all” model inherent in the client-side approach. Finally, any
+popular (by Chrome/Firefox store downloads) anti-fingerprinting               imperfections in fingerprint stability or specificity can be corrected
+browser extensions that specifically mitigate the fingerprinting              in part using IP address data (evident in our measurements) —
+of one browser API. In line with Section 4.4, canvas, font, Audio-            again, only possible due to large-scale server-side state. Together,
+Context, and WebGL-based defenses are insufficient in isolation               these capabilities create substantive advantages for server-side
+to prevent re-identification. For defenses involving the user-agent,          fingerprinting implementations and, thus, it is these settings that
+switching to a new browser and/or OS combination was sufficient               are a more accurate reflection of real-world privacy concerns.13
+to create a new VID, but resulted in browser tampering signals.
+   VPNs. Consistent with Section 4.5, the addition of a VPN pre-              7     Acknowledgements
+vents re-identification by Fingerprint Pro for most of the privacy            We thank our anonymous reviewers for their insightful sugges-
+tools since the user IP address is not stable. The exceptions are the         tions and feedback. Many thanks also to Cindy Moore and Jen-
+Font, AudioContext, and WebGL Fingerprint Defender tools, where               nifer Folkestad for operational and administrative support of our
+Fingerprint Pro still tolerates a changed IP address.                         research. Funding for this work was provided by NSF grant CNS-
+                                                                              2152644, the Irwin Mark and Joan Klein Jacobs Chair in Information
+                                                                              and Computer Science, the CSE Professorship in Internet Privacy
+6    Discussion                                                               and/or Internet Data Security, a generous gift from Mozilla, and
+This paper was motivated by a desire to understand fingerprinting             operational support from the UCSD Center for Networked Systems.
+from the point of a view of a server-side fingerprinting service. As a
+case study, our empirical measurements of the market-leading Fin-
+                                                                              12 The cookies that Fingerprint Pro sets last for one year, providing them with the
+gerprint Pro revealed a service that is substantially more resilient to
+                                                                              ability to monitor browser fingerprint changes over time and, thus, track users over
+changes in underlying browser attributes — even those traditionally           time and space (i.e., as they have purview over many customer sites).
+reported as high-entropy — than traditional client-side libraries, and        13 This observation also creates a research challenge, as the massive attribute databases
+
+substantially more robust to anti-fingerprinting features. Indeed, we         at the core of services such as Fingerprint Pro are not available to the scientific
+                                                                              community. Thus, reasoning about server-side fingerprinting setting requires further
+showed that, while the client-side implementation of FingerprintJS            inference efforts (beyond those in this paper) or the development of large-scale open
+is effectively blinded by an array of anti-fingerprinting tools, the          source fingerprint datasets — which bring their own risks and complexities.
+Understanding Server-side Commercial Fingerprinting                                                                  WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates
+
+
+References                                                                                 [29] Alejandro Gómez-Boix, Pierre Laperdrix, and Benoit Baudry. 2018. Hiding in
+ [1] Babak Amin Azad, Oleksii Starov, Pierre Laperdrix, and Nick Nikiforakis. 2020.             the Crowd: an Analysis of the Effectiveness of Browser Fingerprinting at Large
+     Web Runner 2049: Evaluating Third-Party Anti-bot Services. In Proceedings of               Scale. In Proceedings of the 2018 ACM Web Conference (Lyon, France) (WWW’18).
+     the 17th International Conference on Detection of Intrusions and Malware, and              309–318.
+     Vulnerability Assessment (Lisbon, Portugal) (DIMVA’20). 135–159.                      [30] Google Support. 2025. Browse in Incognito mode. https://support.google.com/
+ [2] AmIUnique.org. 2025. Am I Unique? https://amiunique.org.                                   chrome/answer/95464?hl=en&co=GENIE.Platform%3DDesktop.
+ [3] Nampoina Andriamilanto, Tristan Allard, Gaëtan Le Guelvouit, and Alexandre            [31] HUMAN Security. 2025. Use of cookies & web storage. https://docs.
+     Garel. 2021. A Large-scale Empirical Analysis of Browser Fingerprints Properties           humansecurity.com/applications/use-of-cookies-web-storage.
+     for Web Authentication. ACM Trans. Web 16, 1, Article 4 (Sept. 2021), 62 pages.       [32] Umar Iqbal, Steven Englehardt, and Zubair Shafiq. 2021. Fingerprinting the Fin-
+ [4] Apify. 2025. fingerprint-generator (part of Fingerprint Suite). https://github.com/        gerprinters: Learning to Detect Browser Fingerprinting Behaviors. In Proceedings
+     apify/fingerprint-suite/tree/master/packages/fingerprint-generator.                        of the 2021 IEEE Symposium on Security and Privacy (San Francisco, CA, USA)
+ [5] Apple. 2023. Apple announces powerful new privacy and security fea-                        (S&P’21). 1143–1161.
+     tures. https://www.apple.com/newsroom/2023/06/apple-announces-powerful-               [33] joue.quroi. 2025. Canvas Blocker — Fingerprint Protect. https://chromewebstore.
+     new-privacy-and-security-features/.                                                        google.com/detail/nomnklagbgmgghhjidfhnoelnjfndfpd.
+ [6] Enrico Bacis, Igor Bilogrevic, Robert Busa-Fekete, Asanka Herath, Antonio Sartori,    [34] Pierre Laperdrix, Nataliia Bielova, Benoit Baudry, and Gildas Avoine. 2020.
+     and Umar Syed. 2024. Assessing Web Fingerprinting Risk. In Proceedings of the              Browser Fingerprinting: A Survey. ACM Trans. Web 14, 2, Article 8 (April 2020),
+     ACM Web Conference (Singapore) (WWW ’24). 245–254.                                         33 pages.
+ [7] Károly Boda, Ádám Máté Földes, Gábor György Gulyás, and Sándor Imre. 2011.            [35] Pierre Laperdrix, Walter Rudametkin, and Benoit Baudry. 2016. Beauty and the
+     User Tracking on the Web via Cross-Browser Fingerprinting. In Proceedings of               Beast: Diverting Modern Web Browsers to Build Unique Browser Fingerprints.
+     the 16th Nordic Conference on Information Security Technology for Applications             In Proceedings of the 2016 IEEE Symposium on Security and Privacy (S&P’16).
+     (Tallinn, Estonia) (NordSec’11). 31–46.                                                    878–894.
+ [8] Brave Software. 2020. Fingerprinting defenses 2.0. https://brave.com/privacy-         [36] Xu Lin, Panagiotis Ilia, Saumya Solanki, and Jason Polakis. 2022. Phish in Sheep’s
+     updates/4-fingerprinting-defenses-2.0/.                                                    Clothing: Exploring the Authentication Pitfalls of Browser Fingerprinting. In
+ [9] Brave Software. 2024. Sunsetting Strict Fingerprinting Mode. https://brave.com/            Proceedings of the 31st USENIX Security Symposium (USENIX Security 22) (Boston,
+     privacy-updates/28-sunsetting-strict-fingerprinting-mode/.                                 MA). 1651–1668.
+[10] Elie Bursztein, Artem Malyshev, Tadek Pietraszek, and Kurt Thomas. 2016. Pi-          [37] Elisa Luo, Tom Ritter, Geoffrey M. Voelker, and Stefan Savage. 2025. Canvassing
+     casso: Lightweight Device Class Fingerprinting for Web Clients. In Proceedings             the Fingerprinters: Characterizing Canvas Fingerprinting Use Across the Web.
+     of the 6th Workshop on Security and Privacy in Smartphones and Mobile Devices              In Proceedings of the ACM Internet Measurement Conference (Madison, WI, USA)
+     (Vienna, Austria) (SPSM ’16). 93–102.                                                      (IMC’25). 993–1001.
+[11] Amit Datta, Jianan Lu, and Michael Carl Tschantz. 2019. Evaluating Anti-              [38] madtech (AdTechMadness). 2019. JavaScript Tampering — Detection and
+     Fingerprinting Privacy Enhancing Technologies. In Proceedings of the The World             Stealth. https://adtechmadness.wordpress.com/2019/03/23/javascript-tampering-
+     Wide Web Conference (San Francisco, CA, USA) (WWW ’19). 351–362.                           detection-and-stealth/.
+[12] Disconnect. 2024. Tracker Protection Lists — We Track the Trackers. https:            [39] MDN Web Docs. 2025. Navigator.deviceMemory. https://developer.mozilla.org/
+     //disconnect.me/trackerprotection.                                                         en-US/docs/Web/API/Navigator/deviceMemory.
+[13] Antonin Durey, Pierre Laperdrix, Walter Rudametkin, and Romain Rouvoy. 2021.          [40] MDN Web Docs. 2025. Third-party cookies — Privacy on the Web. https://
+     FP-Redemption: Studying Browser Fingerprinting Adoption for the Sake of Web                developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Third-party_cookies.
+     Security. In Proceedings of 18th Conference on the Detection of Intrusions and        [41] Vikas Mishra, Pierre Laperdrix, Antoine Vastel, Walter Rudametkin, Romain
+     Malware, and Vulnerability Assessment (DIMVA’21). 237–257.                                 Rouvoy, and Martin Lopatka. 2020. Don’t Count Me Out: On the Relevance of IP
+[14] Peter Eckersley. 2010. How Unique Is Your Web Browser?. In Proceedings of the              Address in the Tracking Ecosystem. In Proceedings of The Web Conference (Taipei,
+     10th International Conference on Privacy Enhancing Technologies (Berlin, Germany)          Taiwan) (WWW ’20). 808–815.
+     (PETS’10). 1–18.                                                                      [42] Keaton Mowery and Hovav Shacham. 2012. Pixel Perfect: Fingerprinting Canvas
+[15] Steven Englehardt and Arvind Narayanan. 2016. Online Tracking: A 1-million-site            in HTML5. In Proceedings of the Workshop on Web 2.0 Security & Privacy (San
+     Measurement and Analysis. In Proceedings of the 2016 ACM SIGSAC Conference on              Francisco, CA, USA) (W2SP’12).
+     Computer and Communications Security (Vienna, Austria) (CCS’16). 1388–1401.           [43] Mozilla Support. 2025. Firefox’s protection against fingerprinting. https://support.
+[16] Fingerprint. 2023. How to Identify Anonymous Website Visitors. https:                      mozilla.org/en-US/kb/firefox-protection-against-fingerprinting.
+     //fingerprint.com/blog/identifying-unique-and-anonymous-visitors/.                    [44] Mozilla Support. 2025. Resist Fingerprinting. https://support.mozilla.org/en-
+[17] Fingerprint. 2025. Audio fingerprinting: What it is + how it works with Web API.           US/kb/resist-fingerprinting.
+     https://fingerprint.com/blog/audio-fingerprinting/#brave                              [45] Multilogin / Canvas Defender. 2024. Canvas Defender (No-Canvas Fingerprinting)
+[18] Fingerprint. 2025. Browser Tamper Detection — Smart Signals Reference. https:              — Firefox Add-on. https://addons.mozilla.org/en-US/firefox/addon/no-canvas-
+     //dev.fingerprint.com/docs/smart-signals-reference.                                        fingerprinting/.
+[19] Fingerprint. 2025. Custom Subdomain Setup — Fingerprint Docs. https://dev.            [46] Nick Nikiforakis, Alexandros Kapravelos, Wouter Joosen, Christopher Kruegel,
+     fingerprint.com/docs/custom-subdomain-setup.                                               Frank Piessens, and Giovanni Vigna. 2013. Cookieless Monster: Exploring the
+[20] Fingerprint. 2025. Evading ad blockers with proxy integrations. https://dev.               Ecosystem of Web-Based Device Fingerprinting. In Proceedings of the IEEE Sym-
+     fingerprint.com/docs/protecting-the-javascript-agent-from-adblockers.                      posium on Security and Privacy (S&P’13). 541–555.
+[21] Fingerprint. 2025. FingerprintJS vs. Fingerprint Identification. https://github.      [47] PrivacyCheck (LRZ Sec). 2025. Fingerprinting MathML. https://privacycheck.
+     com/fingerprintjs/fingerprintjs/blob/master/docs/comparison.md.                            sec.lrz.de/active/fp_ml/fp_ml.html.
+[22] Fingerprint. 2025. Identify Every Visitor. https://fingerprint.com/.                  [48] random-user-agent.com. 2025.                 Random User-Agent (Switcher).
+[23] FingerprintJS. 2025. BotD: Bot detection library that runs in the browser. https:          https://chromewebstore.google.com/detail/random-user-agent-switche/
+     //github.com/fingerprintjs/BotD.                                                           einpaelgookohagofgnnkcfjbkkgepnp.
+[24] FingerprintJS. 2025.       Fingerprint JS.      https://github.com/fingerprintjs/     [49] Ray. 2025. User-Agent Switcher and Manager. https://addons.mozilla.org/en-
+     fingerprintjs.                                                                             US/firefox/addon/user-agent-string-switcher/.
+[25] FingerprintJS. 2025.                 languages_inconsistency.ts at commit             [50] Asuman Senol, Alisha Ukani, Dylan Cutler, and Igor Bilogrevic. 2024. The Double
+     7e8988243fa33b8583b6728cd4bd37a5f6af677c. https://github.com/fingerprintjs/                Edged Sword: Identifying Authentication Pages and their Fingerprinting Behavior.
+     BotD/blob/7e8988243fa33b8583b6728cd4bd37a5f6af677c/src/detectors/                          In Proceedings of the ACM Web Conference (Singapore) (WWW’24). 1690–1701.
+     languages_inconsistency.ts.                                                           [51] StatCounter Global Stats. 2025. Browser Market Share Worldwide. https://gs.
+[26] FingerprintJS. 2025. vendor_flavors.ts — FingerprintJS. https://github.com/                statcounter.com/browser-market-share.
+     fingerprintjs/fingerprintjs/blob/700787c4c0b945ecbd32a8571fd91465ff379e28/            [52] The Tor Project. 2025. Anti-Fingerprinting — Tor Browser Manual. https://tb-
+     src/sources/vendor_flavors.ts.                                                             manual.torproject.org/anti-fingerprinting/.
+[27] Imane Fouad, Cristiana Santos, and Pierre Laperdrix. 2024. The Devil is in the        [53] ultrafunkamsterdam. 2025. undetected-chromedriver: Optimized Selenium
+     Details: Detection, Measurement and Lawfulness of Server-Side Tracking on                  Chromedriver patch (Zero-Config) that avoids bot detection. https://github.
+     the Web. In Proceedings of the 24th Privacy Enhancing Technologies Symposium               com/ultrafunkamsterdam/undetected-chromedriver.
+     (Bristol, UK) (PETS’24). 16 pages.                                                    [54] Antoine Vastel, Pierre Laperdrix, Walter Rudametkin, and Romain Rouvoy. 2018.
+[28] Imane Fouad, Cristiana Santos, Arnaud Legout, and Nataliia Bielova. 2022.                  FP-STALKER: Tracking Browser Fingerprint Evolutions. In Proceedings of the
+     My Cookie is a Phoenix: Detection, Measurement, and Lawfulness of Cookie                   IEEE Symposium on Security and Privacy (San Francisco, CA, USA) (S&P’18).
+     Respawning with Browser Fingerprinting. In Proceedings of the 22nd Privacy                 728–741.
+     Enhancing Technologies Symposium (Sydney, Australia) (PETS’22). 79–98.                [55] Antoine Vastel, Walter Rudametkin, Romain Rouvoy, and Xavier Blanc. 2020. FP-
+                                                                                                Crawlers: Studying the Resilience of Browser Fingerprinting to Block Crawlers.
+                                                                                                In Proceedings of the Workshop on Measurements, Attacks, and Defenses for the
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                                   Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+     Web (San Diego, CA, USA) (MADWeb’20). 13 pages.                                     Akamai
+[56] Hari Venugopalan, Shaoor Munir, Shuaib Ahmed, Tangbaihe Wang, Samuel T.             Screen: inner, outer, pageOffset, availHeight, availWidth,
+     King, and Zubair Shafiq. 2025. FP-Inconsistent: Measurement and Analysis of         colorDepth, pixelDepth.
+     Fingerprint Inconsistencies in Evasive Bot Traffic. In Proceedings of the ACM       Functionalities: XDomainRequest, createPopup, removeEventListener,
+     Internet Measurement Conference (Madison, WI, USA) (IMC ’25). 134–149.              globalStorage, openDatabase, indexedDB, attachEvent, ActiveXObject,
+[57] WebKit Contributors / whsieh. 2022. “Cap cookie lifetimes to 7 days for responses   dispatchEvent, addBehavior, addEventListener, detachEvent, fireEvent,
+     from third party IP addresses” (Pull Request #5347). https://github.com/WebKit/     MutationObserver, HTMLMenuItemElement, Int8Array, postMessage,
+     WebKit/pull/5347.                                                                   querySelector, getElementsByClassName, images, compatMode,
+[58] Yubi. 2025. AudioContext Fingerprint Defender. https://chromewebstore.google.       documentMode, all, now, contextMenu
+     com/detail/audiocontext-fingerprint/pcbjiidheaempljdefbdplebgdgpjcbe.               Battery: charging, chargingTime, dischargingTime, Infinity, level,
+[59] Yubi. 2025. Font Fingerprint Defender. https://chromewebstore.google.com/           onchargingchange, onchargingtimechange, ondischargingtimechange,
+     detail/font-fingerprint-defender/fhkphphbadjkepgfljndicmgdlndmoke.                  onlevelchange
+                                                                                         Navigator: userAgent, appName, appCodeName, appVersion,
+                                                                                         appMinorVersion, product, productSub, vendor, vendorSub, buildID,
+A Appendix                                                                               platform, oscpu, hardwareConcurrency, language, languages,
+                                                                                         systemLanguage, userLanguage, doNotTrack, msDoNotTrack,
+A.1 Ethics                                                                               cookieEnabled, geolocation, vibrate, maxTouchPoints, webdriver,
+                                                                                         plugins
+This work does not involve human subjects, nor is there any attempt                      Window.chrome: window.chrome, app, isInstalled, InstallState,
+to infer any information about individuals. Our measurements are                         DISABLED, INSTALLED, NOT_INSTALLED, RunningState, CANNOT_RUN,
+taken on our own behalf and do not violate the integrity of Fin-                         READY_TO_RUN, RUNNING
+                                                                                         Other (plaintext): Local Storage, Session Storage, Adobe Flash, PDF
+gerprint Pro’s service offering. Moreover, our results are in service                    plugins, JavaScript Version, getTimezoneOffset, encoding of
+to the most vulnerable stakeholders, Web users whose privacy is                          permissions
+violated in spite of even diligent efforts to protect it.                                Other (Hashed) 3 canvas readouts via toDataURL (SHA1 hash)
+
+                                                                                         Human Security
+A.2      Customer Sites                                                                  WebGLRenderingContext: vendor, renderer, UNMASKED_VENDOR,
+                                                                                         UNMASKED_RENDERER, SHADING_LANGUAGE_VERSION, VERSION,
+When analyzing whether a fingerprinting service engages in server-                       SupportedExtensions, parameters
+side fingerprinting, we analyzed the network behavior of several                         Navigator: userAgent, plugins, mimeTypes, language, languages,
+customer sites of each service (i.e., sites that use the commercial                      cpuClass, platform
+                                                                                         Screen: width, availWidth, height, availHeight
+fingerprinting service) as identified by [37]. Below we list the sites                   Window: indexedDB, openDatabase, devicePixelRatio, localStorage
+we analyzed for each service. For Fingerprint Pro, we confirmed                          Other: Date.now()
+                                                                                         Other (hashed): AudioContext.getChannelData, 4 canvas readouts via
+that the network behavior we observed on their customer sites
+                                                                                         toDataURL, list of WebGL context parameters
+matched what is described in their provided documentation.
+                                                                                         Sift Science
+ Akamai: costco.com, walmart.com, nvidia.com, st.com, rei.com                            Screen: height, width, colorDepth
+ Fingerprint Pro: vogue.com, onecountry.com, keepthatpump.com,                           Navigator: userAgent, productSub, vendor, vendorSub,
+ www.bonappetit.com, wired.com                                                           hardwareConcurrency
+ mail.ru: 1cloud.ru, akibank.ru, helix.ru, infowatch.ru, skynet.ru                       Capabilities: javaEnabled, sessionStorage, localStorage, indexedDB,
+ Imperva: employflorida.com, iowaworks.gov, junemountain.com,                            openDB, cpuClass, use of adblocker
+ kofc.org, trailfinders.com                                                              Consistency checks: tamperedLanguage, tamperedERsolution, tamperedOS,
+ Human Security: columbiasportswear.it, tvbythenumbers.com                               tamperedBrowser
+ Sift Science: bumbleandbumble.com, iwantmyname.com, tradesy.com                         Other: timezoneOffset, dstOffset, character set, language, number of
+ Adscore: 560theanswer.com, gold-cup.news, neural.one, wokespy.com                       MIME types, number of plugins, maxTouchPoints, webGL extensions,
+                                                                                         webGL context parameters
+                                                                                         Other (hashed): 3 canvas readouts via toDataURL and canvas properties
+A.3      Browser Attributes Exfiltrated                                                  (MD5 hash), list of MIME types, plugin properties
+Figure 3 lists all fingerprinting-related browser attributes Akamai,                     Fingerprint Pro
+Human Security, Sift Science, and Fingerprint Pro exfiltrate to their                    Screen: colorDepth, colorGamut, contrast, hdr, height, width,
+servers, based on the data contained within their fingerprinting                         resolution
+                                                                                         Capabilities: cookiesEnabled, domBlockers (use of ad blockers),
+payloads. For each service, we mark in bold the attributes that are                      forcedColors, indexedDB, invertedColors, localStorage, monochrome,
+hashed. We exclude any attributes that were not explicitly browser                       openDatabase, pdfViewerEnabled, reducedMotion, sessionStorage,
+fingerprinting related (e.g., behavioral metrics, checksums).                            touchSupport, privateclickmeasurement
+                                                                                         Navigator: cpuClass, deviceMemory, hardwareConcurrency, languages,
+                                                                                         osCpu, platform, vendor
+A.4      Synthetic Fingerprint Attribute Importance                                      WebGL: renderer, vendor, UNMASKED_VENDOR, UNMASKED_RENDERER,
+                                                                                         SHADING_LANGUAGE_VERSION, VERSION
+Table 5 shows the attributes, within cohorts of size two (i.e., pairs of                 Other: Timezone, getBoundingClientRect (font preferences, emoji,
+fingerprints that have the same Fingerprint Pro visitor ID), that were                   mathML), math library, plugins, winding canvas test
+most frequently allowed to differ. The second and third columns                          Other (hashed): WebGL - context attributes, extension parameters,
+                                                                                         list of extensions, context parameters, shaderPrecisions, 2 canvas
+show the percentage of cohorts that had the listed attribute be                          readouts via toDataURL (geometry and text)
+different between the two fingerprints. Note that we de-duplicated
+highly-correlated browser attributes (e.g., navigator.fullVersionList
+                                                                                         Figure 3: Browser attributes exfiltrated by Akamai, Human
+and the uaFullVersion HTTP header) when ranking the top at-
+                                                                                         Security, Sift Science, and Fingerprint Pro’s fingerprinting
+tributes shown in the table.
+                                                                                         scripts. Hashed attributes are shown in bold.
+   Table 6, on the other hand, shows the frequency a particular
+attribute within a cohort remained the same between the two fin-
+gerprints. Note that we removed any attributes with inherently
+Understanding Server-side Commercial Fingerprinting                                         WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates
+
+
+                                                                       https://hexagon-analytics.com/images/611934.gif?bk=a11f14f85d&tm=482
+                                       % Different      % Different    &r=665773604&v=117&cs=UTF-8&h=www.netfirms.com&l=en-US
+      Attribute
+                                        (MacOS)         (Windows)      &S=b3cd4c0052a2a303e9dbe9f25bca1eae
+                                                                       &uu=53a51bc7ebf4d9e2c360463ccae522a
+      screen.outerHeight                       94.9%          89.1%    &t=Web%20Hosting%2C%20Domain%20Name%20Registration%20-%20Netfirms.com
+                                                                       &u=https%3A%2F%2Fwww.netfirms.com%2F
+      screen.availHeight                       91.5%          83.6%    &ua=Mozilla%2F5.0%20(Macintosh%3B%20Intel%20Mac%20OS%20X%2010.
+      navigator.fullVersionList                66.1%          85.4%    &15%3B%20rv%3A143.0)%20Gecko%2F20100101%20Firefox%2F143.0&nm=2
+      navigator.userAgent                      54.2%          61.8%    &mh=63196a00446a1e285d1992cfe444aa55&np=5
+                                                                       &ph=332b72bdb211e34e6e3c24f88d7c393b&sh=2160&sw=3840&cd=30
+      screen.outerWidth                        52.5%          40.0%    &p=MacIntel&to=420&d=60&ce=true&dt=unspecified&tp=0&ol=true&pr=Gecko
+      window.screenX                           50.8%          40.0%    &ps=20100101&vd=&hc=8&je=false&ss=true&ls=true&in=true&db=false
+      screen.availTop                          50.8%          32.7%    &tl=false&tr=false&ts=false&tb=false&ab=false
+                                                                       &cf=0fa4422fc15b4c487c20e4dc995fb4b7&sri=0
+      navigator.appVersion                     42.4%          61.8%    &fph=c0f48806e2dc75d6fcbd91de7957bb6f&fsh=2160&fsw=3840&fcd=30
+                                                                       &fp=MacIntel&ftp=0&fhc=8&fss=true&fls=true&fin=true
+Table 5: Least important browser attributes for server-side            &fvch=cdfc4f51de661accf9596408fcc8c962&fad=35.74996626004577&fvf=
+                                                                       &fcg=srgb&ffc=false&fm=0&fc=0&frm=false&fhdr=false
+re-identification.                                                     &fmf=1b4539be02333d14ce0a07c372e6a7d4&fa=127&fte=false&fts=false
+                                                                       &fce=true&fpdf=true&fl=1f9d440c44318bf9820279f7e146ddf1
+                                                                       &ft=America/Los_Angeles&pf=348&pfe=282&z=z
+                                               % Same      % Same
+   Attribute
+                                              (MacOS)     (Windows)    Figure 4: Complete Sift Science GET request example.
+   screen.colorDepth                           100%          100%      Browser attributes are query parameters.
+   navigator.hardwareConcurrency               100%          100%      { "ap": true, "bt": {"charging": true, "chargingTime": 0,
+   screen.pixelDepth                           100%          100%      "dischargingTime": "Infinity", "level": 1, "onchargingchange": null,
+   navigator.deviceMemory                      100%          94.5%     "onchargingtimechange": null, "ondischargingtimechange": null,
+                                                                       "onlevelchange": null}, "fonts": null, "fh": null, "timing": {"1":
+   navigator.maxTouchPoints                    100%*         100%      13, "2": 333, "3": 495, "4": 606, "profile": {"bp": 1, "sr": 0, "dp":
+   screen.height                               98.3%         89.1%     0, "lt": 0, "ps": 0, "cv": 8, "fp": 0, "sp": 0, "br": 0, "ieps": 0,
+   WebGL renderer                              99.6%         85.5%     "av": 0, "z1": 3, "jsv": 0, "nav": 0, "nap": 1, "crc": 0, "z2": 1,
+                                                                       "z3": 0, "z4": 0}, "main": 606, "compute": 13, "send": 606}, "bp":
+   screen.width                                99.6%         89.1%     [2087755996,1953464915,591862434,325835597,1068473606,-1382186647,
+   screen.availWidth                           93.2%         87.2%     -365096851,-1979186206,-108039040,-1906852049], "sr": {"inner":
+                                                                       [1002,1560], "outer": [1864,1647], "screen": [2743,-707],
+                                                                       "pageOffset": [0,0], "avail": [3840,2061], "size": [3840,2160],
+Table 6: Most important browser attributes for server-side             "client": [987,1560], "colorDepth": 24, "pixelDepth": 24}, "dp":
+re-identification. *all MacOS fingerprints have a maxTouch-            {"XDomainRequest": 0, "createPopup": 0, "removeEventListener": 1,
+Points value of 0.                                                     "globalStorage": 0, "openDatabase": 0, "indexedDB": 1, "attachEvent":
+                                                                       0, "ActiveXObject": 0, "dispatchEvent": 1, "addBehavior": 0,
+                                                                       "addEventListener": 1, "detachEvent": 0, "fireEvent": 0,
+                                                                       "MutationObserver": 1, "HTMLMenuItemElement": 0, "Int8Array": 1,
+low diversity within a given OS-browser combination (e.g., Naviga-     "postMessage": 1, "querySelector": 1, "getElementsByClassName": 1,
+tor.platform, Navigator.vendor), which would be consistent within      "images": 1, "compatMode": "CSS1Compat", "documentMode": 0, "all": 1,
+                                                                       "now": 1, "contextMenu": 0}, "lt": "1759362090135-7", "ps":
+all browser fingerprints originating from the same browser-OS          [true,true], "cv": "bb9c1d61427c768256965296a9ad5b500142acdd", "fp":
+combination. We also removed screen.hasHDR, for which Apify            false, "sp": false, "br": "Chrome", "ieps": false, "av": false, "z":
+generated a very skewed distribution. Furthermore, for all MacOS       {"a":1471783815,"b":1,"c":1}, "zh": "", "jsv": 1.5, "nav":
+                                                                       {"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
+fingerprint, the value of maxTouchPoints was 0.                        AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0
+                                                                       Safari/537.36", "appName": "Netscape", "appCodeName": "Mozilla",
+A.5     Example Fingerprinting Payloads                                "appVersion": "5.0 (Macintosh; Intel Mac OS X 10_15_7)
+                                                                       AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0
+Figure 4 shows an example of the Sift Science fingerprinting pay-      Safari/537.36", "appMinorVersion": 0, "product": "Gecko",
+load, which is formatted as query parameters for a GET request. Fig-   "productSub": "20030107", "vendor": "Google Inc.", "vendorSub": "",
+                                                                       "buildID": 0, "platform": "MacIntel", "oscpu": 0,
+ures 5, 6, and 7 show example fingerprinting payloads for Akamai,      "hardwareConcurrency": 8, "language": "en-US", "languages":
+Human Security, and Fingerprint Pro’s server-side fingerprinting       ["en-US"], "systemLanguage": 0, "userLanguage": 0, "doNotTrack":
+                                                                       null, "msDoNotTrack": 0, "cookieEnabled": true, "geolocation": 1,
+services, respectively, which are formatted as JSON and transmitted    "vibrate": 1, "maxTouchPoints": 0, "webdriver": false, "plugins":
+in the body of a POST request. We found that key names in the          ["PDF Viewer","Chrome PDF Viewer","Chromium PDF Viewer","Microsoft
+payload can be encypted (e.g., in the case of Human Security). It      Edge PDF Viewer","WebKit built-in PDF"]},
+                                                                       "crc": {"window.chrome": {"app": {"isInstalled": false, "InstallState":
+was also common for some values in the payload to be hashed prior      {"DISABLED":"disabled","INSTALLED":"installed","NOT_INSTALLED":"not_installed"},
+to transmission (likely to help reduce the size of the overall pay-    "RunningState": {"CANNOT_RUN":"cannot_run","READY_TO_RUN":
+load when transmitting larger fingerprinting values). For example,     "ready_to_run","RUNNING":"running"}}}}, "t":
+                                                                       "f767c7b0c44ec0cb415549744211e1f603c1c93b", "u":
+canvas readouts are hashed prior to including in the fingerprinting    "e8b53f6a0efc5fe0b065d1e0ea1669fc", "nap": 11311144241322244122 }
+payload for all of the services we analyzed (e.g., the “cv” variable
+in Akamai and “KnZfcG8aXUA=” variable in Human Security).              Figure 5: Complete Akamai fingerprinting payload. Most
+                                                                       keys are in plaintext, but a few values are hashed.
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates                                       Elisa Luo, Tom Ritter, Stefan Savage, and Geoffrey M. Voelker
+
+
+{ "X0MqRRovL3c=": "df7f17b38f494b11f513ba43327e6549", "JV0QW2M3F2s=":       "applePay": "value": -1 , "architecture": "value": 127 , "audio":
+"c3f34134fb8affb871fdd2b1ace3d9ef", "VQ0gCxBmKzs=": "Mozilla",              "value": 124.04344968475198 , "canvas": "value": "Geometry":
+"WiZvIBxKaxU=": "Apple M1, or similar", "Ui5nKBdHZhg=": "WebGL 1.0",        "7429b0f34ddd497d54a0e288ffe9c2d2", "Text":
+"MVEEV3c9BWM=":                                                             "b009fbf19d12e63525377d80cf9a6325", "Winding": true , "colorDepth":
+                                                                            "value": 30 , "colorGamut": "value": "p3" , "contrast": "value": 0 ,
+["ANGLE_instanced_arrays","EXT_blend_minmax","...","WEBGL_provoking_vertex"],
+"JDxROmFUVwE=": ["[1, 1]","[1, 64]",8,"yes",...,"127","127"],               "cookiesEnabled": "value": true , "cpuClass": , "deviceMemory":
+"AEA1BkUqMjY=": "Apple", "KnZfcGwbWEc=": "Apple M1, or similar",            "value": 8 , "domBlockers": , "emoji": "value": "bottom": 28,
+"Czd+cU1bf0c=": "WebGL GLSL ES 1.0", "WiZvIB9KbRE=":                        "font": "Times", "height": 18.5, "left": 8, "right": 1288, "top":
+"53d75b5cda61e918133a90a59b8a2190", "KnZfcG8aXUA=":                         9.5, "width": 1280, "x": 8, "y": 9.5 , "fontPreferences": "value":
+"11b03d038d25a4ad2a9cfe11e1b7d21d", "KnZfcGwWX0U=":                         "apple": 147.5625, "default": 147.5625, "min": 9.234375, "mono":
+"f2731af47f3354a7953745886a766d45", "cRFEFzR9QSc=":                         133.0625, "sans": 144.015625, "serif": 147.5625, "system": 146.09375
+"3a909b17763864b522b947cf7e30df2c", "JxsSHWF2Fyg=":                         , "fonts": "value": [ "Arial Unicode MS", "Gill Sans", "Helvetica
+"35.7501022554934", "DzN6dUpbeE4=":                                         Neue", "Menlo" ] , "forcedColors": "value": false ,
+"451a844752c9e884ffcaa777b36bbe3b", "M28GKXYFAR8=":                         "hardwareConcurrency": "value": 8 , "hdr": "value": true ,
+"f6a14091ddee99c99c4cdf9bba4e77ad", "Ix8WGWZwFik=":                         "indexedDB": "value": true , "invertedColors": , "languages":
+"016beb17dd57a6e446b36265284c0c9c", "STk8fwxRPU0=":                         "value": [ [ "en-US" ] ] , "localStorage": "value": true , "math":
+["_bcq","_sessionAIBcq","__next_require__","...","_ptf"],                   "value": "5963cfe25fe61d0bbd7b4920bc602dc8" , "mathML": "value":
+"HwNqBVppbTY=": ["_reactListeningjwtn480a3rp"], "OAhNTn1kTXk=":             "bottom": 29, "font": "Times", "height": 18.5, "left": 8, "right":
+"79125fd8dde9fab801a88be527e9c246", "NAxBSnFgQX4=":                         303.140625, "top": 10.5, "width": 295.140625, "x": 8, "y": 10.5 ,
+"33c1c920dd913a549ad3e5ac3745f147", "b1NaVSkzXG8=": 1,                      "monochrome": "value": 0 , "openDatabase": "value": false ,
+"dgoDTDBqCXg=": true, "FU1gS1Ama3A=": true, "STk8fwxTPUw=": false,          "osCpu": , "pdfViewerEnabled": "value": true , "platform": "value":
+"JDxROmJWUg4=": false, "LxMaFWl+HC8=": true, "NAxBSnFkSn4=":                "MacIntel" , "plugins": "value": [ "description": "Portable
+"missing", "cg4HSDdjB30=":                                                  Document Format", "mimeTypes": [ "suffixes": "pdf", "type":
+["_bcq","_sessionAIBcq","_pxAppId","...","_pxInit"], "b1NaVSkyXGU=":        "application/pdf" , "suffixes": "pdf", "type": "text/pdf" ],
+["_reactListeningjwtn480a3rp"], "HCQpIllJKBk=": ["PDF                       "name": "PDF Viewer" , "description": "Portable Document Format",
+Viewer::Portable Document Format::application/pdf pdf::text/pdf pdf",       "mimeTypes": [ "suffixes": "pdf", "type": "application/pdf" ,
+"..."], "Az92eUVffUg=": "1759274412195", "JV0QW2A2EGE=":                    "suffixes": "pdf", "type": "text/pdf" ], "name": "Chrome PDF Viewer"
+"yr@https://client.px-cloud.net/PXu6b0qd2S/main.min.js:2:20681...",         , "description": "Portable Document Format", "mimeTypes": [
+"U08mSRYkLHM=": true, "Em4naFcDIVw=": 37, "XiJrJBtJahA=":                   "suffixes": "pdf", "type": "application/pdf" , "suffixes": "pdf",
+"fd7149bbfb316699ef918fa7bb7510a8", "fWVIIzsPShg=":                         "type": "text/pdf" ], "name": "Chromium PDF Viewer" ,
+"d41d8cd98f00b204e9800998ecf8427e", "cg4HSDRiAHs=":                         "description": "Portable Document Format", "mimeTypes": [
+"fd7149bbfb316699ef918fa7bb7510a8", "Ix8WGWZzHC0=": 3, "ifv": 3,            "suffixes": "pdf", "type": "application/pdf" , "suffixes": "pdf",
+"ift": "1759274412195", "Em4naFQPIVk=": 3840, "S3c+MQ0ZNAI=": 2160,         "type": "text/pdf" ], "name": "Microsoft Edge PDF Viewer" ,
+"MDBFNnVYRQU=": 3840, "MVEEV3Q7DmI=": "3840X2160", "Ew9mCVVlbDs=":          "description": "Portable Document Format", "mimeTypes": [
+30, "SBh9Xg1xf28=": 30, "Z1tSXSIzUmc=": 2061, "BztyfUFadEY=":               "suffixes": "pdf", "type": "application/pdf" , "suffixes": "pdf",
+"6ca82c5b", "Ix8WGWVzHCg=": "en-US", "a1deUS46WWs=": "MacIntel",            "type": "text/pdf" ], "name": "WebKit built-in PDF" ] ,
+"EXFkN1cfYwE=": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15;              "privateClickMeasurement": , "reducedMotion": "value": false ,
+rv:143.0) Gecko/20100101 Firefox/143.0", "WQksDx9mJjw=":                    "screenFrame": "value": [ 40, 0, 70, 0 ] , "screenResolution":
+["en-US","en"], "RT0wewBUMU4=": true, "P2MKJXkMABI=": 8,                    "value": [ 982, 1512 ] , "sessionStorage": "value": true ,
+"NS0Aa3NHC1k=": 420, "In5XeGQRUkI=": false, "cg4HSDRvAXo=": "Timezone       "timezone": "value": "Timezone Value Redacted" , "touchSupport":
+Information Redacted", "JnpTfGAWVU4=": true, "YGAVZiYMFF0=":                "value": "maxTouchPoints": 0, "touchEvent": false, "touchStart":
+"cef339a3", "Q382OQUSMQk=": "14978cc", "eEgNDj0kDTs=":                      false , "vendor": "value": "Google Inc." , "vendorFlavors":
+"d4acbe702b2ce9d7b185cbf0062c8dea", "NS0Aa3BACl8=": null,                   "value": [ "chrome" ] , "webGlBasics": "value": "renderer": "WebKit
+"YQFUByRrUDc=": "9f4ad436c590825b763613cc0227fb6e" }                        WebGL", "rendererUnmasked": "ANGLE (Apple, ANGLE Metal Renderer:
+                                                                            Apple M1 Pro, Unspecified Version)", "shadingLanguageVersion": "WebGL
+                                                                            GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)", "vendor": "WebKit",
+Figure 6: Complete Human Security fingerprinting payload.                   "vendorUnmasked": "Google Inc. (Apple)", "version": "WebGL 1.0
+Key names are encrypted (decoding the Base64 yields non-                    (OpenGL ES 2.0 Chromium)" , "webGlExtensions": "value":
+sensical results).                                                          "contextAttributes": "6b1ed336830d2bc96442a9d76373252a",
+                                                                            "extensionParameters": "86a8abb36f0cb30b5946dec0c761d042",
+                                                                            "extensions": "57233d7b10f89fcd1ff95e3837ccd72d", "parameters":
+                                                                            "7bd4d913de3e22461894a997d864dcb8", "shaderPrecisions":
+                                                                            "f223dfbcd580cf142da156d93790eb83"
+
+                                                                           Figure 7: Complete Fingerprint Pro fingerprinting payload.
+                                                                           Their script encrypts the payload on the client side before
+                                                                           transmitting it to their endpoint.
+

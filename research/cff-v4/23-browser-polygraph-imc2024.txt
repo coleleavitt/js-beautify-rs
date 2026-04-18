@@ -1,0 +1,1356 @@
+ Browser Polygraph: Efficient Deployment of Coarse-Grained
+Browser Fingerprints for Web-Scale Detection of Fraud Browsers
+                  Faezeh Kalantari                                              Mehrnoosh Zaeifi                                   Yeganeh Safaei
+              faezeh.kalantari@asu.edu                                            mzaeifi@asu.edu                                 ysafaeis@asu.edu
+               Arizona State University                                       Arizona State University                         Arizona State University
+                   Tempe, AZ, USA                                                 Tempe, AZ, USA                                   Tempe, AZ, USA
+
+                   Marzieh Bitaab                                                      Adam Oest                                Gianluca Stringhini
+                 mbitaab@asu.edu                                              contact@adamoest.com                                   gian@bu.edu
+              Arizona State University                                               Amazon                                        Boston University
+                  Tempe, AZ, USA                                                 Tempe, AZ, USA                                    Boston, MA, USA
+
+                                               Yan Shoshitaishvili                                         Adam Doupé
+                                                   yans@asu.edu                                           doupe@asu.edu
+                                              Arizona State University                                Arizona State University
+                                                  Tempe, AZ, USA                                          Tempe, AZ, USA
+
+Abstract                                                                                        ACM Reference Format:
+In this paper, we address the prevalent issue of account takeover                               Faezeh Kalantari, Mehrnoosh Zaeifi, Yeganeh Safaei, Marzieh Bitaab, Adam
+                                                                                                Oest, Gianluca Stringhini, Yan Shoshitaishvili, and Adam Doupé. 2024.
+(ATO) fraud, which significantly impacts businesses through stolen
+                                                                                                Browser Polygraph: Efficient Deployment of Coarse-Grained Browser
+user information. Websites have adopted risk-based authentica-                                  Fingerprints for Web-Scale Detection of Fraud Browsers. In Proceedings of
+tion, incorporating browser fingerprinting techniques to counteract                             the 2024 ACM Internet Measurement Conference (IMC ’24), November 4–6,
+this threat. However, attackers have adapted by using anti-detect                               2024, Madrid, Spain. ACM, New York, NY, USA, 23 pages. https://doi.org/10.
+browsers, referred to as fraud browsers, to spoof user information                              1145/3646547.3688455
+effectively. While traditional fingerprinting methods are capable of
+identifying fraud browsers, they encounter scalability and perfor-
+mance challenges in risk-based systems. To address these issues,
+                                                                                                1    Introduction
+we developed Browser Polygraph, an ML-based tool that applies                                   The war between fraudsters and website operators has been ever-
+coarse-grained privacy-preserving fingerprints to assess browser                                present since the first login form was conceived. Fraudsters use any
+authenticity and assigns risk factors to suspicious sessions. Coarse-                           means necessary to steal cookies or login information from victims,
+grained fingerprints, by design, cannot be used for user tracking but                           and then use that stolen information to authenticate to the website
+only for fraud detection purposes. Deployed at a major financial                                as the victim [38, 62, 68]. Such attacks are called account takeover
+company, Browser Polygraph has flagged suspicious sessions,                                     fraud or ATO [34]. ATOs cause significant financial damage—the
+enabling more targeted identification of potential fraud, thus en-                              FBI reports that victims reported 2.7 billion USD in losses due to
+hancing the company’s ability to tackle ATO attempts.                                           Business Email Compromise (which is a fraud that is just a subset
+                                                                                                of ATO) in the year 2022 alone [16].
+                                                                                                    One way that website operators have attempted to protect users
+CCS Concepts
+                                                                                                is through risk-based authentication—analyzing available informa-
+• Security and privacy → Browser security.                                                      tion about the login attempt to assess the risk of it being an in-
+                                                                                                progress ATO attempt. One such technique is the matching of the
+Keywords                                                                                        user’s current browser against prior browsers used by that account.
+Coarse-grained browser fingerprinting, Fraud browsers, Fraud de-                                Freeman et al. [17] used the user-agent to identify the browser,
+tection                                                                                         and follow-up work has leveraged the burgeoning field of browser
+                                                                                                fingerprinting (originally identified as a privacy threat to users, but,
+                                                                                                in this case, utilized “for good”) [9, 13, 26, 45].
+                                                                                                    However, recent work shows that attackers can easily steal and
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed           replay browser fingerprints [29, 31]. In fact, criminals have turned
+for profit or commercial advantage and that copies bear this notice and the full citation       this into a type of cybercrime-as-a-service [10]: When account
+on the first page. Copyrights for components of this work owned by others than the              information is stolen, the attacker also collects a browser profile.
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission   Underground marketplaces such as the Genesis Market (through
+and/or a fee. Request permissions from permissions@acm.org.                                     which over 80 million stolen profiles for various services of over
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                      2 million potentials were traded before the site was shut down
+© 2024 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-0592-2/24/11                                                                by the FBI in 2023 [41]) facilitate the sale of these profiles on a
+https://doi.org/10.1145/3646547.3688455                                                         massive scale. After acquiring stolen profiles, fraudsters load them
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                                    Faezeh Kalantari et al.
+
+
+into specially-customizable web browser variants, so-called “anti-                        due to new browser versions). We experimentally show that re-
+detect browsers” ostensibly created for privacy purposes, to bypass                       training was needed approximately after three months. This dura-
+risk-based authentication and commit ATO fraud. In this paper,                            tion may vary depending on the specific features of new browser
+we refer to these browsers as fraud browsers. Notably, financial                          releases, but it can be automatically triggered by Browser Poly-
+institutions are one of the most impacted sectors, facing numerous                        graph’s drift detection module, increasing the resiliency of our
+cases of fraud perpetrated through fraud browsers [3].                                    approach in the cat-and-mouse game between attackers and defend-
+    Fine-grained browser fingerprinting offers a solution to detect-                      ers. Furthermore, in a separate evaluation, we assessed Browser
+ing fraud browsers through its user tracking techniques. These                            Polygraph’s efficacy in detecting a subset of fraudulent browser
+techniques generate detailed fingerprints using advanced browser                          fingerprints generated by fraud browsers, demonstrating its poten-
+fingerprinting techniques such as WebGL [11, 35], canvas [1, 15]                          tial in identifying these threats. In essence, Browser Polygraph is
+and even CPU timing [43], which can then be compared with pre-                            a preliminary prototype that represents a significant step forward
+viously established user fingerprints to identify potential fraud.                        in the automatic generation of coarse-grained browser fingerprints
+Nevertheless, through our consultation with a leading financial                           and their deployment in risk-based authentication systems. Our ap-
+institution, herein referred to as FinOrg 1 , we found that existing                      proach can be further enhanced by future advances in fine-grained
+fine-grained fingerprinting methods face deployment challenges                            browser fingerprinting, ensuring continued efficacy in the face of
+at FinOrg due to stringent constraints on fingerprint extraction                          evasion by cyber criminals.
+time and data size. Current practices for thwarting fraud browsers
+predominantly rely on manual effort (studied by Azad et al. [7]) and                      In summary, the contributions of this paper are as follows:
+may become obsolete with the release of new browser software.
+    Addressing these issues, our paper presents a prototype for the                             • We propose a new privacy-preserving idea of detecting lying
+analysis of efficient coarse-grained fingerprints within large-scale                              browsers while maintaining the performance characteris-
+Web traffic, aimed at fraud browsers detection. By coarse-grained                                 tics necessary for real-world deployment at FinOrg using
+browser fingerprints, we refer to a simplified and less detailed set                              efficient coarse-grained fingerprints.
+of browser fingerprinting features designed specifically for fraud                              • We leverage this idea into a clustering model, called Browser
+detection, optimized to meet resource and performance constraints                                 Polygraph, that outputs risk factor of suspicious user
+(as defined by FinOrg). These fingerprints, in our paper, target                                  sessions, which can be used as part of risk-based authentica-
+discrepancies in the implementation of JavaScript APIs across dif-                                tion.
+ferent browsers. This novel, data-driven, and privacy-preserving                                • We deployed Browser Polygraph at a major financial com-
+strategy focuses on training a machine learning model via mini-                                   pany FinOrg, where we demonstrated its effectiveness at
+mal coarse-grained features from FinOrg users. Our method aims                                    detecting real-world fraud.
+to rigorously validate the authenticity of a browser session’s re-                              • We demonstrated Browser Polygraph’s effectiveness (in an
+ported user-agent string, which fraudsters typically manipulate                                   independent evaluation) in detecting a subset of fraudulent
+to match their target’s user-agent. We extend existing research in                                browser fingerprints created by fraud browsers.
+coarse-grained fingerprinting [6, 65], which are typically used to
+infringe user privacy, and instead apply our extended techniques
+to large-scale Web data, with a particular focus on privacy, coarse                       2     Background
+granularity, efficacy, and continuous detection adaptability.                             This paper builds on past research in browser fingerprinting, repur-
+    In our prototype, we create a clustering model, called Browser                        posing it to detect fraud browsers. In this section, we discuss related
+Polygraph, that operates on privacy-preserving and coarse-grained                         work in both areas and present the results of our investigation on
+fingerprints and determines a risk factor score that represents di-                       the behaviors of fraud browsers.
+vergences between the actual identity of the observed browser and
+its identity as claimed by its user-agent. Browser Polygraph
+is tailored to meet the performance demands of large, real-world,                         2.1     Browser Fingerprinting
+financial companies, focusing on efficient and effective browser fin-                     Browser fingerprinting research extensively probes the attributes
+gerprinting without delving into expensive, fine-grained analysis.                        and features of browsers that can divulge details about a user’s
+    We deployed Browser Polygraph in production at FinOrg for                             underlying system—both software and hardware. These attributes
+4.5 months, observing over 205,000 user sessions. Of these, Browser                       and features can be used to uniquely identify the user’s browser.
+Polygraph identified 897 suspicious sessions, 2% of which were                            JavaScript accessible attributes such as the user-agent [14], geolo-
+used in an ATO attack within 72 hours (compared an ATO preva-                             cation, timezone, screen resolution [8], and available fonts [2, 14, 15]
+lence of 0.43% across all sessions). Of the sessions that Browser                         have been classic sources of fingerprintable data. Recent advance-
+Polygraph identified as highly risky, 5.83% were used in an ATO                           ments have added depth to this field by exploring more intricate pa-
+within 72 hours.                                                                          rameters; for instance, APIs such as Canvas [1, 15], WebGL [11, 35],
+    We designed Browser Polygraph with concept drift in mind,                             and WebRTC [15] have been explored. Beyond these, even nuanced
+and built in mechanisms to detect when retraining is needed (e.g.,                        elements such as AudioContext [15], CSS properties [47], specific
+                                                                                          JavaScript objects such as navigator and screen [36], Crypto
+1 FinOrg is a major financial company that provides financial services through internet   API [43], the list of extensions and plugins [27, 28, 46, 63], and
+platforms.                                                                                HTTP headers [27] serve as potential fingerprinting vectors.
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+2.2     Fraud Browsers                                                                Table 1: Fraud browsers categorized based on definitions in
+                                                                                      Section 2.3. Release dates with a preceding ~ are approxima-
+Privacy concerns have given rise to specialized browsers, commonly
+                                                                                      tions based on related version release dates or the date of
+referred to as anti-detect browsers, designed to obscure user identity.
+                                                                                      experimentation (Rel. = Release).
+These browsers allow a user to distort or hide a browser’s iden-
+tifying information, such as IP addresses, user-agents, JavaScript
+attributes, etc. However, these browsers are being actively misused                             Browser               Rel. Date       Category      New Rel.?
+by criminals—not for privacy reasons, but for conducting fraudulent                        Linken Sphere-8.93        April 2022            1             ✗
+activities. Therefore, we use the term fraud browsers in this paper                        ClonBrowser-4.6.6         ~May 2023             1             ✓
+to describe these browsers. Fraud browsers allow criminals to load
+                                                                                           Incogniton-3.2.7.7        ~May 2023             2             ✓
+profiles of the victim, typically stolen by phishing kits [62], and then                     Gologin-3.2.19           May 2023             2             ✓
+later sold on online marketplaces [10]. Some marketplaces even                             CheBrowser-0.3.38         ~May 2023             2             ✓
+have their own fraud browsers, such as the now-defunct Genesis                              VMLogin-1.3.8.5          April 2023            2             ✓
+Market.                                                                                    Octo Browser-1.10       September 2023          2             ✓
+   Since addressing the challenges presented by fraud browsers                                 Sphere-1.3          November 2023           2             ✗
+is a vital element of our research, we examined several notable                               AntBrowser              May 2023             2             ✗
+fraud browsers employed today. This examination revealed a com-                            AdsPower-4.12.27        December 2022           3             ✓
+monality in their adeptness at customizing, randomizing, or con-                           AdsPower-5.4.20           April 2023            3             ✓
+cealing typical fingerprinting attributes, such as Timezone, Lan-
+guage, Screen Resolution, WebRTC, WebGL, Canvas, Audio Context,
+Geo Location, etc. Specifically, we analyzed browsers like, Clon-
+Browser [53], AntBrowser [50], Incogniton [56], GoLogin [55], Octo
+                                                                                        Category 3: Browsers that adopt the browser’s JavaScript engine
+Browser [57] Linken Sphere [61], Sphere [58], VMLogin [59] CheB
+                                                                                        and its browser fingerprint with each user-agent selection.
+rowser [51], and AdsPower [48], noting usage of some of those in
+                                                                                        Category 4: Legitimate browsers (with same user-agent and
+real-world fraud.
+                                                                                        fingerprint) used in spoofed environments to load stolen informa-
+   The uniqueness of each fraud browser lies in its functionality.
+                                                                                        tion.
+For instance, Linken Sphere offers extensive customization, includ-
+ing browser or OS choice, fingerprint profiles, and cookie import                        Table 1 details the investigated fraud browsers and their catego-
+capabilities. While offering fewer browser and OS customization                       rization. Category (1) and (2) browsers are prevalent and exhibit
+options, Che Browser provides a unique service that allows users to                   detectable inconsistencies, making them susceptible to identifica-
+purchase profiles for various Chrome versions. Incogniton and Octo                    tion through coarse-grained browser fingerprints. Category (3)
+Browser, both Chrome-based, support user profiles and cookie im-                      and (4) browsers (likely employed by more resourceful attackers),
+ports. GoLogin provides a wide range of operating system options                      however, aim to approximate recreating a user’s entire browser
+and the capability to manage from 100 to thousands of user profiles.                  environment (and a genuine fingerprint), requiring sophisticated
+Our focus diverged from these software’s extensive capabilities                       fraud detection techniques. As noted by Azad et al. [7], these pre-
+towards a more targeted approach. We concentrated on uncover-                         cise spoofs often result in configurations that are challenging to
+ing inconsistencies within the simplest and most direct JavaScript                    distinguish from legitimate usage. Therefore, Browser Polygraph
+attributes rather than comparing their sophisticated spoofing or                      focuses on detecting Categories (1) and (2) browsers using coarse-
+randomization techniques (details in Section 6).                                      grained fingerprinting, given its resource efficiency and practicality
+                                                                                      for our Web-scale browser authentication goals that we will explain
+                                                                                      in the next section.
+2.3     Fraud Browsers’ Behavior
+We further delved into the behavior of fraud browsers to under-
+stand how they operate so that we could create strategies to detect                   3     Web-Scale Fingerprinting Requirements
+them. We installed several fraud browsers (noted in Table 1) on a                     We collaborated with FinOrg to understand their performance re-
+Windows machine and analyzed how their browser fingerprints                           quirements based on the technical requirements of a real-world risk
+change with altering the user-agent. This led to the categorization                   system deployed in a significant-traffic web application. This led to
+of these browsers into three primary strategies, with a fourth cate-                  two core requirements: (1) fast response time, operating within 100
+gory identified for fraudulent use of legitimate browsers in spoofed                  milliseconds, and (2) data extracted per-user should be minimal,
+environments:                                                                         under the threshold of one kilobyte.
+                                                                                         Therefore, with these thresholds in mind, we evaluated the per-
+ Category 1: Browsers such as Linken Sphere and ClonBrowser                           formance overhead of the state-of-the-art fingerprinting techniques
+ which exhibit browser fingerprints that do not match any legiti-                     mentioned in Section 2.1. Specifically, we evaluated the performance
+ mate browser’s fingerprint.                                                          overhead of three prominent fine-grained fingerprining tools: Fin-
+ Category 2: Browsers in this category maintain a browser fin-                        gerprintJS [54], AmIUnique [49], and ClientJS [52]. FingerprintJS
+ gerprint that matches a legitimate browser fingerprint, but the                      and ClientJS were chosen due to their significant market share (as
+ fingerprint does not change when modifying the user-agent                            reported by Wappalyzer [60]) in browser fingerprinting. AmIU-
+ string.                                                                              nique is an academic contribution from Laperdrix et al. [27].
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                 Faezeh Kalantari et al.
+
+
+   Our analysis specifically focused on evaluating these tools’ re-     Table 2: Comparison of time and storage requirements for
+sponse times and data processing overhead. We calculated the av-        fine-grained fingerprinting tools and our proposed Web-scale
+erage service time over five visits for each tool to assess response    data-driven fraud detection solution.
+times accurately. In refining our analysis of storage needs for fraud
+detection, we shifted focus from the size of hashed data to the un-                   Tool             Avg. service-time   Storage req.
+derlying data structure’s size, which is crucial for hashing. This
+                                                                                  AmIUnique                  ~1.5s             ~60KB
+distinction is vital as our interest lies not in the hash values but
+in verifying whether a browser’s specifics align with its claimed                FingerprintJS               51ms              ~23KB
+user-agent.                                                                         ClientJS                 37ms              ~10KB
+   For FingerprintJS, we utilized their online tool for direct per-          Browser Polygraph                6ms                1KB
+formance metrics. AmIUnique’s data was gathered via its browser
+extension. ClientJS required a different approach; as an npm li-
+brary, we embedded it into a basic Node.js application to produce
+an HTML page invoking the fingerprinting library. Before hashing,       The attacker’s objective is to execute an Account Takeover (ATO)
+we logged the necessary data to the console to evaluate its storage     attack using a fraud browser. This adversary has the capability to
+requirements.                                                           customize and alter the settings of a chosen fraudulent browser to
+   Table 2 demonstrates our evaluation results. While AmIUnique         mimic the victim’s fingerprint (the attributes of which have been
+offers extensive fingerprint data collection through its browser        discussed in Section 2.1). We assume that the attacker will, at a min-
+extension, its service time and storage needs do not satisfy the        imum, accurately set the most straightforward and critical attribute
+requirements. FingerprintJS and ClientJS, although fast, fail to meet   for browser fingerprint spoofing—the victim’s user-agent.
+the data storage requirement. These results are in line with expecta-      On the defense front, the primary aim of this paper is to introduce
+tions, as fine-grained fingerprinting, which is required for uniquely   a continuous, low-overhead, fingerprinting-based fraud detection
+identifying a specific user’s browser, inherently requires extracting   mechanism that detects such ATO attacks. This defense mechanism
+a significant amount of data.                                           is distinct from risk-based authentication schemes that validate
+   Given the performance overhead of current fingerprinting tech-       a user’s fingerprint upon logins [6, 29] or in response to access
+niques, particularly given the FinOrg requirements for high-traffic     requests to sensitive actions. Our approach focuses on persistently
+scenarios and real-time security requirements, we propose Browser       monitoring and restricting access of fraud browsing sessions to
+Polygraph. Browser Polygraph is guided by two principal crite-          the FinOrg’s infrastructure, thereby minimizing the attack surface
+ria:                                                                    available to malicious actors.
+
+    (1) Minimizing latency: Targeting efficiency, Browser Poly-
+                                                                        5   Overview
+        graph is optimized to operate within real-time security con-
+        straints.                                                       In this research, we introduce a prototype that combines efficient
+    (2) Minimizing data size: It is designed to function effectively    coarse-grained browser fingerprinting with machine learning to
+        under stringent data size limitations.                          identify suspicious browsing activity by detecting if a browser is ly-
+                                                                        ing about its user-agent. Notably, we are specifically not exploring
+   The comparison in Table 2 underscores our approach. We aim           new browser fingerprinting techniques. Instead, we focus on using
+for rapid response times akin to FingerprintJS and ClientJS while       established, yet effective, methods to detect user sessions showing
+significantly reducing the fingerprint data size. This balance makes    inconsistent behaviors between the claimed browser and the ac-
+Browser Polygraph an optimal solution for Web-scale fraud de-           tual browser. Our system is designed to seamlessly adjust to new
+tection, tailored for the stringent requirements of modern digital      browser updates, ensuring it remains effective against emerging
+security landscapes, addressing both efficiency and scalability (we     suspicious browser fingerprints.
+will explain the performance metrics of Browser Polygraph in               Our fingerprinting technique targets discrepancies in browsers’
+Section 7.5). It is important to note that the comparison in Table 2    implementation of the JavaScript APIs, taking inspiration from the
+highlights timing and memory overhead as the key factors in the         work of Akhavani et al. [4]. The evolving landscape of JavaScript
+initial stage of fingerprint-based fraud detection, where browser       APIs makes them a fertile ground for such fingerprinting efforts.
+data is collected. With respect to performance, fine-grained tech-         First, we generated JavaScript-based fingerprints by collecting
+niques are primarily designed for user tracking. However, not all of    fingerprints on many legitimate browser vendors and versions to
+the detailed information collected by these techniques is necessarily   identify those candidate JavaScript attributes that can be used for
+efficient for identifying lying browsers, which is the main focus of    fingerprinting. During this selection process, our focus was on at-
+the coarse-grained fingerprinting approach (Browser Polygraph)          tributes that could be extracted within the performance constraints
+proposed in this paper.                                                 outlined in Section 3 and that uphold privacy standards—namely,
+                                                                        these attributes should not enable user tracking but should be viable
+4    Threat Model                                                       for fraud detection purposes.
+In this paper, we consider an adversary equipped with a victim’s cre-      However, we needed to identify the discriminatory fingerprint-
+dentials (such as username, password, or cookies) and their browser     able features on real-world browsers, which we found are varied in
+fingerprint, which includes the user-agent and any other stolen         number and different configurations than we could manually test.
+browser information (which could be bought on the dark web [42]).       We deployed our candidate fingerprint collection script through our
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+
+
+        Candidate                                                                                              Training
+                                        Real-World                             Data                                                           Fraud Detection
+        Fingerprint                                                                                        Machine-Learning
+                                       Data Collection                    Pre-Processing                                                       at Web-Scale
+        Generation                                                                                              Model
+
+
+
+
+                                                                          Drift Detection
+
+
+
+
+Figure 1: Overview of Browser Polygraph offering fraud detection at Web-scale. Rectangles in green and white colors suggest
+online vs. offline tasks.
+
+
+collaboration with FinOrg. After gathering data for several months,                   6     Design
+we analyzed it, to identify the JavaScript-based fingerprints that                    Now, we delve deeper into the structural and functional aspects of
+were significant for detecting browser versions. The resulting set of                 our fraud detection system Browser Polygraph. Each of the five
+coarse-grained browser fingerprints then served as the foundation                     components, previously highlighted in Section 5, will be examined
+for our machine learning model. The model’s objective is straight-                    in detail to offer a comprehensive understanding of their design
+forward: to determine if the user-agent of a browser matches the                      and operation.
+expected features of a similar but legitimate browser.
+   Figure 1 shows a high-level design of our prototype, which in-
+cludes the following core components:
+                                                                                      6.1     Candidate Fingerprint Generation
+Candidate Fingerprint Generation. We ran multiple JavaScript                          The central objective of this component is the identification of can-
+      fingerprint extractions on legitimate browser versions/vendors                  didate JavaScript fingerprints that are suitable to be evaluated for
+      and identified candidate JavaScript attributes with consider-                   their usefulness in the subsequent step of Real-World Data Collec-
+      able output variances between browsers.                                         tion. These candidate fingerprints aim to discern variations in the
+Real-World Data Collection. We deployed a collection of the                           implementation of JavaScript APIs between legitimate browsers.
+      candidate fingerprintable JavaScript attributes on FinOrg,                      Our emphasis, unlike prior work, is not on pinpointing specific
+      and collected this data.                                                        browser versions/vendors but to achieve coarse-grained browser
+Data Pre-Processing. After processing the collected candidate                         fingerprinting. As our evaluation in Section 7 will show, this gran-
+      fingerprintable data, we analyzed it to identify key discrimi-                  ularity is sufficient to detect discrepancies that may emerge during
+      natory fingerprintable features, to reduce the ultimate size                    fraud detection.
+      of the collected data.                                                             While the quantity of candidate fingerprints advanced to the
+Training of Machine-Learning Model. After identifying the fea-                        subsequent phase is flexible, to collect data from FinOrg, they must
+      tures, we trained a clustering algorithm. Its primary function                  align with the timing and data storage requirements outlined in Sec-
+      is to group browsers together based on how they implement                       tion 3. Additionally, it was essential that the candidate fingerprints
+      the JavaScript APIs.                                                            be privacy-preserving and not enable user tracking. Therefore,
+Fraud Detection. With the clustering algorithm, Browser Poly-                         rather than using all possible candidate fingerprints, we ran auto-
+      graph identifies if the features of a browser (extracted using                  mated experiments on browser instances to identify distinguishing
+      the coarse-grained fingerprints) map to the same cluster as                     candidate fingerprints.
+      the browser’s user-agent. Non-matching is indicative of                            We tested browsers from Chrome-based and Firefox releases
+      fraud, and we further calculate semantic similarity between                     from mid-2017 to mid-2022. Notably, the testing environments
+      the claimed browser and the fingerprint-matching browser                        varied: while we often used BrowserStack, sometimes local in-
+      to assign a risk factor.                                                        stallations of browsers were used. Throughout this project, we
+Drift Detection. We can routinely assess the clustering algorithm’s                   only needed to perform the candidate fingerprint generation stage
+      ability to correctly assign clusters to new browser versions,                   once, in mid-2022. Following this, we collected fingerprints for new
+      initiating retraining as needed to maintain accuracy.                           browser releases as needed using BrowserStack. Overall, we gath-
+                                                                                      ered fingerprints from browser instances ranging from Chrome
+   Emphasizing user experience, our design minimizes operational                      59–119, Firefox 46–119 to Edge 17,18, and 80–119. In the follow-
+disruptions, conducting most processes offline while handling real-                   ing, we will explain the process of generating the list of candidate
+time Data Collection and Fraud Detection.                                             JavaScript fingerprints.
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                  Faezeh Kalantari et al.
+
+
+   To select the most suitable JavaScript candidate fingerprints, we      period, they provided us with periodic datasets, laying the ground-
+based the initial list on Akhavani et al.’s BrowserPrint [4], as it       work for our analysis. The data comprised integer outputs from
+discussed browser fingerprinting via JavaScript attributes. Browser-      the 513 JavaScript candidate fingerprints, the navigator.userA
+Print used the existence of a JavaScript attribute as a fingerprintable   gent string, and a fully anonymized SessionID, ensuring users’
+technique: the idea being that browsers introduce different features      privacy (as described in Section A). We used four and a half months
+at different times, and these can uniquely identify the browser ven-      of this data (comprising 205k rows) for training of our machine
+dor and version. However, we anticipate these features to become          learning model. In the following, we detail the process of refining
+less effective over time. Our insight is that, rather than storing the    the collected data and the methodology behind the training of our
+existence of every fingerprintable attribute, which requires not only     machine learning model.
+storage but also continuous updating, we abstract the shape of a
+specific fingerprintable JavaScript prototype by capturing only the
+number of properties of the JavaScript prototype. A set of these are
+our coarse-grained fingerprints.                                          6.3    Data Pre-Processing
+   To determine the JavaScript objects to include in our candidate        As we delved into the collected data, unexpected patterns surfaced,
+fingerprints, we prioritized the progression of JavaScript interfaces,    challenging our initial hypotheses established during the Candi-
+assembling a comprehensive list from MDN [33] documentation,              date Fingerprint Generation phase. A particular data sample from
+which comprised 1006 prototype names, and assessed them using             the first day of March revealed that 186 features exhibited a singu-
+Object.getOwnPropertyNames method to count the properties of              lar value across all samples. This was particularly notable among
+each prototype. With the properties count serving as our coarse-          time-based features, where 40% displayed unique values, suggest-
+grained fingerprints, we extracted all possible fingerprints from         ing their diminishing relevance in newer browser versions. Conse-
+all candidate browsers, sorted these fingerprints based on their          quently, after thoroughly reviewing the documentation and identi-
+standard deviation across all candidate browsers, and identified the      fying vendor-specific distinctions, we refined our feature selection,
+top 200 features from the sorted list (deviation-based features). The     focusing on 6 of time-based features that were more indicative of
+normalized standard deviation of the selected features ranges from        genuine browser behavior.
+0.0012 to 1.3853.                                                            From analyzing the deviation-based features, we noted a signifi-
+   As discussed earlier, BrowserPrint [4] utilizes the presence or        cant portion exhibited unique values (30%), leading to their exclu-
+absence of specific JavaScript properties as fingerprinting APIs,         sion from further analysis. However, the remaining data revealed
+identifying 313 such JavaScript features, which they refer to as          inconsistencies in some feature values among identical browser
+suspicious APIs. They analyzed these features for their unique            instances. Finding the root cause of these discrepancies is a dif-
+fingerprinting behavior across various browser versions. Because          ficult task: our only data is the coarse-grained fingerprint and a
+these properties tend to appear or disappear over time, we cate-          user-agent, where the user-agent does not match. This could be
+gorize them as time-based features. We chose to integrate these           a fraud instance, or a benign instance, and therefore we conducted
+features into our real-world data collection phase. However, since        an in-depth manual analysis of the wider breadth of legitimate
+BrowserPrint’s analysis covered browser versions up to 2020, and          browsers, particularly of Firefox and Chrome browsers and their
+our study focuses on newer browsers released before mid-2022, we          derivatives. This process uncovered specific facts that influenced
+anticipated that this list might be outdated for our purposes. As we      those feature values (and we did not initially consider). Some of
+will demonstrate, only 6 remained relevant and were included in           our notable revelations from real-world data are described in the
+our data pre-processing stage (explained in Section 6.3).                 following:
+   Another lens through which browsers’ evolution can be viewed is        • Firefox configuration influence: Firefox has an array of secu-
+their varied implementations of certain functions, thus acting as po-     rity and performance configurations via the about:config page.
+tential fingerprinting indicators. Targeting no-input functions, we       Customizing these settings can inadvertently alter feature values.
+analyzed their behavior by navigating the top 100 websites on dif-        For instance, disabling Service Workers through dom.serviceWork
+ferent browser instances (limited to Firefox and Chrome) using the        ers.enabled can result in values related to ServiceWorker inter-
+VisibleJS [23] extension. However, the limited volatility observed        faces being zeroed. Additionally, manipulating settings such as dom.
+in no-input functions led us to ignore those and narrow down our          element.transform-getters.enabled can influence properties
+features to 513 JavaScript candidate fingerprints (deviation-based        manifested through the Element interface.
+and time-based) for the subsequent phase (full list in Appendix-3).       • Chrome extensions & flags: Chrome’s equivalent to Firefox’s
+                                                                          configuration page is chrome:flags. While it mostly pertains
+                                                                          to experimental properties—and is arguably less frequently modi-
+                                                                          fied by the average user—it was deemed negligible for our study.
+6.2     Real-World Data Collection                                        However, Chrome extensions, which are widespread among users,
+After developing 513 JavaScript candidate fingerprints, we collabo-       were observed to impact fingerprinting values. For instance, the
+rated with FinOrg to collect coarse-grained candidate fingerprints        DuckDuckGo extension introduced two custom properties to the
+of real-world browsers. We recorded coarse-grained candidate fin-         Element interface; this modification increments the integer value
+gerprints alongside the navigator.userAgent attribute. FinOrg             of one of our features by two. To assess the influence of common
+integrated our script into one flow of an online shopping platform,       extensions, we revisited the set of default Chrome extensions pre-
+with continuous data collection over eight months. During this            viously identified by Picazo et al. [39] in 2020. At the time of our
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers            IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+review in April 2024, we found that, of the seven removable exten-
+sions reported, Google had integrated the functionality of six into
+Chrome as built-in apps, leaving only one as a default extension.                                              1.00
+Notably, the removal of these integrated apps and the remaining
+                                                                                                               0.95
+extension had no impact on the values of our feature set.
+• Brave: a privacy-centric browser based on Chromium that could
+
+
+
+                                                                                         Cumulative Variance
+                                                                                                               0.90
+be misidentified as Chrome. Our investigation revealed while the
+examined version of Brave generated a user-agent identical to                                                  0.85
+Chrome 111, there were discernible discrepancies in attribute values
+across certain interfaces, such as Element, compared to the genuine                                            0.80
+Chrome 111.
+• The Tor Browser: Mirroring Brave’s behavior, the examined                                                    0.75
+version of Tor Browser presented a user-agent string aligning with
+Firefox version 102, yet the attribute values significantly deviated                                           0.70
+from those of the original Firefox 102. Given that Tor Browser’s                                                      0   5     10           15         20         25
+                                                                                                                              Number of Components
+updates had lagged—being nearly a year behind the contemporary
+Firefox iteration—we deemed it prudent to exclude this browser
+instance from our analysis.                                                           Figure 2: Cumulative variance based on the number of com-
+   Based on this analysis, we adjusted our feature set, particularly                  ponents in PCA.
+for deviation-based attributes, some of which could be modified by
+user/browser privacy settings. We identified and excluded the most
+affected features to enhance the reliability of our coarse-grained fin-               6.4.1 Pre-Processing. Some of our features had large values which
+gerprints. Moreover, a detailed examination of real coarse-grained                    could skew the results of our model towards them. Therefore,
+fingerprints highlighted minimal deviations in certain features,                      we used Standard Scaler to scale some of our deviation-based at-
+and we excluded those as well. From this process, we selected                         tributes. The time-based attributes were already in the binary format
+22 deviation-based features, complemented by 6 time-based features.                   which was suitable. Another crucial aspect of our preprocessing
+This refined selection forms our comprehensive set of 28 features,                    was outlier detection, for which we employed the Isolation Forest
+optimizing our fraud detection capabilities. The details of these                     method [30]. This method was selected due to its effectiveness in
+features are cataloged in Table 8 of Appendix-1.                                      identifying anomalies in high-dimensional datasets. By setting a
+                                                                                      threshold of 0.002%, we successfully filtered out data presumed
+                                                                                      to be outliers, ensuring a more refined and accurate dataset for
+                                                                                      subsequent analysis. Upon examining the data excluded by the
+6.4     Training of Machine-Learning Model                                            0.002% threshold, it is evident that none of the eliminated records
+In this section, we delve into our data-driven fraud detection sys-                   (172 rows) corresponded to feature values indicative of a legitimate
+tem, Browser Polygraph. The core objective of Browser Poly-                           browser instance, as delineated in Section 6.1. Hence, this threshold
+graph is to verify the veracity of the browser’s identity, specifi-                   selection is demonstrably appropriate.
+cally its user-agent string, and to identify any significant devia-                   6.4.2 Feature Selection. In the feature selection phase, we used
+tions that might indicate a falsified identity. Our dataset comprises                 Principal Component Analysis [21] (PCA) to streamline our dataset.
+28 feature values for each user session, each linked to its respective                PCA is a technique in machine learning that reduces dimensionality
+user-agent string. Given that feature values tend to be consistent                    while retaining the most informative aspects of the data. It works
+across similar browser releases, we opted for a semi-supervised                       by transforming the original features into a new set of variables,
+learning approach for our model.                                                      the principal components, which are orthogonal and maximize
+    The initial phase of our methodology involves disregarding the                    variance. The decision to use PCA was driven by its efficiency in
+user-agent strings and focusing solely on the feature values, which                   simplifying complex data without significant loss of information.
+represent real-world browser fingerprints. This data is then em-                      Analysis of the PCA results, particularly through the visualization
+ployed to train our clustering model, designed to group browsers                      shown in Figure 2, revealed that using seven components could
+into distinct clusters. These clusters are formed based on the similar-               capture over 98.5% of the cumulative variance in the dataset. This
+ities in the implementation of JavaScript APIs by different browsers.                 level of variance was deemed optimal for our analysis, striking a
+For the clustering process, we selected the kmeans clustering algo-                   balance between simplicity and information retention.
+rithm due to its efficacy in handling such categorization tasks.
+    Post-training, the model is further refined by leveraging the                     6.4.3 Clustering. In this part of our analysis, having established
+ground truth of the user-agent strings. This step involves ana-                       seven as the optimal number of components through PCA, we em-
+lyzing how these user-agents are distributed across the formed                        ployed the kmeans clustering algorithm on our dataset (kmeans was
+clusters, thereby enabling us to assess the model’s accuracy in cor-                  chosen due to its efficiency and straightforward implementation).
+relating the user-agent strings with the expected browser features.                   The optimal number of clusters (𝑘) was determined using the elbow
+The following will provide an overview of the fitting and training                    method, as illustrated in Figure 3. This method plots the Within-
+processes.                                                                            Cluster Sum of Squares [20] (WCSS) against the number of clusters
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                                          Faezeh Kalantari et al.
+
+
+to evaluate the variance within each cluster. A decrease in WCSS
+signifies a closer alignment of data points to their cluster centroids.                                      1e6
+In our analysis, the elbow graph demonstrated potential optimal
+cluster counts at 𝑘 = 3, 𝑘 = 6, and 𝑘 = 11. At these points, the graph                             3.5
+shows a noticeable “elbow”, implying that additional clusters would
+                                                                                                   3.0
+not significantly improve the fit to the data. To further refine our
+decision, we analyzed the relationship between WCSS values and                                     2.5
+the number of clusters in Figure 4, where a pronounced increase at
+                                                                                                   2.0
+𝑘 = 11 suggested it as the ideal choice.                                      WCSS
+   After selecting k=11 as the optimal number of clusters, we eval-                                1.5
+uated our model’s accuracy. Since we are using a semi-supervised
+learning approach, our accuracy metric measures how well the                                       1.0
+clusters represent the user-agent instances. We define a cluster
+                                                                                                   0.5
+assignment as accurate if all instances of the same user-agent are
+assigned to the same cluster, specifically the cluster containing the                              0.0
+majority of data points for that user-agent string. For instance, if                                     0         5   10         15           20        25          30
+most data points with the user-agent of Chrome 112 are assigned                                                             Number of clusters
+to cluster 0, we consider cluster 0 as the corresponding cluster for
+Chrome 112. Any data with user-agent of Chrome 112 that is                  Figure 3: Elbow method to select the optimal number of
+assigned to a different cluster would be considered misclustered.           clusters (WCSS vs. number of clusters).
+Using this definition, our model achieved a clustering accuracy of
+99.6%.
+   Beyond model accuracy, we further validated the user-agents                                     0.8
+and their corresponding clusters to ensure they matched our expec-
+tations. This process involved cross-referencing our results with
+legitimate browser instances from the Candidate Fingerprint Gen-                                   0.6
+eration stage (Section 6.1). We confirmed that, in over 98% of the
+
+
+                                                                             Relative Difference
+data, the corresponding clusters matched the expected behavior.
+However, we noted some discrepancies with older browser versions,                                  0.4
+such as Chrome 81 and Edge 17. On closer inspection, we found
+that these versions had few data points, in some cases less than
+100 instances. This limited dataset occasionally led to misleading                                 0.2
+results, such as Chrome 81 fingerprints showing Firefox-like feature
+sets. For these specific user-agents, making up less than 2% of
+our traffic, we decided to align the cluster number with the feature                               0.0
+values of legitimate browser instances, extracted in the Candidate                                       0         5   10         15           20        25          30
+Fingerprint Generation stage (Section 6.1). This adjustment was                                                             Number of clusters
+essential for maintaining the accuracy of our clustering.
+   The discrepancies observed with older browser versions can               Figure 4: Relative WCSS vs. clusters: showing k=11 as an
+be attributed to the lack of sufficient descriptive data points, a          optimal number of clusters for our kmeans model.
+challenge that is not uncommon in machine learning applications
+dealing with evolving technologies. To mitigate this issue in the
+future, a more extensive data collection process would be beneficial,       that our choice of 28 features, 7 PCA components, and k=11 clusters
+akin to the detailed approach in Google Picasso’s work [9]. Such a          lead to optimal accuracy for Browser Polygraph.
+method provides a richer dataset, enabling more accurate clustering
+of even the lesser-known or outdated browser versions.                      6.5                      Fraud Detection
+   With prior adjustments, the distribution of user-agents across           After successful training, the Browser Polygraph model can per-
+the selected clusters (with 𝑘 = 11) is detailed in Table 3. To illustrate   form real-time monitoring and detection of potentially fraudulent
+why our selected cluster size offers a more fitting analysis than           activities in live Web traffic. The operational process of our Fraud
+other potential choices (3, 6, or 11), we examined the distribution         Detection system is as follows:
+of user-agents across a 𝑘 = 6 cluster scenario. The outcomes                   When a user accesses FinOrg’s website, JavaScript code collects
+highlighted in Table 9 (Appendix-2) versus our optimal selection            the required feature values from their browser. These values are
+in Table 3, affirm that our choice more effectively differentiates be-      then analyzed by Browser Polygraph to identify the user’s cluster
+tween browser releases, underscoring its suitability for our analysis.      affiliation. A key aspect of fraud detection involves comparing this
+We have also explored the impact of changing model parameters on            predicted cluster with the cluster corresponding to the browser’s
+the accuracy of the model in Appendix-4, which further reinforces           declared user-agent (refer to Table 3). Any mismatch triggers our
+                                                                            specialized risk analysis function.
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+     Table 3: user-agents assigned to clusters with k=11.                             6.6     Drift Detection
+                                                                                      An essential feature of Browser Polygraph is its ongoing eval-
+                 Cluster              user-agents                                     uation mechanism to monitor the performance of the clustering
+                    0        Chrome 110-113, Edge 110-113                             algorithm. This includes regularly assessing the accuracy in assign-
+                                                                                      ing clusters to new browser releases. We implemented a robust drift
+                    1                Firefox 101-114
+                                                                                      detection strategy that actively identifies shifts in data patterns or
+                    2         Chrome 59-68, Firefox 51-91                             browser behavior. When such shifts are detected, indicating a po-
+                    3            Chrome 114, Edge 114                                 tential divergence from the established clustering norms, Browser
+                                                                                      Polygraph can automatically initiate a retraining process. This
+                    4          Chrome 69-89, Edge 79-89
+                                                                                      retraining ensures that Browser Polygraph remains up-to-date
+                    5        Chrome 102-109, Edge 102-109                             and accurately aligned with the latest browser versions’ features.
+                    6           Edge 17-19, Firefox 46-50                                More specifically, on designated dates, the automatic drift detec-
+                                                                                      tion module evaluates the cluster number and accuracy of Browser
+                    9                Firefox 93-100
+                                                                                      Polygraph in clustering new browser releases. These dates are
+                    10        Chrome 90-101, Edge 90-101                              strategically chosen a few days after the latest releases of Firefox,
+                                                                                      Chrome, and Edge browsers. When the cluster number of a new
+                                                                                      browser release aligns with its closest release according to Table 3
+                                                                                      with an accuracy rate above 98%, it indicates no significant shift
+Algorithm 1 Algorithm to calculate the risk factor based on a
+                                                                                      in browser behavior, and no retraining is necessary. However, a
+session’s user-agent and its predicted cluster.
+                                                                                      change in the cluster number (compared to its closest release from
+  Input: sessUserAgent, predictedCluster, userAgentTable                              Table 3) or a drop in the accuracy rate below 98% signals a shift
+  Output: riskFactor
+                                                                                      in browser behavior, prompting Browser Polygraph to automat-
+  riskFactor ← ∞
+  for each uA in userAgentTable[predictedCluster] do
+                                                                                      ically initiate retraining. Section 7.3 discusses the process using
+      if sessionUserAgent.vendor ≠ uA.vendor then                                     Browser Polygraph’s trained model (from March to mid-July 2023)
+          distance ← 20                                                               to perform drift analysis on newly collected data (from late-July to
+      else                                                                            October 2023).
+          diff ← abs(sessUserAgent.version - uA.version)
+          distance ← floor(diff / 4)                                                  7 Evaluation
+      end if
+      if distance < riskFactor then                                                   7.1 Real-world Experiment
+          riskFactor ← distance                                                       To demonstrate the practical application of Browser Polygraph in
+      end if                                                                          detecting fraud, we collaborated with FinOrg for data collection on
+  end for                                                                             one of their secondary purchase portals, as outlined in Section 6.2.
+  return riskFactor                                                                   We used 4.5 months of this data to train our kmeans model (Sec-
+                                                                                      tion 6.4). The resulting clusters formed the baseline for our fraud
+                                                                                      detection method (Table 3).
+                                                                                         For training purposes, we analyzed 205k logged-in user sessions
+    The risk analysis function initially calculates the distance be-                  from March to mid-July 2023, which included user-agents from
+tween a session’s user-agent and every other user-agent in the                        113 different browser releases. FinOrg also provided session tags
+predicted cluster (see Algorithm 1). The smallest of these distances                  from their internal systems, specifically Untrusted_IP, Untruste
+is then employed as the session’s risk factor. We define the dis-                     d_Cookie, and ATO (Account Take-Over), used solely for evaluation
+tance between two user-agent strings based on the differences                         purposes. These tags identified sessions from unfamiliar IPs (note
+in their vendors and version numbers. For two user-agents with                        that we did not receive the old or new IP, just that FinOrg was
+different vendors, the distance is at its maximum value. However,                     unfamiliar with the IPs), newly-established cookies, or those with
+for user-agents from the same vendor, we first calculate the ab-                      suspicious activities linked to the browser fingerprint within a
+solute numerical difference between their version numbers and                         72-hours period (meaning that FinOrg believed the account was
+then divide this difference by 4— which we empirically selected                       involved in an ATO).
+referring to Table 3. This method effectively reduces the likelihood                     This dataset of only logged-in users minimized interference from
+of false negatives, especially when a browser instance is incorrectly                 web crawlers and bots, offering a solid foundation for our model.
+assigned into a cluster of a similar vendor but a different release.                  Post-training, Browser Polygraph flagged 897 sessions as suspi-
+    Browser Polygraph’s strength lies in its efficiency and adapt-                    cious during four-and-a-half-month period, considering various
+ability. The computationally intensive task of training the model is                  risk factor levels. This number of flagged sessions aligns with
+performed offline, ensuring that the real-time fraud detection pro-                   fraud data from similar studies, such as Varmedja et al. [64]’s work
+cess is possible. This not only minimizes delays during user interac-                 that used a popular credit card fraud database from Kaggle with
+tion but also allows for ongoing system enhancements. In Section 7,                   0.173% of reported credit card frauds in 2019 [22].
+we will explore the correlation between these risk factors and                           Browser Polygraph showed heightened accuracy in identifying
+other risk metrics within FinOrg.                                                     potential fraud, with flagged sessions having a 27% and 26% higher
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                          Faezeh Kalantari et al.
+
+
+Table 4: Percentages of the traffic having Untrusted_IP, Untrusted_Cookie or ATO flags set in the entire traffic comparing to
+the batch flagged by Browser Polygraph and a randomly chosen batch.
+
+                                                Category                      Untrusted_IP    Untrusted_Cookie        ATO
+                                                All users                           51%                49%            0.43%
+                                    Flagged by Browser Polygraph (all)              78%                75%             2%
+                             Flagged by Browser Polygraph (risk factor > 1)         93%                89%            3.89%
+                             Flagged by Browser Polygraph (risk factor > 4)         94%                85%            5.83%
+                                             Randomly-chosen                        48%                53%            0.22%
+
+
+likelihood of being tagged as Untrusted_IP and Untrusted_Coo                  These browsers were installed on a Windows machine, and mul-
+kie flags, respectively. Sessions flagged by Browser Polygraph                tiple browser profiles were created for each, employing various
+were also about five times more likely to be associated with ATO              user-agents representative of all clusters in Table 3. We then vis-
+activities (Table 4). The correlation between Browser Polygraph’s             ited our private test website using each profile. In creating browser
+risk factor and the security tags was notable. Higher riskfa                  profiles, we tailored each one based on the browser’s capacity for
+ctors correlated with increased cases of Untrusted_IP, Untrus                 customization. This involved selecting a user-agent and their cor-
+ted_Cookie and ATO flags, underscoring Browser Polygraph’s                    responding browser engines (if possible), aiming for diverse repre-
+effectiveness. Analysis indicated that lower risk factors were                sentation. Where feasible, for each cluster in Table 3, we generated
+often assigned to sessions where the claimed user-agent shares the            two profiles using candidate user-agents from the same cluster.
+same vendor but only a slight variation in version number compared            In cases where a fraud browser limited this capability, we opted for
+to other user-agents in the assigned cluster. Such cases might not            either randomized user-agents or those uniquely provided by the
+always indicate fraud but could result from update inconsistencies            browser itself.
+or the use of certain extensions or browser configurations impacting             Our approach in this experimental setup was designed to assess
+attribute values (refer to Section 6.3).                                      the capability of Browser Polygraph to detect sessions initiated
+   In a supplementary experiment, we compare against a randomly               by fraud browsers. We passed the data collected in this experi-
+selected 897 sessions from our dataset of 205k user sessions for              ment to Browser Polygraph’s Fraud Detection module (trained
+further analysis. The results confirmed Browser Polygraph ’s                  in Section 6.4) to evaluate its effectiveness in identifying fraudu-
+superior performance over the random selection method, demon-                 lent browser fingerprints. The data presented in Table 5 highlights
+strating its utility in identifying potentially fraudulent sessions           Browser Polygraph’s effectiveness in detecting fraudulent ses-
+with increased precision (Table 4).                                           sions, evidenced by a high average risk factor for these sessions.
+   Despite Browser Polygraph’s success in identifying sessions                   While Browser Polygraph demonstrated an impressive recall
+with Untrusted_IP and Untrusted_Cookie flags, only 2% of these                rate of 79% for the first three fraud browsers in Table 5, the recall rate
+897 sessions have ATO flags (though this rate nearly doubled and              for Sphere browser was observed at 67%, this outcome is primarily
+tripled in batches with higher risk factor). This lower-than-                 influenced by two factors. The first concerns the freely available
+expected detection rate may be due to various factors, such as the            version of the Sphere software, which is significantly outdated. This
+specific nature of the data (the tagging of ATO) or the context of sys-       limits users’ ability to customize their preferred user profiles. The
+tem integration. To gain a better visibility, the next subsection will        second factor is the predominance of user profiles in this version
+evaluate Browser Polygraph’s effectiveness in detecting sessions              that adhere to older versions of Chrome (e.g., Chrome 63, 64, 65),
+originating from fraud browsers.                                              with Sphere 1.3 emulating a fingerprint similar to Chrome 61, all
+                                                                              falling within Cluster 2. This latter reason also accounted for the
+                                                                              non-flagged attempts by the first three browsers.
+7.2     Fraud Browsers’ Detection
+We next evaluate the capability of Browser Polygraph to identify              7.3     Drift Analysis
+fraudulent attempts at spoofing legitimate browser fingerprints.              With the continual release of new browser versions and fraud
+Specifically, Browser Polygraph focuses on uncovering fraud                   browsers, a pertinent question arises: How long does our trained
+within browsers classified under Categories (1) and (2) (in Table 1).         model in the Browser Polygraph remain effective? This subsec-
+It achieves this by analyzing discrepancies between the user-agent            tion explains the behavior of Browser Polygraph’s drift detection
+and the extracted fingerprints. To facilitate the evaluation, we es-          strategy (refer to Section 6.6) that focuses on determining the neces-
+tablished a private website equipped with the fingerprinting script           sity and timing for retraining Browser Polygraph via an extensive
+developed during our Real-World Data Collection phase (Section 6.2).          drift analysis.
+We were the only ones who accessed the website.                                  Referring to the trained model of Browser Polygraph in Table 3,
+    The primary objective is to assess Browser Polygraph’s ef-                for a new browser release, such as Chrome 115, if the feature set
+fectiveness in identifying fraudulent sessions. To this end, we se-           values do not significantly differ from the closest prior release (e.g.,
+lected several fraud browsers from Categories (1) and (2) (Table 1).          Chrome 114), we do not expect our drift detection algorithm from
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers        IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+                                   Table 5: Fraud browsers’ detection capability via Browser Polygraph.
+
+                                       Browser           Flagged Num        Not-Flagged Num                 Avg. risk factor      Recall
+                                   GoLogin-3.3.23               12                    4                            11.66           75%
+                                  Incogniton-3.2.7.7            7                     2                            8.85            78%
+                                  Octo Browser-1.10             16                    3                            10.18           84%
+                                      Sphere-1.3                6                     3                            10.5            67%
+
+
+Section 6.6 to trigger a retraining. However, if there is a drastic                    Table 6: Drift Analysis of Browser Polygraph for data col-
+change in the values of the feature set, resulting in a different cluster              lected from late-July to October 2023.
+number or a noticeable drop in accuracy, the algorithm will initiate
+a retraining process. To evaluate how the drift detection module                                             Browser       Date     Cluster      Accuracy
+accurately identifies retraining time, we used the clustering model                                          Chrome 115                3           99.45
+from Section 6.4 that was trained from March to mid-July 2023.                                               Firefox 115   07/25       1            99.3
+                                                                                                             Edge 115                  3            100
+Subsequently, we obtained new data spanning from late-July to
+                                                                                                             Chrome 116                3           99.6
+October 2023 from FinOrg, encompassing several releases of major
+                                                                                                             Firefox 116   08/25       1           99.99
+browsers. With this updated dataset, we selected specific dates to                                           Edge 116                  3           99.88
+evaluate the accuracy of Browser Polygraph in clustering newly                                               Chrome 117                3           99.25
+released browsers. These dates were strategically chosen a few days                                          Firefox 117   09/25       1           99.81
+following the latest Firefox release, with the newest Chrome and                                             Edge 117                  3           99.94
+Edge versions released approximately one to two weeks earlier.                                               Chrome 118                3           99.65
+Our focus was on two key metrics: determining the predominant                                                Firefox 118   10/23       1           99.46
+cluster number for each new browser instance and calculating the                                             Edge 118                  3           99.91
+percentage of browsers assigned to this cluster for each candidate                                           Chrome 119                3           97.22
+browser, as detailed in Table 6.                                                                             Firefox 119   10/31      10           98.57
+   Our findings indicate that new releases of Chrome, Firefox, and                                           Edge 119                  3           99.84
+Edge were correctly clustered with an accuracy exceeding 99% for
+approximately three and half months. However, starting from late                                                                              Size Category
+October, a shift in the assigned cluster number for Firefox 119 was                                                                        1              101-500
+observed, alongside a decline in the clustering accuracy for Chrome                                                                        2-10           501-1000
+119. This served as an indicator for retraining our clustering model.                                                                      11-50          >=1001
+Further examination of the feature values for Firefox 119 confirmed                                                                        51-100
+
+
+                                                                                     All Features
+substantial changes in the Element prototype’s implementation
+compared to its predecessor, providing additional evidence support-
+ing the hypothesis for the retraining time.
+   It is worth mentioning that our observations in this analysis align                              0         20           40               60         80            100
+with the retraining signal from the drift detection module, which
+was triggered in October. Although in this analysis, our trained                                    Figure 5: Percentage of fingerprints in anonymity sets.
+model in Browser Polygraph remained accurate for three and a
+half months, this duration may vary depending on the parameters
+of the model and the extent of changes in new browser releases.                        50, our study shows a significantly higher rate of 95.6%, making it
+                                                                                       nearly impossible to track individual users.
+                                                                                          We also investigated Shannon entropy and normalized entropy
+                                                                                       for the collected attributes (user-agent and the integer outputs) as
+7.4     Privacy Analysis                                                               reported in Table 7 (sorted by normalized entropy). The user-agent
+To evaluate the privacy-preserving nature of Browser Polygraph’s                       was the most diverse feature in our dataset, yielding a normalized
+feature set, we analyzed the anonymity sets and entropy of fea-                        entropy value of 0.58. This value is the same as the normalized
+tures within our dataset, which comprises 205k fingerprints. The                       entropy of 0.58 for the user-agent string for AmIUnique study [18].
+former assesses how diverse the fingerprints are, while the latter                     This similarity emphasizes that our data collection method does not
+provides insight into the diversity of individual features. Figure 5                   increase user identifiability beyond what is already possible with
+displays the percentage of user fingerprints across anonymity sets                     the user-agent string alone, thus maintaining user anonymity.
+of varying sizes. Notably, only 0.3% of our fingerprints are unique,
+a negligible rate compared to a browser fingerprinting study that                      7.5              Performance Analysis
+reported 33.6% unique fingerprints [18]. Furthermore, while the                        To validate our adherence to the performance benchmarks set in Sec-
+same study found 8% of fingerprints in anonymity sets larger than                      tion 3, we measured Browser Polygraph’s response time within
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                   Faezeh Kalantari et al.
+
+
+         Table 7: Entropy information of selected features used in Browser Polygraph, sorted by normalized entropy.
+
+                                                   Features                                      Entropy    Normalized Entropy
+                                                 user-agent                                        5.97            0.58
+                            Object.getOwnPropertyNames(Element.prototype).length                   2.51            0.47
+                          Object.getOwnPropertyNames(SVGElement.prototype).length                  2.33            0.43
+                           Object.getOwnPropertyNames(Document.prototype).length                   2.17            0.42
+                     Object.getOwnPropertyNames(IntersectionObserver.prototype).length             1.33            0.37
+                 HTMLVideoElement.prototype.hasOwnProperty(’webkitDisplayingFullscreen’)           0.58            0.37
+                            Object.getOwnPropertyNames(CSSRule.prototype).length                   0.56            0.35
+                          Object.getOwnPropertyNames(StaticRange.prototype).length                 0.58            0.29
+
+
+the experimental setup described in Section 7.2. Through a series       user-agent strings, due to the prevalence of fraud browsers of-
+of tests mirroring those applied to fine-grained fingerprinting solu-   fering more tools to spoof desktop rather than mobile browsers.
+tions, Browser Polygraph demonstrated an average response time          Currently, it does not encompass mobile browsers or those with
+of 6ms. Additionally, the storage requirement for our fingerprints      unique engines and user-agent strings. However, extending its
+was only 1KB, which significantly surpasses the efficiency of the       verification capabilities to these areas is possible. This expansion
+solutions in Table 2.                                                   would involve gathering baseline data for these new browsers, as de-
+   In Appendix-5, we compare the performance of Browser Poly-           tailed in Section 6.1. With baseline values and a thorough real-world
+graph’s coarse-grained fingerprints with two fine-grained tech-         dataset for any new browser type, adapting Browser Polygraph
+niques for browser clustering (FingerprintJS and ClientJS) using        for detection becomes straightforward.
+synthetic data. The results demonstrate that Browser Polygraph          Deployment scope. The current deployment of Browser Poly-
+performs better in clustering for this specific experiment. This is     graph leverages a coarse-grained browser fingerprinting technique,
+because Browser Polygraph’s coarse-grained fingerprinting is            primarily designed for as a lightweight fraud detection mechanism
+fundamentally designed for detecting lying browsers, making it          in high-volume traffic scenarios. It is crucial to acknowledge that
+more efficient for browser clustering purposes.                         Browser Polygraph is not configured to detect fraudulent ses-
+                                                                        sions conducted by sophisticated attackers, who may completely
+                                                                        spoof the fingerprinting environment or use browsers classified
+                                                                        under category 3 in Table 1. To counter these advanced spoofing
+8    Discussion                                                         efforts, more complex detection methods are necessary, perhaps
+The most trivial step for configuring a fraud browser is setting the    binary analysis of each specific software, which can unearth unique
+user-agent value—alignment of this value to the victim’s actual         software-specific fingerprintable attributes.
+user-agent however does not suffice for the adversary to fully          In our observations, for instance, AntBrowser [50] (similar to many
+spoof a victim’s browser. A fraud browser could still show incon-       other browsers) includes an ANTBROWSER object in its namespace
+sistencies in its other configurations, and the primary goal of this    and antBrowser-prefixed attributes on the window object, signifi-
+paper is to identify such inconsistencies. Our solution, however,       cantly increasing its fingerprintability. This is similar to the observa-
+has some limitations:                                                   tion that Nikiforakis et al. [36] made where browser extensions that
+Bypassing Browser Polygraph. Lin et al. [29] showed how                 allow browser spoofing ironically make browsers more fingerprint-
+stealing and spoofing actual user fingerprints could bypass the au-     able. While these attributes were initially identified through manual
+thentication process of critical websites. Their work can bypass        analysis, future work could automate this process, employing tech-
+Browser Polygraph in theory and it is essentially the problem of        niques such as fuzzing or binary analysis. Such advancements can
+many JavaScript-based detection techniques; however, their cur-         enable identifying software-specific attributes and directly target
+rent solution was not spoofing the output of Object.getOwnPro           the fingerprinting of fraud browsers.
+pertyNames function for our feature set values, and it needs an         Scale of the database. The current implementation of Browser
+additional update to cover it. While these cat-and-mouse games          Polygraph employs a dataset whose size does not yet pose signifi-
+can be played indefinitely, the goal of this paper is not to identify   cant storage challenges. However, should the dataset grow to an
+new fingerprinting techniques but rather to introduce the concept       unmanageably large scale in the future, thereby impacting train-
+of coarse-grained fingerprints that can be used in a production         ing efficiency, a viable solution would be the adoption of Stratified
+website with strict limitations on fingerprint extraction time and      Sampling [32]. This approach is particularly effective for managing
+data size.                                                              large datasets while ensuring the representativeness of diverse data
+user-agent randomization. user-agent randomization is a com-            segments. Using Stratified Sampling, we can efficiently maintain a
+mon anti-fingerprinting strategy, potentially increasing false posi-    representative sample of browser features, even from less popular
+tives in Browser Polygraph. However, we do not recommend its            browser instances, ensuring that our dataset remains manageable
+application due to potential complications, such as triggering bot      and comprehensive.
+detection mechanisms [40].                                                 Manual efforts. While Browser Polygraph automates the ma-
+Verification of new browsers. Browser Polygraph’s current               jority of operations, such as candidate fingerprint generation, fraud
+focus is on popular desktop browsers and those with analogous           detection, and drift detection, manual inspections were necessary
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers      IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+during the data pre-processing stage to address inconsistencies                       release of fraud browsers. Compounding this issue, fraud browser
+in deviation-based features. As discussed in Section 6.3, we man-                     vendors frequently update their software to align with new browser
+ually assessed the impact of browser configurations on these fea-                     versions, thereby diminishing the effectiveness of existing fraud
+tures and determined whether to retain or discard specific features.                  detection patterns. An automated prototype that adapts to ongoing
+Similarly, we manually installed popular extensions on Chrome                         browser updates is, therefore, a critical need in the industry.
+to observe their influence on feature values. In case our selected
+features become ineffective over time—meaning that retraining                         10     Conclusion
+Browser Polygraph does not achieve the required accuracy—or if
+                                                                                      In conclusion, this paper presents Browser Polygraph, a novel ap-
+there are drastic updates to browser implementations necessitating
+                                                                                      proach to addressing the challenges of detecting lying browsers in
+another round of pre-processing, we need to automate the manual
+                                                                                      high-traffic environments. Browser Polygraph excels in merging
+inspections involved in this phase.
+                                                                                      the demand for detailed browser data with the scalability essential
+                                                                                      for real-time fraud detection. We show a new direction for browser
+9    Related Work                                                                     fingerprints—coarse-grained fingerprints that can satisfy the per-
+                                                                                      formance constraints of a financial company FinOrg. This research
+This section discusses prior research relevant to our study on
+                                                                                      marks a significant step forward in the fight against browser finger-
+browser fingerprinting and fraud detection:
+                                                                                      print spoofing and fraud browser detection, offering insight that
+Risks of fingerprint spoofing. Liu et al. [31] explore how spoofing
+                                                                                      could shape future developments in the field.
+browser fingerprints can affect advertising content, while Lin et
+al. [29] demonstrate the potential for spoofed fingerprints to bypass
+websites authentication.                                                              Acknowledgments
+Nature of misuse. In the context of misuse, Kawase et al. [24]                        We would like to thank the anonymous reviewers and our shepherd
+explore ATO within an online vehicle marketplace, presenting de-                      for their valuable feedback, which helped us improve our paper. We
+tection and prevention methods. Campobasso et al. [10] evaluate                       also appreciate the support of the Department of Defense and the
+illegal sales of user fingerprints and tools for impersonating browser                National Science Foundation (NSF) under grants No. CNS-2127232,
+identities.                                                                           CNS-2346845, and CNS-2419829. This work also relates to the De-
+Advancements in browser fingerprinting. Nikiforakis et al. [36]                       partment of Navy award N00014-24-1-2193 issued by the Office of
+focus on extracting browser family and version information using                      Naval Research. Any opinions, findings, and conclusions or recom-
+a set of techniques, such as ordering of methods and properties and                   mendations expressed in this material are those of the authors and
+detection of vendor-specific methods. Akhavani et al. [4] provide a                   do not necessarily reflect the views of the Office of Naval Research,
+complete list of JavaScript features for browser differentiation, but                 the NSF or the US Government.
+it might need revision via new browser releases. Schwarz et al. [44]
+propose automated techniques for inferring browser environments.                      References
+Browser fingerprinting in the wild. Durey et al. [13] and Senol et                     [1] Gunes Acar, Christian Eubank, Steven Englehardt, Marc Juarez, Arvind
+al. [45] explore the adoption of browser fingerprinting in real-world                      Narayanan, and Claudia Diaz. 2014. The web never forgets: Persistent tracking
+                                                                                           mechanisms in the wild. In Proceedings of the 2014 ACM SIGSAC conference on
+scenarios, with the latter extending the analysis to its effectiveness                     computer and communications security. 674–689.
+in fraud detection, particularly in safeguarding against unautho-                      [2] Gunes Acar, Marc Juarez, Nick Nikiforakis, Claudia Diaz, Seda Gürses, Frank
+                                                                                           Piessens, and Bart Preneel. 2013. FPDetective: dusting the web for fingerprinters.
+rized access and enhancing account security. Wu et al. [67] conduct                        In Proceedings of the 2013 ACM SIGSAC conference on Computer & communications
+a large-scale study of adversarial fingerprints—intentionally crafted                      security. 1129–1140.
+by attackers to evade detection—and benign browser fingerprints,                       [3] Gemini Advisory. 2023. Illicit Antidetect Platforms vs. Anti-Fraud Solutions.
+                                                                                           https://geminiadvisory.io/antidetect-platforms-vs-anti-fraud-solutions.
+highlighting the role of browser fingerprinting in bot and fraud                       [4] Seyed Ali Akhavani, Jordan Jueckstock, Junhua Su, Alexandros Kapravelos, Engin
+detection                                                                                  Kirda, and Long Lu. 2021. Browserprint: An analysis of the impact of browser
+Browser authentication techniques. Bursztein et al. [9] use                                features on fingerprintability and web privacy. In Information Security: 24th In-
+                                                                                           ternational Conference, ISC 2021, Virtual Event, November 10–12, 2021, Proceedings
+graphical fingerprints for browser verification, and Laperdrix et                          24. Springer, 161–176.
+al. [25] employ canvas challenges for authentication. Google of-                       [5] Akhavani, Seyed Ali. 2024. bowserprint github. https://github.com/sa-
+                                                                                           akhavani/browserprint.
+fers Private State Tokens [19] as part of the Privacy Sandbox [19]                     [6] Nampoina Andriamilanto, Tristan Allard, and Gaëtan Le Guelvouit. 2020. FPSe-
+project, providing a privacy-preserving method to validate users                           lect: low-cost browser fingerprints for mitigating dictionary attacks against web
+and potentially replacing third-party cookies. There are also pro-                         authentication mechanisms. In Proceedings of the 36th Annual Computer Security
+                                                                                           Applications Conference. 627–642.
+posals such as Web Environment Integrity API [66] which advocate                       [7] Babak Amin Azad, Oleksii Starov, Pierre Laperdrix, and Nick Nikiforakis. 2020.
+for browser verification through attestation tokens. Additionally,                         Taming The Shape Shifter: Detecting Anti-fingerprinting Browsers. In DIMVA
+Cloudflare’s Privacy Pass [12] uses cryptographic tokens to au-                            2020-17th Conference on Detection of Intrusions and Malware & Vulnerability
+                                                                                           Assessment.
+thenticate browsers, allowing websites to verify legitimate traffic                    [8] Károly Boda, Ádám Máté Földes, Gábor György Gulyás, and Sándor Imre. 2012.
+without tracking individual users.                                                         User tracking on the web via cross-browser fingerprinting. In Information Security
+                                                                                           Technology for Applications: 16th Nordic Conference on Secure IT Systems, NordSec
+Fraud browsers’ detection. Traditionally, security researchers and                         2011, Tallinn, Estonia, October 26-28, 2011, Revised Selected Papers 16. Springer,
+industry professionals have relied on manual analysis to identify                          31–46.
+suspicious parameters in requests generated by fraud browsers, as                      [9] Elie Bursztein, Artem Malyshev, Tadek Pietraszek, and Kurt Thomas. 2016. Pi-
+                                                                                           casso: Lightweight device class fingerprinting for web clients. In Proceedings
+highlighted by Azad et al. [7]. These mitigation strategies, often                         of the 6th Workshop on Security and Privacy in Smartphones and Mobile Devices.
+based on regular expressions, face obsolescence with each new                              93–102.
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                                                      Faezeh Kalantari et al.
+
+
+[10] Michele Campobasso and Luca Allodi. 2020. Impersonation-as-a-service: Charac-             [37] U.S. Department of Health and Human Services. 2024. Human Subject Regulations
+     terizing the emerging criminal infrastructure for user impersonation at scale. In              Decision Charts: 2018 Requirements. https://www.hhs.gov/ohrp/regulations-
+     Proceedings of the 2020 ACM SIGSAC Conference on Computer and Communications                   and-policy/decision-charts-2018/index.html.
+     Security. 1665–1680.                                                                      [38] Jeremiah Onaolapo, Enrico Mariconti, and Gianluca Stringhini. 2016. What
+[11] Yinzhi Cao, Song Li, and Erik Wijmans. 2017. (Cross-) browser fingerprinting                   happens after you are pwnd: Understanding the use of leaked webmail credentials
+     via OS and hardware level features. In Proceedings 2017 Network and Distributed                in the wild. In Proceedings of the 2016 Internet Measurement Conference. 65–79.
+     System Security Symposium. Internet Society.                                              [39] Pablo Picazo-Sanchez, Gerardo Schneider, and Andrei Sabelfeld. 2020. HMAC and
+[12] Cloudflare. 2024. Privacy Pass. https://developers.cloudflare.com/waf/tools/                   “Secure Preferences”: Revisiting Chromium-Based Browsers Security. In Cryp-
+     privacy-pass/ Accessed: August 19, 2024.                                                       tology and Network Security: 19th International Conference, CANS 2020, Vienna,
+[13] Antonin Durey, Pierre Laperdrix, Walter Rudametkin, and Romain Rouvoy. 2021.                   Austria, December 14–16, 2020, Proceedings 19. Springer, 107–126.
+     FP-Redemption: Studying browser fingerprinting adoption for the sake of web               [40] Radware. 2024. Detecting and Mitigating Highly Distributed Sophisticated Bot At-
+     security. In Detection of Intrusions and Malware, and Vulnerability Assessment: 18th           tacks. https://www.radware.com/blog/application-protection/2023/11/detecting-
+     International Conference, DIMVA 2021, Virtual Event, July 14–16, 2021, Proceedings             and-mitigating-highly-distributed-sophisticated-bot-attacks.
+     18. Springer, 237–257.                                                                    [41] Rohan Goswami. 2023. Cybercrime marketplace Genesis Market shut by FBI, in-
+[14] Peter Eckersley. 2010. How unique is your web browser?. In Privacy Enhancing                   ternational law enforcement. https://www.cnbc.com/2023/04/04/genesis-market-
+     Technologies: 10th International Symposium, PETS 2010, Berlin, Germany, July                   shut-by-law-enforcement-in-cybercrime-operation.html.
+     21-23, 2010. Proceedings 10. Springer, 1–18.                                              [42] Iskander Sanchez-Rola, Leyla Bilge, Davide Balzarotti, Armin Buescher, and
+[15] Steven Englehardt and Arvind Narayanan. 2016. Online tracking: A 1-million-site                Petros Efstathopoulos. 2023. Rods with laser beams: understanding browser
+     measurement and analysis. In Proceedings of the 2016 ACM SIGSAC conference on                  fingerprinting on phishing pages. In 32nd USENIX Security Symposium (USENIX
+     computer and communications security. 1388–1401.                                               Security 23). 4157–4173.
+[16] FBI. 2023. 2022 Internet Crime Report. https://www.ic3.gov/Media/PDF/                     [43] Iskander Sanchez-Rola, Igor Santos, and Davide Balzarotti. 2018. Clock around
+     AnnualReport/2022_IC3Report.pdf.                                                               the clock: Time-based device fingerprinting. In Proceedings of the 2018 ACM
+[17] David Freeman, Sakshi Jain, Markus Dürmuth, Battista Biggio, and Giorgio Giac-                 SIGSAC Conference on Computer and Communications Security. 1502–1514.
+     into. 2016. Who Are You? A Statistical Approach to Measuring User Authenticity..          [44] Michael Schwarz, Florian Lackner, and Daniel Gruss. 2019. JavaScript Template
+     In NDSS, Vol. 16. 21–24.                                                                       Attacks: Automatically Inferring Host Information for Targeted Exploits.. In
+[18] Alejandro Gómez-Boix, Pierre Laperdrix, and Benoit Baudry. 2018. Hiding in the                 NDSS.
+     crowd: an analysis of the effectiveness of browser fingerprinting at large scale.         [45] Asuman Senol, Alisha Ukani, Dylan Cutler, and Igor Bilogrevic. 2024. The Double
+     In Proceedings of the 2018 world wide web conference. 309–318.                                 Edged Sword: Identifying Authentication Pages and their Fingerprinting Behavior.
+[19] Google. 2024. Privacy Sandbox. https://privacysandbox.com Accessed: August                     In Proceedings of the ACM on Web Conference 2024. 1690–1701.
+     19, 2024.                                                                                 [46] Alexander Sjösten, Steven Van Acker, and Andrei Sabelfeld. 2017. Discovering
+[20] Hestry Humaira and Rasyidah Rasyidah. 2020. Determining The Appropriate                        browser extensions via web accessible resources. In Proceedings of the Seventh
+     Cluster Number Using Elbow Method for K-Means Algorithm. In Proceedings of                     ACM on Conference on Data and Application Security and Privacy. 329–336.
+     the 2nd Workshop on Multidisciplinary and Applications (WMA) 2018.                        [47] Naoki Takei, Takamichi Saito, Ko Takasu, and Tomotaka Yamada. 2015. Web
+[21] Ian T Jolliffe. 2002. Principal component analysis for special types of data. Springer.        browser fingerprinting using only cascading style sheets. In 2015 10th Interna-
+[22] Kaggle.         2024.                   Credit      Card        Fraud        Detection.        tional Conference on Broadband and Wireless Computing, Communication and
+     https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud.                                       Applications (BWCCA). IEEE.
+[23] Soroush Karami, Faezeh Kalantari, Mehrnoosh Zaeifi, Xavier J Maso, Erik Trickel,          [48] AdsPower Team. 2024. AdsPower. https://www.adspower.com.
+     Panagiotis Ilia, Yan Shoshitaishvili, Adam Doupé, and Jason Polakis. 2022. Unleash        [49] AmIUnique Team. 2024. AmIUnique. https://amiunique.org.
+     the simulacrum: shifting browser realities for robust { Extension-Fingerprinting }        [50] AntBrowser Team. 2024. AntBrowser. https://antbrowser.pro.
+     prevention. In 31st USENIX Security Symposium (USENIX Security 22). 735–752.              [51] CheBrowser Team. 2024. CheBrowser. https://chebrowser.site.
+[24] Ricardo Kawase, Francesca Diana, Mateusz Czeladka, Markus Schüler, and                    [52] ClientJS Team. 2024. ClientJS. http://clientjs.org.
+     Manuela Faust. 2019. Internet fraud: the case of account takeover in online               [53] ClonBrowser Team. 2024. ClonBrowser. https://www.clonbrowser.com.
+     marketplace. In Proceedings of the 30th ACM Conference on Hypertext and Social            [54] FingerprintJS Team. 2024. FingerprintJS. https://github.com/fingerprintjs/
+     Media. 181–190.                                                                                fingerprintjs.
+[25] Pierre Laperdrix, Gildas Avoine, Benoit Baudry, and Nick Nikiforakis. 2019. Morel-        [55] GoLogin Team. 2024. GoLogin. https://gologin.com.
+     lian analysis for browsers: Making web authentication stronger with canvas fin-           [56] Incogniton Team. 2024. incogniton. https://incogniton.com.
+     gerprinting. In Detection of Intrusions and Malware, and Vulnerability Assessment:        [57] OctoBrowser Team. 2024. Octo Browser. https://octobrowser.net.
+     16th International Conference, DIMVA 2019, Gothenburg, Sweden, June 19–20, 2019,          [58] Sphere Team. 2024. Sphere – A Browser for Anonymity. https://www.
+     Proceedings 16. Springer, 43–66.                                                               geeksforgeeks.org/sphere-a-browser-for-anonymity/y.
+[26] Pierre Laperdrix, Nataliia Bielova, Benoit Baudry, and Gildas Avoine. 2020.               [59] VMLogin Team. 2024. VMLogin. https://www.vmlogin.us.
+     Browser fingerprinting: A survey. ACM Transactions on the Web (TWEB) 14,                  [60] Wappalyzer Team. 2024. Browser fingerprinting market share. https://www.
+     2 (2020), 1–33.                                                                                wappalyzer.com/technologies/browser-fingerprinting.
+[27] Pierre Laperdrix, Walter Rudametkin, and Benoit Baudry. 2016. Beauty and the              [61] Tenebris. 2024. Linken Sphere. https://ls.tenebris.cc.
+     beast: Diverting modern web browsers to build unique browser fingerprints. In             [62] Kurt Thomas, Frank Li, Ali Zand, Jacob Barrett, Juri Ranieri, Luca Invernizzi, Yarik
+     2016 IEEE Symposium on Security and Privacy (SP). IEEE, 878–894.                               Markov, Oxana Comanescu, Vijay Eranti, Angelika Moscicki, et al. 2017. Data
+[28] Pierre Laperdrix, Oleksii Starov, Quan Chen, Alexandros Kapravelos, and Nick                   breaches, phishing, or malware? Understanding the risks of stolen credentials. In
+     Nikiforakis. 2021. Fingerprinting in style: Detecting browser extensions via                   Proceedings of the ACM Conference on Computer and Communications Security
+     injected style sheets. In 30th USENIX Security Symposium (USENIX Security 21).                 (CCS).
+     2507–2524.                                                                                [63] Erik Trickel, Oleksii Starov, Alexandros Kapravelos, Nick Nikiforakis, and Adam
+[29] Xu Lin, Panagiotis Ilia, Saumya Solanki, and Jason Polakis. 2022. Phish in sheep’s             Doupé. 2019. Everyone is different: Client-side diversification for defending
+     clothing: Exploring the authentication pitfalls of browser fingerprinting. In 31st             against extension fingerprinting. In 28th USENIX Security Symposium (USENIX
+     USENIX Security Symposium (USENIX Security 22). 1651–1668.                                     Security 19). 1679–1696.
+[30] Fei Tony Liu, Kai Ming Ting, and Zhi-Hua Zhou. 2008. Isolation forest. In 2008            [64] Dejan Varmedja, Mirjana Karanovic, Srdjan Sladojevic, Marko Arsenovic, and
+     eighth ieee international conference on data mining. IEEE, 413–422.                            Andras Anderla. 2019. Credit card fraud detection-machine learning methods. In
+[31] Zengrui Liu, Prakash Shrestha, and Nitesh Saxena. 2022. Gummy browsers:                        2019 18th International Symposium INFOTEH-JAHORINA (INFOTEH). IEEE, 1–5.
+     targeted browser spoofing against state-of-the-art fingerprinting techniques. In          [65] Antoine Vastel, Pierre Laperdrix, Walter Rudametkin, and Romain Rouvoy. 2018.
+     International Conference on Applied Cryptography and Network Security. Springer,               Fp-Scanner: The Privacy Implications of Browser Fingerprint Inconsistencies. In
+     147–169.                                                                                       27th USENIX Security Symposium (USENIX Security 18). 135–150.
+[32] Sharon L. Lohr. 2019. Sampling: Design and Analysis. Cengage Learning.                    [66] Ben Wiser. 2023. Web Environment Integrity. https://rupertbenwiser.github.io/
+[33] MDN. 2022. MDN Web API. https://developer.mozilla.org/en-US/docs/Web/API.                      Web-Environment-Integrity.
+[34] Grzergor Milka. 2018. Anatomy of account takeover. In Enigma 2018 (Enigma                 [67] Shujiang Wu, Pengfei Sun, Yao Zhao, and Yinzhi Cao. 2023. Him of Many Faces:
+     2018).                                                                                         Characterizing Billion-scale Adversarial and Benign Browser Fingerprints on
+[35] Keaton Mowery and Hovav Shacham. 2012. Pixel perfect: Fingerprinting canvas                    Commercial Websites.. In NDSS.
+     in HTML5. Proceedings of W2SP 2012 (2012).                                                [68] Mehrnoosh Zaeifi, Faezeh Kalantari, Adam Oest, Zhibo Sun, Gail-Joon Ahn, Yan
+[36] Nick Nikiforakis, Alexandros Kapravelos, Wouter Joosen, Christopher Kruegel,                   Shoshitaishvili, Tiffany Bao, Ruoyu Wang, and Adam Doupé. 2024. Nothing Per-
+     Frank Piessens, and Giovanni Vigna. 2013. Cookieless monster: Exploring the                    sonal: Understanding the Spread and Use of Personally Identifiable Information
+     ecosystem of web-based device fingerprinting. In 2013 IEEE Symposium on Secu-                  in the Financial Ecosystem. In Proceedings of the Fourteenth ACM Conference on
+     rity and Privacy. IEEE, 541–555.                                                               Data and Application Security and Privacy. 55–65.
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+A     Ethics                                                                          were unique, which is negligible compared to the 30% unique fin-
+This work does not raise any ethical issues since we ensure that                      gerprints reported in previous studies [18]. This reinforces that our
+all data collected is in accordance with FinOrg’s data collection                     approach does not enable tracking and is solely for fraud detection.
+policy, which considers fingerprinting browsers for fraud detection                       Additionally, examining the entropy of collected features (Ta-
+purposes as a legitimate and legal use case. It’s important to note,                  ble 7), the most diverse collected feature was the user-agent, indi-
+as discussed in Section 6.2, that the fingerprints we collected are                   cating that our collected features do not provide additional infor-
+only integer outputs, used exclusively for fraud detection purposes.                  mation beyond what is already exposed by the user-agent string.
+   Furthermore, our coarse-grained fingerprints lack the granular-                        Moreover, the session identifiers shared with us by FinOrg were
+ity to identify specific user browsers, thereby preserving privacy.                   completely opaque and randomized, ensuring no possibility of trac-
+For instance, a sample from our dataset in March revealed that                        ing them back to individual users, thereby maintaining user privacy
+approximately 11% of sessions in a day shared a user-agent asso-                      and data confidentiality. Importantly, no Personally Identifiable In-
+ciated with a specific Chrome version on a Windows 10 machine,                        formation (PII) was captured; at no time did the research involve
+with 96% displaying identical coarse-grained fingerprints. This pre-                  access to the users’ identity or their IP addresses.
+cludes individual user identification. To provide additional proof,                       To determine the necessity of IRB approval, we referred to Chart
+we analyzed the anonymity sets and feature entropy in Section 7.4.                    01 from the Human Subject Regulations Decision Charts [37], titled
+Our analysis found that only 0.3% of the fingerprints in our dataset                  ‘Is an Activity Human Subjects Research Covered by 45 CFR Part
+                                                                                      46?’ Based on this chart, we concluded that our project does not
+                                                                                      involve human subjects as defined under 45 CFR Part 46 and does
+                                                                                      not require IRB oversight.
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                   Faezeh Kalantari et al.
+
+
+Appendix-1
+Here is the list of features used for training of Browser Polygraph. The deviation-based features focus on counting JavaScript properties
+from the list of all MDN prototypes. These are initially filtered by standard deviation across all tested browsers during the candidate
+fingerprint generation stage, and then further filtered during the data pre-processing stage due to inconsistencies in actual browser data. The
+time-based features were initially derived from BrowserPrint [5]’s work, which examines the presence or absence of properties in browser
+releases. However, many of these features were subsequently filtered out as they did not track browser changes after 2020.
+
+                                        Table 8: Features set used for training of Browser Polygraph.
+
+                  Num                                               Feature                                          Type
+                    1                        Object.getOwnPropertyNames(Element.prototype).length                deviation-based
+                    2                        Object.getOwnPropertyNames(Document.prototype).length               deviation-based
+                    3                   Object.getOwnPropertyNames(HTMLElement.prototype).length                 deviation-based
+                    4                    Object.getOwnPropertyNames(SVGElement.prototype).length                 deviation-based
+                    5               Object.getOwnPropertyNames(SVGFEBlendElement.prototype).length               deviation-based
+                    6                   Object.getOwnPropertyNames(TextMetrics.prototype).length                 deviation-based
+                    7                         Object.getOwnPropertyNames(Range.prototype).length                 deviation-based
+                    8                   Object.getOwnPropertyNames(StaticRange.prototype).length                 deviation-based
+                    9      Object.getOwnPropertyNames(AuthenticatorAttestationResponse.prototype).length         deviation-based
+                   10                Object.getOwnPropertyNames(HTMLVideoElement.prototype).length               deviation-based
+                   11              Object.getOwnPropertyNames(ResizeObserverEntry.prototype).length              deviation-based
+                   12                    Object.getOwnPropertyNames(ShadowRoot.prototype).length                 deviation-based
+                   13                   Object.getOwnPropertyNames(PointerEvent.prototype).length                deviation-based
+                   14             Object.getOwnPropertyNames(IntersectionObserver.prototype).length              deviation-based
+                   15           Object.getOwnPropertyNames(CanvasRenderingContext2D.prototype).length            deviation-based
+                   16                  Object.getOwnPropertyNames(CSSStyleSheet.prototype).length                deviation-based
+                   17                   Object.getOwnPropertyNames(AudioContext.prototype).length                deviation-based
+                   18                 Object.getOwnPropertyNames(HTMLLinkElement.prototype).length               deviation-based
+                   19                Object.getOwnPropertyNames(HTMLMediaElement.prototype).length               deviation-based
+                   20            Object.getOwnPropertyNames(WebGL2RenderingContext.prototype).length             deviation-based
+                   21             Object.getOwnPropertyNames(WebGLRenderingContext.prototype).length             deviation-based
+                   22                        Object.getOwnPropertyNames(CSSRule.prototype).length                deviation-based
+                   23                         Navigator.prototype.hasOwnProperty(’deviceMemory’)                   time-based
+                   24                   BaseAudioContext.prototype.hasOwnProperty(’currentTime’)                   time-based
+                   25         HTMLVideoElement.prototype.hasOwnProperty(’webkitDisplayingFullscreen’)              time-based
+                   26                          Screen.prototype.hasOwnProperty(’orientation’)                      time-based
+                   27                        Window.prototype.hasOwnProperty(’speechSynthesis’)                    time-based
+                   28             CSSStyleDeclaration.prototype.hasOwnProperty(’getPropertyValue’)                 time-based
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+Appendix-2
+
+      Table 9: user-agents assigned to clusters by Browser Polygraph with a less optimal clusters’ number choice, k=6.
+
+                                                      Cluster                    user-agents
+                                                         0                  Chrome 114, Edge 114
+                                                         1        Chrome 90-96, Edge 90-96, Firefox 101-114
+                                                         2               Chrome 97-113, Edge 97-113
+                                                         3                Chrome 64-89, Edge 79-89
+                                                         4               Chrome 59-63, Firefox 51-100
+                                                         5                 Edge 17,18, Firefox 46-50
+
+
+
+Appendix-3
+Here are the list of 200 features used for the Real-World Data Collection stage besides 313 features from browserprint’s code [5]:
+
+Object.getOwnPropertyNames(Element.prototype).length
+Object.getOwnPropertyNames(Document.prototype).length
+Object.getOwnPropertyNames(HTMLElement.prototype).length
+Object.getOwnPropertyNames(SVGElement.prototype).length
+Object.getOwnPropertyNames(Navigator.prototype).length
+Object.getOwnPropertyNames(RTCIceCandidate.prototype).length
+Object.getOwnPropertyNames(SVGFEBlendElement.prototype).length
+Object.getOwnPropertyNames(TextMetrics.prototype).length
+Object.getOwnPropertyNames(Range.prototype).length
+Object.getOwnPropertyNames(StaticRange.prototype).length
+Object.getOwnPropertyNames(RTCRtpReceiver.prototype).length
+Object.getOwnPropertyNames(RTCPeerConnection.prototype).length
+Object.getOwnPropertyNames(AuthenticatorAttestationResponse.prototype).length
+Object.getOwnPropertyNames(FontFace.prototype).length
+Object.getOwnPropertyNames(HTMLVideoElement.prototype).length
+Object.getOwnPropertyNames(ResizeObserverEntry.prototype).length
+Object.getOwnPropertyNames(ShadowRoot.prototype).length
+Object.getOwnPropertyNames(RTCRtpSender.prototype).length
+Object.getOwnPropertyNames(PointerEvent.prototype).length
+Object.getOwnPropertyNames(Blob.prototype).length
+Object.getOwnPropertyNames(ServiceWorkerRegistration.prototype).length
+Object.getOwnPropertyNames(MediaSession.prototype).length
+Object.getOwnPropertyNames(PaymentResponse.prototype).length
+Object.getOwnPropertyNames(HTMLSourceElement.prototype).length
+Object.getOwnPropertyNames(Clipboard.prototype).length
+Object.getOwnPropertyNames(IDBTransaction.prototype).length
+Object.getOwnPropertyNames(Performance.prototype).length
+Object.getOwnPropertyNames(ServiceWorkerContainer.prototype).length
+Object.getOwnPropertyNames(HTMLIFrameElement.prototype).length
+Object.getOwnPropertyNames(PaymentRequest.prototype).length
+Object.getOwnPropertyNames(RTCRtpTransceiver.prototype).length
+Object.getOwnPropertyNames(IntersectionObserver.prototype).length
+Object.getOwnPropertyNames(CanvasRenderingContext2D.prototype).length
+Object.getOwnPropertyNames(CSSStyleSheet.prototype).length
+Object.getOwnPropertyNames(BaseAudioContext.prototype).length
+Object.getOwnPropertyNames(AudioContext.prototype).length
+Object.getOwnPropertyNames(HTMLLinkElement.prototype).length
+Object.getOwnPropertyNames(RTCDataChannel.prototype).length
+Object.getOwnPropertyNames(WritableStream.prototype).length
+Object.getOwnPropertyNames(DataTransferItem.prototype).length
+Object.getOwnPropertyNames(DocumentFragment.prototype).length
+Object.getOwnPropertyNames(HTMLMediaElement.prototype).length
+IMC ’24, November 4–6, 2024, Madrid, Spain                                    Faezeh Kalantari et al.
+
+
+Object.getOwnPropertyNames(StorageManager.prototype).length
+Object.getOwnPropertyNames(HTMLSlotElement.prototype).length
+Object.getOwnPropertyNames(Text.prototype).length
+Object.getOwnPropertyNames(WebGL2RenderingContext.prototype).length
+Object.getOwnPropertyNames(HTMLInputElement.prototype).length
+Object.getOwnPropertyNames(WebGLRenderingContext.prototype).length
+Object.getOwnPropertyNames(HTMLButtonElement.prototype).length
+Object.getOwnPropertyNames(HTMLTextAreaElement.prototype).length
+Object.getOwnPropertyNames(HTMLSelectElement.prototype).length
+Object.getOwnPropertyNames(MediaRecorder.prototype).length
+Object.getOwnPropertyNames(CountQueuingStrategy.prototype).length
+Object.getOwnPropertyNames(BytelengthQueuingStrategy.prototype).length
+Object.getOwnPropertyNames(PerformanceMark.prototype).length
+Object.getOwnPropertyNames(PerformanceMeasure.prototype).length
+Object.getOwnPropertyNames(HTMLImageElement.prototype).length
+Object.getOwnPropertyNames(SpeechSynthesisEvent.prototype).length
+Object.getOwnPropertyNames(HTMLFormElement.prototype).length
+Object.getOwnPropertyNames(IDBCursor.prototype).length
+Object.getOwnPropertyNames(HTMLTemplateElement.prototype).length
+Object.getOwnPropertyNames(CSSRule.prototype).length
+Object.getOwnPropertyNames(Location.prototype).length
+Object.getOwnPropertyNames(PaymentAddress.prototype).length
+Object.getOwnPropertyNames(IntersectionObserverEntry.prototype).length
+Object.getOwnPropertyNames(TextEncoder.prototype).length
+Object.getOwnPropertyNames(ImageData.prototype).length
+Object.getOwnPropertyNames(HTMLMetaElement.prototype).length
+Object.getOwnPropertyNames(Crypto.prototype).length
+Object.getOwnPropertyNames(GamepadButton.prototype).length
+Object.getOwnPropertyNames(DOMMatrixReadOnly.prototype).length
+Object.getOwnPropertyNames(MediaKeys.prototype).length
+Object.getOwnPropertyNames(MessageEvent.prototype).length
+Object.getOwnPropertyNames(IDBFactory.prototype).length
+Object.getOwnPropertyNames(MediaDevices.prototype).length
+Object.getOwnPropertyNames(OfflineAudioContext.prototype).length
+Object.getOwnPropertyNames(URL.prototype).length
+Object.getOwnPropertyNames(ScriptProcessorNode.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedNumberList.prototype).length
+Object.getOwnPropertyNames(ServiceWorker.prototype).length
+Object.getOwnPropertyNames(SensorErrorEvent.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedPreserveAspectRatio.prototype).length
+Object.getOwnPropertyNames(Sensor.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedRect.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedString.prototype).length
+Object.getOwnPropertyNames(Selection.prototype).length
+Object.getOwnPropertyNames(SecurityPolicyViolationEvent.prototype).length
+Object.getOwnPropertyNames(XPathExpression.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedNumber.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedTransformList.prototype).length
+Object.getOwnPropertyNames(Screen.prototype).length
+Object.getOwnPropertyNames(RTCTrackEvent.prototype).length
+Object.getOwnPropertyNames(SVGAnimateElement.prototype).length
+Object.getOwnPropertyNames(SVGAnimateMotionElement.prototype).length
+Object.getOwnPropertyNames(RTCStatsReport.prototype).length
+Object.getOwnPropertyNames(RTCSessionDescription.prototype).length
+Object.getOwnPropertyNames(SVGAnimateTransformElement.prototype).length
+Object.getOwnPropertyNames(ScreenOrientation.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedlengthList.prototype).length
+Object.getOwnPropertyNames(XPathResult.prototype).length
+Object.getOwnPropertyNames(SVGAngle.prototype).length
+Object.getOwnPropertyNames(SVGAElement.prototype).length
+Object.getOwnPropertyNames(SubtleCrypto.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedAngle.prototype).length
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+Object.getOwnPropertyNames(StyleSheetList.prototype).length
+Object.getOwnPropertyNames(StyleSheet.prototype).length
+Object.getOwnPropertyNames(StylePropertyMapReadOnly.prototype).length
+Object.getOwnPropertyNames(StylePropertyMap.prototype).length
+Object.getOwnPropertyNames(XPathEvaluator.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedBoolean.prototype).length
+Object.getOwnPropertyNames(SharedWorker.prototype).length
+Object.getOwnPropertyNames(StorageEvent.prototype).length
+Object.getOwnPropertyNames(Storage.prototype).length
+Object.getOwnPropertyNames(StereoPannerNode.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedEnumeration.prototype).length
+Object.getOwnPropertyNames(SpeechSynthesisUtterance.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedInteger.prototype).length
+Object.getOwnPropertyNames(SVGAnimatedlength.prototype).length
+Object.getOwnPropertyNames(SpeechSynthesisErrorEvent.prototype).length
+Object.getOwnPropertyNames(SourceBufferList.prototype).length
+Object.getOwnPropertyNames(SourceBuffer.prototype).length
+Object.getOwnPropertyNames(WebGLFramebuffer.prototype).length
+Object.getOwnPropertyNames(PresentationConnection.prototype).length
+Object.getOwnPropertyNames(Plugin.prototype).length
+Object.getOwnPropertyNames(PluginArray.prototype).length
+Object.getOwnPropertyNames(PopStateEvent.prototype).length
+Object.getOwnPropertyNames(Presentation.prototype).length
+Object.getOwnPropertyNames(PresentationAvailability.prototype).length
+Object.getOwnPropertyNames(PresentationConnectionAvailableEvent.prototype).length
+Object.getOwnPropertyNames(PresentationConnectionCloseEvent.prototype).length
+Object.getOwnPropertyNames(PresentationConnectionList.prototype).length
+Object.getOwnPropertyNames(PresentationReceiver.prototype).length
+Object.getOwnPropertyNames(PresentationRequest.prototype).length
+Object.getOwnPropertyNames(ProcessingInstruction.prototype).length
+Object.getOwnPropertyNames(PictureInPictureWindow.prototype).length
+Object.getOwnPropertyNames(PermissionStatus.prototype).length
+Object.getOwnPropertyNames(PromiseRejectionEvent.prototype).length
+Object.getOwnPropertyNames(PerformanceNavigationTiming.prototype).length
+Object.getOwnPropertyNames(PerformanceObserver.prototype).length
+Object.getOwnPropertyNames(PerformanceObserverEntryList.prototype).length
+Object.getOwnPropertyNames(PerformancePaintTiming.prototype).length
+Object.getOwnPropertyNames(Permissions.prototype).length
+Object.getOwnPropertyNames(PerformanceResourceTiming.prototype).length
+Object.getOwnPropertyNames(PerformanceServerTiming.prototype).length
+Object.getOwnPropertyNames(PerformanceTiming.prototype).length
+Object.getOwnPropertyNames(PeriodicWave.prototype).length
+Object.getOwnPropertyNames(ProgressEvent.prototype).length
+Object.getOwnPropertyNames(PublicKeyCredential.prototype).length
+Object.getOwnPropertyNames(RTCDTMFToneChangeEvent.prototype).length
+Object.getOwnPropertyNames(RTCCertificate.prototype).length
+Object.getOwnPropertyNames(RTCDataChannelEvent.prototype).length
+Object.getOwnPropertyNames(RTCDTMFSender.prototype).length
+Object.getOwnPropertyNames(RTCPeerConnectionIceEvent.prototype).length
+Object.getOwnPropertyNames(Response.prototype).length
+Object.getOwnPropertyNames(PushManager.prototype).length
+Object.getOwnPropertyNames(PushSubscription.prototype).length
+Object.getOwnPropertyNames(PushSubscriptionOptions.prototype).length
+Object.getOwnPropertyNames(RadioNodeList.prototype).length
+Object.getOwnPropertyNames(ReadableStream.prototype).length
+Object.getOwnPropertyNames(ResizeObserver.prototype).length
+Object.getOwnPropertyNames(RelativeOrientationSensor.prototype).length
+Object.getOwnPropertyNames(RemotePlayback.prototype).length
+Object.getOwnPropertyNames(ReportingObserver.prototype).length
+Object.getOwnPropertyNames(Request.prototype).length
+Object.getOwnPropertyNames(SVGAnimationElement.prototype).length
+Object.getOwnPropertyNames(XMLHttpRequestEventTarget.prototype).length
+IMC ’24, November 4–6, 2024, Madrid, Spain                                Faezeh Kalantari et al.
+
+
+Object.getOwnPropertyNames(SVGCircleElement.prototype).length
+Object.getOwnPropertyNames(TreeWalker.prototype).length
+Object.getOwnPropertyNames(WebGLTexture.prototype).length
+Object.getOwnPropertyNames(TextDecoderStream.prototype).length
+Object.getOwnPropertyNames(TextEncoderStream.prototype).length
+Object.getOwnPropertyNames(WebGLSync.prototype).length
+Object.getOwnPropertyNames(TextTrack.prototype).length
+Object.getOwnPropertyNames(TextTrackCue.prototype).length
+Object.getOwnPropertyNames(TextTrackCueList.prototype).length
+Object.getOwnPropertyNames(WebGLShaderPrecisionFormat.prototype).length
+Object.getOwnPropertyNames(TextTrackList.prototype).length
+Object.getOwnPropertyNames(TimeRanges.prototype).length
+Object.getOwnPropertyNames(Touch.prototype).length
+Object.getOwnPropertyNames(TouchEvent.prototype).length
+Object.getOwnPropertyNames(TouchList.prototype).length
+Object.getOwnPropertyNames(TrackEvent.prototype).length
+Object.getOwnPropertyNames(TransformStream.prototype).length
+Object.getOwnPropertyNames(WebGLTransformFeedback.prototype).length
+Object.getOwnPropertyNames(TextDecoder.prototype).length
+Object.getOwnPropertyNames(WebGLUniformLocation.prototype).length
+Object.getOwnPropertyNames(SVGTitleElement.prototype).length
+Object.getOwnPropertyNames(WebGLVertexArrayObject.prototype).length
+Object.getOwnPropertyNames(SVGSymbolElement.prototype).length
+Object.getOwnPropertyNames(SVGTextContentElement.prototype).length
+Object.getOwnPropertyNames(SVGTextElement.prototype).length
+Object.getOwnPropertyNames(SVGTextPathElement.prototype).length
+Object.getOwnPropertyNames(SVGTextPositioningElement.prototype).length
+Object.getOwnPropertyNames(SVGTransform.prototype).length
+Object.getOwnPropertyNames(TaskAttributionTiming.prototype).length
+Object.getOwnPropertyNames(SVGTransformList.prototype).length
+Object.getOwnPropertyNames(SVGTSpanElement.prototype).length
+Object.getOwnPropertyNames(SVGUnitTypes.prototype).length
+Object.getOwnPropertyNames(SVGUseElement.prototype).length
+Object.getOwnPropertyNames(SVGViewElement.prototype).length
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers        IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+Appendix-4
+To conduct an internal performance analysis on our trained model, it is essential to first define our accuracy metric. As mentioned in this paper, we are using a
+semi-supervised learning method (i.e. clustering). Our defined accuracy metric is how accurately our clusters represent the user-agent instances. For this
+evaluation, we consider a cluster assignment to be accurate if all instances of the same user-agent are mapped to the same cluster number (i.e., the one with
+the majority of data points for that user-agent string).
+
+
+                                                           Number of user-agents mapped to their corresponding clusters
+                                      Model accuracy =                                                                                                                 (1)
+                                                                           Total number of user-agents
+
+
+    For example, if the majority of the data points with the user-agent of Chrome110 are assigned to cluster 0, we consider cluster 0 as the corresponding
+cluster for Chrome110. Any data point with the user-agent of Chrome110 that is assigned to a different cluster number is considered misclustered. Thus,
+when discussing model accuracy in the context of the following sensitivity analysis, we refer to the percentage of data in the dataset that is correctly assigned
+to the appropriate cluster numbers (Formula 1).
+    For the Browser Polygraph model trained in this paper, as discussed in Section 6.4, we have determined that 28 features, 7 PCA components, and 11
+clusters (k=11) are optimal for our fraud detection objectives. With these parameters, our model achieves a 99.6% accuracy in correctly assigning user-agent
+instances to clusters. We will demonstrate how changes to the number of clusters, PCA components, and features impact the accuracy of the trained model in
+Browser Polygraph.
+    • Number of clusters: to evaluate the impact of varying the number of clusters on model accuracy, we trained our model using different numbers of
+clusters (5, 7, 9, 11, 13, 15, 17, and 19) while maintaining a consistent feature set of 28 attributes and 7 principal components. As shown in Table 10, model
+accuracy generally decreases as the number of clusters increases. With a higher number of clusters, browser instances with close versions are more likely to
+be misclustered. This occurs because increasing the number of clusters separates instances with closely aligned feature values, whereby assigning them to
+distinct clusters.
+    An important consideration arises: why not use fewer clusters (i.e., fewer than k=11)? In practice, selecting too few clusters provides attackers with greater
+flexibility to manipulate browser attributes, enabling them to evade detection by Browser Polygraph. From a fraud detection standpoint, while using a larger
+number of clusters might detect more potential fraud cases, it is essential not to compromise accuracy, as this can lead to an increase in false positives, i.e.
+incorrectly identifying a non-fraudulent browser instance as a fraud case. As illustrated in Table 10, there is a noticeable decrease in accuracy (0.2%) from k=11
+to k=13, indicating that k=11 is an optimal choice for balancing cluster count and model accuracy.
+    • Number of PCA components: here, we evaluate the influence of the number of PCA components on our model’s accuracy, while keeping the number of
+features at 28. Table 11 presents our analysis for PCA components equal to 6 and greater than 6. Each experiment is followed by a similar analysis as detailed in
+Section 6.4 to determine the optimal number of clusters. We observe an increase in accuracy from PCA=6 to PCA=7, indicating that the additional component
+provides valuable information for accurately clustering browser instances. However, adding more components beyond 7 leads to a decrease in accuracy due to
+the introduction of noise. This observation can be attributed to the “curse of dimensionality,” a phenomenon that occurs when too many features—particularly
+irrelevant or noisy ones—are added to a model. In high-dimensional spaces, data points become more sparse, leading to reduced clustering accuracy. Therefore,
+7 number of PCA components lead to the most accurate clustering.
+    • Number of features: here, we explore the influence of selecting more than 28 features on the training process. We analyzed all 513 features from our
+dataset of 205k rows. The values were sorted based on standard deviation (excluding those deemed improper in Section 6.3), and at each step, we selected 4
+additional features from those with higher standard deviations. Out of the 4 features added in each step, two were present across the releases of Chrome, Edge,
+and Firefox browsers, highlighting differences between browser versions. Meanwhile, the other two features, which are absent in Firefox, were selected
+to emphasize the differences between Firefox and Chrome/Edge browsers. For each step, we extracted the optimal number of PCA components (similar to
+Figure 2) based on the analysis in Section 6.4 and also determined the optimal number of clusters according to the logic in Section 6.4, by observing the
+highest relative WSS. The list of added features and the results of our analysis for each step are shown in Table 12. Moving from 28 to 32 features does not
+affect the number of PCA components or clusters; however, it decreases model accuracy. We believe this accuracy reduction is due to the introduction of noise
+and the curse of dimensionality from the added features. However, increasing the number of features in the other steps (i.e., steps with 36 and 42 features)
+does not impact the number of PCA components, but it increases the number of optimal clusters. This is because the added features introduce additional
+dimensions to our data points, potentially leading to the formation of more clusters, which, in turn, reduces model accuracy. To summarize, the analysis in
+Table 12 shows a decrease in accuracy as the number of features and clusters increases. For instance, increasing the number of features from 28 to 32 causes
+
+
+              Table 10: Sensitivity analysis for increased number of clusters with 28 features and 7 PCA components.
+
+                             Number of clusters           5          7         9         11        13        15            17          19
+                                Model accuracy         99.88%     99.69%    99.58%    99.60%     99.40%    99.31%     99.29%        99.26%
+
+
+                        Table 11: Sensitivity analysis for different number of PCA components with 28 features.
+
+                                       Number of PCA components                 6         7         8          9           10
+                                        Optimal number of clusters             11        11         11        11           11
+                                               Model accuracy                99.54%    99.60%    99.46%     99.46%    99.46%
+IMC ’24, November 4–6, 2024, Madrid, Spain                                                                                             Faezeh Kalantari et al.
+
+
+                                         Table 12: Sensitivity analysis for different number of features.
+
+   Features     Names of added features                                                                                   PCA     k    Model accuracy
+   28           Appendix-2                                                                                                  7     11        99.60%
+                Object.getOwnPropertyNames(HTMLIFrameElement.prototype).length
+                Object.getOwnPropertyNames(SVGAElement.prototype).length
+   32                                                                                                                       7     11        99.52%
+                Object.getOwnPropertyNames(RemotePlayback.prototype).length
+                Object.getOwnPropertyNames(StylePropertyMapReadOnly.prototype).length
+                Object.getOwnPropertyNames(Screen.prototype).length
+                Object.getOwnPropertyNames(Request.prototype).length
+   36                                                                                                                       7     12        99.41%
+                Object.getOwnPropertyNames(TouchEvent.prototype).length
+                Object.getOwnPropertyNames(TaskAttributionTiming.prototype).length
+                Object.getOwnPropertyNames(PictureInPictureWindow.prototype).length
+                Object.getOwnPropertyNames(ReportingObserver.prototype).length
+   42                                                                                                                       7     14        99.41%
+                Object.getOwnPropertyNames(HTMLTemplateElement.prototype).length
+                Object.getOwnPropertyNames(MediaSession.prototype).length
+
+
+the accuracy to drop by 0.08%, which, for a dataset of 200k rows, could result in up to 160 additional false positives in the fraud detection system (a 13%
+increase compared to a model with 28 features).
+   The three evaluations above clearly demonstrate that our chosen parameters in Browser Polygraph (28 features, 7 PCA components, and k=11 clusters)
+lead to optimal accuracy in clustering browser instances.
+Browser Polygraph: Efficient Deployment of Coarse-Grained Browser Fingerprints for Web-Scale Detection of Fraud Browsers   IMC ’24, November 4–6, 2024, Madrid, Spain
+
+
+Appendix-5
+In this section, a performance comparison between Browser Polygraph and fine-grained fingerprinting techniques is provided. Synthetic data is being used
+to compare Browser Polygraph coarse-grained fingerprints and two of the fine-grained fingerprinting techniques (FingerprintJS and ClientJS).
+    Before diving into the experiments conducted, we would like to reiterate that fine-grained fingerprinting techniques were originally designed for user
+tracking by collecting detailed information about a user’s OS, browser, configuration, and underlying hardware. These techniques typically generate a JSON
+object containing these details, which is hashed to create a user identifier for tracking purposes. However, to provide a testbed for comparison between
+fine-grained techniques and our proposed method, we have to further process the JSON object generated by the fine-grained fingerprinting data to extract
+relevant information that can be used as the inputs of a clustering method.
+    In this synthetic setup, we used BrowserStack to launch Chrome, Edge, and Firefox browser instances on Windows 10 and 11. The synthetic data are
+collected from (1) our developed website for Browser Polygraph, (2) FingerprintJS website, and (3) a custom website for ClientJS. In this experiment, we
+extracted 430 fingerprints from Browser Polygraph, 382 fingerprints from FingerprintJS, and 391 fingerprints from ClientJS along with their corresponding
+user-agent strings. To prepare the FingerprintJS and ClientJS data for clustering, we had to interpret the fingerprints provided in the JSON format. To do so,
+for nested objects within the JSON, we flattened the data by creating separate columns for each key. Then, we converted all values into numerical formats:
+numeric values were left unchanged, boolean values were mapped to 0 and 1, and strings were encoded as numerical categories. Any missing values were
+assigned a default value of -1. Subsequently, columns with unique values across all data points were excluded. Additionally, for ClientJS, since some features
+were directly extracted from the user-agent string, we excluded those features as well. All other features were retained for clustering. Ultimately, 268 features
+were extracted for clustering FingerprintJS data while only 7 useful features from ClientJS were obtained, as ClientJS does not provide many descriptive
+browser features. We also used 28 features from Browser Polygraph as discussed in Section 6.4.
+    To perform clustering, we followed features scaling, PCA components selection, and cluster numbers selection as described in Section 6.4. Details and
+results of clustering for these three datasets are shown in Table 13. As can be seen, clustering model in Browser Polygraph achieved 100% accuracy as it did
+not miscluster any browser instance. However, FingerprintJS had 99.21% model accuracy and ClientJS had model accuracy of 93.63% which falls behind the
+other two techniques. The results show that the coarse-grained features of Browser Polygraph outperform fine-grained techniques in clustering. That
+is because the coarse-grained features of Browser Polygraph provide broad insights into the behavior and attributes of browsers. In fact, broad features
+offer a more comprehensive view of the data, aiding in effectively grouping similar browsers. This causes the clustering based on coarse-grained features to
+outperform clustering that relies on fine-grained fingerprinting features, which collect detailed and individualistic user tracking information.
+
+Table 13: Comparison of clustering performance between Browser Polygraph and fine-grained fingerprinting techniques
+using synthetic data generated by BrowserStack across Windows 10 and Windows 11 (for Chrome, Edge, and Firefox).
+
+                                         Technique              Size of dataset     Features     PCA      k    Model accuracy
+                                   Browser Polygraph                  430               28        13      14          100%
+                                        FingerprintJS                 382              268        55      16         99.21%
+                                           ClientJS                   391               7          2      5          93.60%
+
+
+   Similar to Windows 10 and 11 as mentioned above, we repeated the synthetic experiment to collect the data for Browser Polygraph, FingerprintJS, and
+ClientJS on macOS Sequoia and macOS Sonoma. The results are shown in Table 14. As can be seen, the performance of clustering for the three methods on
+macOS is similar to the performances observed for Windows.
+
+Table 14: Comparison of clustering performance between Browser Polygraph and fine-grained fingerprinting techniques
+using synthetic data generated by BrowserStack across macOS Sequoia and macOS Sonoma (for Chrome, Edge, and Firefox).
+
+                                         Technique              Size of dataset     Features     PCA      k    Model accuracy
+                                   Browser Polygraph                  320               28        11      14          100%
+                                        FingerprintJS                 325              589        36      9          99.38%
+                                           ClientJS                   327               4          2      15         85.93%
+
+
+  The analysis in this section highlights that the explored fine-grained fingerprinting techniques, in their current form and without additional preprocessing,
+may not be well-suited for clustering purposes.
+
