@@ -117,7 +117,7 @@ Shrink the v7 output below the 241KB pre-CFF baseline AND further improve readab
 
 ## TODOs
 
-- [ ] 1. **`xt_unwrap.rs`** — normalize the Xt wrapper idiom (easy win)
+- [x] 1. **`xt_unwrap.rs`** — normalize the Xt wrapper idiom (easy win) — **RESOLVED**: Xt was an addition proxy (`a+b`) missed by operator_proxy due to name collision with a lookup forwarder. Fixed in `lookup_forwarder.rs`. 289 call sites inlined, 0 remaining.
 
   **What to do**:
   - First, FIND the definition of `Xt` in the BMP output. Grep for `function Xt` and `var Xt = function`
