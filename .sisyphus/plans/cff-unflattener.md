@@ -213,7 +213,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 5. **dispatcher_detector.rs** — new pass
+- [x] 5. **dispatcher_detector.rs** — new pass
 
   **What to do**:
   - Scan top-level (or function-expression-assigned) functions matching shape:
