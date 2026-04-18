@@ -142,7 +142,7 @@ Shrink the v7 output below the 241KB pre-CFF baseline AND further improve readab
 
 ---
 
-- [ ] 2. **Extend `trampoline.rs` for in-body wrappers**
+- [x] 2. **Extend `trampoline.rs` for in-body wrappers** — 77 trampolines found (was 62), 104 inlined (was 88). Remaining `.apply(this,[...])` reduced from 40 to 11.
 
   **What to do**:
   - The current trampoline pass detects top-level `var F = function() { return D.apply(this, [S, arguments]); }` + bare `function F() { ... }`
