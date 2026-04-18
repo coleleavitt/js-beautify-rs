@@ -1,12 +1,12 @@
 {
-  "active_plan": "/home/cole/RustProjects/active/js-beautify-rs/.sisyphus/plans/omo-memory-system.md",
-  "started_at": "2026-04-14T06:15:29.816Z",
+  "active_plan": "/home/cole/RustProjects/active/js-beautify-rs/.sisyphus/plans/cff-unflattener.md",
+  "started_at": "2026-04-18T04:04:24.424Z",
   "session_ids": [
-    "ses_282d9b09affef3hajzpRya7SFF"
+    "ses_261f4ed42ffe0Tie30FYbu3r4r"
   ],
   "session_origins": {
-    "ses_282d9b09affef3hajzpRya7SFF": "direct"
+    "ses_261f4ed42ffe0Tie30FYbu3r4r": "direct"
   },
-  "plan_name": "omo-memory-system",
+  "plan_name": "cff-unflattener",
   "agent": "atlas"
 }

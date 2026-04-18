@@ -135,7 +135,7 @@ Wave Final — Verification
 
 ## TODOs
 
-- [ ] 1. **call_this_simplifier.rs** — rewrite `X.call(this, ...)` → `X(...)` when `X` is a plain identifier and context inference shows `this` is unchanged
+- [x] 1. **call_this_simplifier.rs** — rewrite `X.call(this, ...)` → `X(...)` when `X` is a plain identifier and context inference shows `this` is unchanged
 
   **What to do**:
   - New pass file following the style of `apply_call_simplifier.rs`
@@ -158,7 +158,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 2. **Extend apply_call_simplifier for `.call(null, ...)`**
+- [x] 2. **Extend apply_call_simplifier for `.call(null, ...)`**
 
   **What to do**:
   - `.call(null, ARG, ARG)` → direct `IDENT(ARG, ARG)` when context doesn't matter
@@ -176,7 +176,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 3. **Extend trampoline.rs for 2-level `.apply(this, [S, arguments])` pattern**
+- [x] 3. **Extend trampoline.rs for 2-level `.apply(this, [S, arguments])` pattern**
 
   **What to do**:
   - Pattern: `function (x) { return F.apply(this, [S, arguments]); }` — same as trampoline but with a declared parameter `x`
@@ -196,7 +196,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 4. **Extend boolean_literals.rs for `!!x`**
+- [x] 4. **Extend boolean_literals.rs for `!!x`**
 
   **What to do**:
   - Detect `UnaryExpression(LogicalNot, UnaryExpression(LogicalNot, X))`
