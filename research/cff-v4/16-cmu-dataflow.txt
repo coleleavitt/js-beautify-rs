@@ -1,0 +1,428 @@
+                                                              Lecture 4
+
+                                                 Introduction to Data Flow Analysis
+
+                              I              Structure of data flow analysis
+                              II             Example 1: Reaching definition analysis
+                              III            Example 2: Liveness analysis
+                              IV             Generalization
+
+                         Reference: Chapter 8, 8.1-4
+
+
+
+
+                                                                                       Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                1                                      T. Mowry
+
+
+
+
+                                                     Data Flow Analysis
+
+
+          • Local analysis (e.g. value numbering)
+                      • analyze effect of each instruction
+                      • compose effects of instructions to derive information
+                        from beginning of basic block to each instruction
+
+
+          • Data flow analysis
+                      • analyze effect of each basic block
+                      • compose effects of basic blocks to derive information
+                        at basic block boundaries
+                      • (from basic block boundaries,
+                        apply local technique to generate information on instructions)
+
+
+
+
+                                                                                       Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                2                                      T. Mowry
+                                                     Effects of a basic block
+          • Effect of a statement: a = b+c
+                      • Uses variables (b, c)
+                      • Kills an old definition (old definition of a)
+                      • new definition (a)
+          • Compose effects of statements -> Effect of a basic block
+                      • A locally exposed use in a b.b. is a use of a data item which is
+                        not preceded in the b.b. by a definition of the data item
+                      • any definition of a data item in the basic block kills all definitions
+                        of the same data item reaching the basic block.
+                      • A locally available definition = last definition of data item in b.b.
+                                                          t1 = r1+r2
+                                                          r2 = t1
+                                                          t2 = r2+r1
+                                                          r1 = t2
+                                                          t3 = r1*r1
+                                                          r2 = t3
+                                                          if r2>100 goto L1
+
+                                                                                Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis               3                                T. Mowry
+
+
+
+
+                                                      Across Basic Blocks
+          • Static program vs. dynamic execution
+
+                             a = x
+
+
+                             if input()                 exit
+
+                              b = a
+                              a = y
+
+
+
+          • Statically: Finite program
+            Dynamically: Potentially infinite possible execution paths
+          • Can reason about each possible path
+            as if all instructions executed are in one basic block
+          • Data flow analysis:
+            Associate with each static point in the program
+            information true of
+            the set of dynamic instances of that program point
+
+                                                                                Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis               4                                T. Mowry
+                                                      II. Reaching Definitions
+                      • A definition of a variable x
+                        is a statement that assigns, or may assign, a value to x.
+                      • A definition d reaches a point p
+                        if there exists a path from the point immediately following d to p
+                        such that d is not killed along that path.
+
+                                      a = x                              d1: a = 10
+                                                                         d2: b = 11
+                                                                            if e
+                                      if input()           exit
+
+                                       b = a                      d3. a = 1       d5: c = a
+                                                                  d4: b = 2       d6: a = 4
+                                       a = y
+
+
+
+                      • Problem statement
+                           • For each basic block b,
+                             determine if each definition in the program reaches b
+                      • A representation:
+                           • IN[b], OUT[B]: a bit vector, one bit for each definition
+                                                                                        Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                5                                       T. Mowry
+
+
+
+
+                Describing Effects of the Nodes (basic blocks)
+                   Schema                                   Example
+                                                                              d1: a = 10
+                                                                              d2: b = 11
+                                                                                 if e
+                               IN [b]
+
+                                 b               fb
+                                                                      d3. a = 1     d5: c = a
+                            OUT [b] = fb(IN[b])                       d4: b = 2     d6: a = 4
+
+
+
+
+         • a transfer function fb of a basic block b:
+                                    OUT[b] = fb(IN[b])
+           incoming reaching definitions -> outgoing reaching definitions
+         • A basic block b
+                      • generate definitions: Gen[b],
+                           set of locally available definitions in b
+                      • propagate definitions: in[b] - Kill[b],
+                        where Kill[b]=set of defs (in rest of program) killed by defs in b
+
+         • out[b] = Gen[b] U (in(b)-Kill[b])
+                                                                                        Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                6                                       T. Mowry
+                                            Effects of the Edges (acyclic)
+
+                                                          entry                        f Gen   Kill
+                                        out[entry]
+                                                                                       1 {1,2} {3,4,6}
+                                               in[1]                                   2 {3,4} {1,2,6}
+                                                            f1                         3 {5,6} {1,3}
+                                            out[1]
+
+                              in[2]                                           in[3]
+                                                     f2             f3
+                            out[2]                                            out[3]
+                                                                   in[exit]
+                                                          exit
+
+
+
+                      • out[b] = fb(in[b])
+                      • Join node: a node with multiple predecessors
+                      • meet operator:
+                                 in[b] = out[p1] U out[p2] U ... U out[pn], where
+                                      p1, ..., pn are all predecessors of b
+
+                                                                                               Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                    7                                          T. Mowry
+
+
+
+
+                                                           Cyclic Graphs
+                                  entry
+                         out[entry]
+                         in[1]
+                                        d1: a = 10
+                        out[1]
+
+                         in[2]                               in[exit]
+                                               if e               exit
+                       out[2]
+
+                         in[3]
+                                       d2: a = 11
+                         out[3]
+
+
+
+                      • Equations still hold
+                          • out[b] = fb(in[b])
+                          • in[b] = out[p1] U out[p2] U ... U out[pn], p1, ..., pn pred.
+                      • Solve for fixed point solution
+
+
+
+                                                                                               Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                    8                                          T. Mowry
+                         Reaching Definitions: Worklist Algorithm
+          input: control flow graph CFG = (N, E, Entry, Exit)
+
+          // Initialize
+               out[Entry] = ∅                                     // can set out[Entry] to special def
+                                                                  // if reaching then undefined use
+                      For all nodes i
+                          out[i] = ∅                                 // can optimize by out[i]=gen[i]
+                      ChangedNodes = N
+
+          // iterate
+               While ChangedNodes ≠ ∅ {
+                  Remove i from Changed Nodes
+                  in[i] = U (out[p]), for all predecessors p of i
+                  oldout = out[i]
+                  out[i] = fi(in[i])   // out[i]=gen[i]U(in[i]-kill[i])
+                              if oldout ≠ out[i] {
+                                 for all successors s of i
+                                    add s to ChangedNodes
+                              }
+                      }
+
+                                                                                          Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                     9                                    T. Mowry
+
+
+
+
+                                                                  Example
+
+                                                          entry
+
+
+                                                     d1: i = m-1
+                                        B1           d2: j = n
+                                                     d3: a = u1
+
+
+
+                                        B2           d4: i = i+1
+                                                     d5: j = j-1
+
+
+             B3        d6: a = u2
+
+
+                                        B4           d7: i = u3
+
+
+
+                                                        exit
+
+
+
+                                                                                          Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                     10                                   T. Mowry
+                                                     III. Live Variable Analysis
+          • Definition
+                      • A variable v is live at point p
+                        if the value of v is used
+                        along some path in the flow graph starting at p.
+                      • Otherwise, the variable is dead.
+          • Motivation
+                      • e.g. register allocation
+                              for i = 0 TO n
+                                 .. i ..
+                              ...
+                              for i = 0 to n
+                                 .. i ..
+          • Problem statement
+                      • For each basic block
+                           • determine if each variable is live in each basic block
+                      • Size of bit vector: one bit for each variable
+
+
+                                                                                              Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                    11                                        T. Mowry
+
+
+
+
+                    Effects of a Basic Block (Transfer Function)
+          • Observation:Trace uses backwards to the definitions
+                    an execution path                          control flow               example
+                                                     def                                  d3: a = 1
+                                                              IN[b]        = fb(OUT[b])
+                                                                                          d4: b = 1
+                                                     def        b          fb
+                                                                                          d5: c = a
+                                                             OUT[b]                       d6: a = 4
+                                                     use
+
+
+          • A basic block b can
+                      • generate live variables:
+                             Use[b], set of locally exposed uses in b
+                      • propagate incoming live variables: OUT[b] - Def[b],
+                             where Def[b]= set of variables defined in b.b.
+          • transfer function for block b:
+                       in[b] = Use[b] U (out(b)-Def[b])
+
+
+
+                                                                                              Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                    12                                        T. Mowry
+                                                                 Flow Graph
+
+                                     out[entry]           entry                           f Use   Def
+                                                                                          1 {e}   {a,b}
+                                           in[1]                                          2 {}    {a,b}
+                                                     f1                                   3 {a}   {a,c}
+                                         out[1]
+                           in[2]                                                 in[3]
+                                                f2                   f3
+                         out[2]                                                  out[3]
+
+                                                                  in[exit]
+                                                          exit
+
+
+
+                      • in[b] = fb(out[b])
+                      • Join node: a node with multiple successors
+                      • meet operator:
+                                 out[b] = in[s1] U in[s2] U ... U in[sn], where
+                                      s1, ..., sn are all successors of b
+
+                                                                                                  Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                        13                                        T. Mowry
+
+
+
+
+                                     Live Variable: Worklist Algorithm
+          input: control flow graph CFG = (N, E, Entry, Exit)
+
+          // Initialize
+               in[Exit] = ∅                                                  //local variables
+               For all nodes i
+                   in[i] = ∅                                                 //can optimize by in[i]=use[i]
+               ChangedNodes = N
+
+          // iterate
+               While ChangedNodes ≠ ∅ {
+                  Remove i from Changed Nodes
+                  out[i] = U (in[s]), for all successors s of i
+                  oldin = in[i]
+                  in[i] = fi(out[i])     //in[i]=use[i]U(out[i]-def[i])
+                              if oldin ≠ in[i] {
+                                 for all predecessors p of i
+                                    add p to ChangedNodes
+                              }
+                      }
+
+
+                                                                                                  Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                        14                                        T. Mowry
+                                                                   Example
+
+                                                           entry
+
+
+                                                     d1: i = m-1
+                                          B1         d2: j = n
+                                                     d3: a = u1
+
+
+
+                                          B2         d4: i = i+1
+                                                     d5: j = j-1
+
+
+              B3         d6: a = u2
+
+
+                                          B4         d7: i = u3
+
+
+
+                                                        exit
+
+
+
+                                                                                                     Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                          15                                          T. Mowry
+
+
+
+
+                                                               IV. Framework
+
+
+                                                          Reaching Definitions                Live Variables
+           Domain                                     Sets of definitions             Sets of variables
+           Transfer function
+           fb(x)
+           Generate U Propagate
+           direction of function                      forward: out[b] = fb(in[b])     backward: in[b] = fb(out[b])
+           Generate                                   Genb (Genb: definitions in b)   Useb (Useb: var. used in b)
+           Propagate                                  in[b]-Killb (Killb: killed defs) out[b]-Defb (Defb:var defined)
+           Merge operation                            U (in[b]=U out[predecessors]) U (out[b]= U in[successors])
+           Initialization                             out[entry] = ∅                  in[exit] = ∅
+                                                      out[b] = ∅                      in[b] = ∅
+
+
+
+
+                                                                                                     Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis                          16                                          T. Mowry
+                                                     Questions
+         • Correctness
+                      • equations are satisfied, if the program terminates.
+
+         • Precision: how good is the answer?
+                      • is the answer ONLY a union of all possible executions?
+
+         • Convergence: will the analysis terminate?
+                      • or, will there always be some nodes that change?
+
+         • Speed: how fast is the convergence?
+                      • how many times will we visit each node?
+
+
+
+
+                                                                              Carnegie Mellon
+Optimizing Compilers - Intro to Data Flow Analysis       17                                     T. Mowry
+

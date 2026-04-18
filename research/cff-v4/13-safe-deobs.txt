@@ -1,0 +1,397 @@
+              Optimizing Away JavaScript Obfuscation
+                                                        Adrian Herrera
+                                            Defence Science and Technology Group
+                                              adrian.herrera@dst.defence.gov.au
+
+
+   Abstract—JavaScript is a popular attack vector for releasing      • Applying techniques rooted in compiler theory to the task
+malicious payloads on unsuspecting Internet users. Authors of          of deobfuscating JavaScript malware;
+this malicious JavaScript often employ numerous obfuscation          • The design and implementation of SAFE-D EOBS , an
+techniques in order to prevent the automatic detection by
+antivirus and hinder manual analysis by professional malware           open-source tool to assist malware analysts to better
+analysts. Consequently, this paper presents SAFE-D EOBS, a             understand JavaScript malware; and
+JavaScript deobfuscation tool that we have built. The aim            • An evaluation of SAFE-D EOBS on a large corpus of real-
+of SAFE-D EOBS is to automatically deobfuscate JavaScript              world JavaScript malware.
+malware such that an analyst can more rapidly determine the
+malicious script’s intent. This is achieved through a number of      Unless otherwise stated, all malicious code used in this
+static analyses, inspired by techniques from compiler theory. We   paper is taken from real-world malware.
+demonstrate the utility of SAFE-D EOBS through a case study
+on real-world JavaScript malware, and show that it is a useful               II. BACKGROUND AND R ELATED W ORK
+addition to a malware analyst’s toolset.                              Software obfuscation has many legitimate uses: digital
+   Index Terms—javascript, malware, obfuscation, static analysis   rights management, software diversity (for software protec-
+                                                                   tion), and tamper protection, to name a few. However, software
+                                                                   obfuscation is being increasingly co-opted by malware authors
+                      I. I NTRODUCTION                             to thwart program analysis (both automated and manual).
+   The past decade has seen JavaScript’s popularity steadily          When discussing JavaScript obfuscation (and obfuscation
+increase (and continue to increase): the language is supported     of other scripting languages; e.g., PHP, PowerShell), it is
+by all modern web browsers and used in 95% of all web-             important to differentiate obfuscation from minification. Mini-
+sites [1]; it constantly ranks within the top ten most popular     fication reduces code size by removing unnecessary charac-
+programming languages [2–4]; and thousands of libraries and        ters/strings (e.g., whitespace and comments) and shortening
+frameworks have been built on top of it [5]. However, this         variable names. Small code size means less data to download
+pervasiveness has a dark side: the ubiquity of JavaScript on       over the Internet, which leads to reduced web page load
+the Internet has also made it popular amongst people with          times. In contrast, the aim of obfuscation is to make the code
+malicious intent. For example, JavaScript is commonly used         difficult to read and understand. Undoing most minification
+for gaining initial code execution via a browser or PDF reader     (commonly referred to as “beautification”) is trivial—e.g., by
+vulnerability [6, 7], installing cryptocurrency miners [8], and    (re)inserting whitespace—and many tools exist to do this (e.g.,
+in cross-site scripting (XSS) and cross-site request forgery       UglifyJS [15], which we applied to the code in Listing 1).
+(CSRF) attacks.                                                    In contrast, deobfuscation often requires advanced program
+   The rise of malicious JavaScript (“JavaScript malware”)         analyses (e.g., symbolic execution [16] and abstract interpre-
+has resulted in a renewed focus by both antivirus companies        tation [17]). Like Lu and Debray [10], we do not consider
+and security researchers [7–12]. In turn, authors of JavaScript    minification as obfuscation.
+malware have increasingly turned to obfuscation as a means of
+(i) hiding from automatic detection by anti-virus products, and     1 // From 20151226_9474ac02eae3bbe9bcf19d94c8e68a25
+                                                                    2 var str = "5553515E0A0D0108174A0E05010"/* ... */;
+(ii) hindering manual analysis by professional malware ana-
+                                                                    3 var k6 = ’;’, e5 = ’%")+’, h3 = ’’, w9 = eval,
+lysts. Thus, tools are required to undo this obfuscation so that    4 /* 218 more variables */;
+JavaScript malware can be detected by antivirus engines and         5
+                                                                    6 h3 += d1;
+more easily inspected and understood by malware analysts.
+                                                                    7 h3 += x0;
+   We propose and prototype a tool that accomplishes these          8 h3 += d7;
+goals. Our tool, SAFE-D EOBS, is a static analyzer built            9 /* 215 more operations */
+                                                                   10 w9(h3);
+on top of the SAFE framework [13, 14]. It repurposes a
+number of common compiler optimizations for the purpose            Listing 1: A snippet of (beautifed) obfuscated JavaScript.
+of deobfuscating JavaScript malware in order to make it            Comments have been inserted by us.
+more understandable by subsequent automatic and manual
+analyses. This paper summarizes our experiences designing,
+implementing, and evaluating SAFE-D EOBS. Our primary               Listing 1 shows a snippet of an obfuscated JavaScript
+contributions are:                                                 malware sample. To a human (even a highly-trained malware
+analyst), it is not immediately obvious what the code in List-      slicing of the execution trace to create a simplified Abstract
+ing 1 does: this code defines 222 variables and performs 219        Syntax Tree) to produce observationally equivalent output
+operations on these variables (most of which are not shown,         JavaScript. Dynamic analysis allows for code “hidden” in an
+due to space limitations). An automated tool attempting to          eval call to be analyzed and deobfuscated. However, dynamic
+either signature the malware or extract features (e.g., callback    analysis can also be thwarted by environmental checks that
+URLs, API calls) will also face difficulties.                       may not be satisfied when the malware is under analysis. Their
+   Furthermore, JavaScript presents the opportunity to apply        prototype is also not publicly available.
+obfuscation techniques that are generally unapplicable to              JSN ICE uses “big code” and machine learning to predict
+compiled languages (e.g., C, C++, and Java). For example,           program properties (e.g., variable names and type annotations)
+previous work [9, 10] has observed the following obfuscation        for JavaScript code [24]. While not open-source, the JSN ICE
+techniques actively used in the wild:                               authors have created a website1 that promises to “make
+String splitting: The conversion of a single string into the        even obfuscated JavaScript code [uploaded to the website]
+      concatenation of several substrings, as observed on           readable”. Unfortunately, uploading the code from Listing 1
+      Lines 6 to 8 in Listing 1.                                    resulted in the code in Listing 2: while the type annotations are
+Keyword substitution: Storing keywords in variables, such           accurate, this code is no-more readable than that in Listing 1.
+      as eval being stored in w9 on Line 3 and called via w9
+      on Line 10 in Listing 1.                                       1 ’use strict’;
+String encoding: Encode strings so that they are not read-           2 /** @type {string} */
+                                                                     3 var str = "5553515E0A0D0108174A0E05010"/* ... */;
+      able, e.g., via escaped ASCII characters, hexadecimal, or      4 /** @type {string} */
+      Base64 representations.                                        5 var k6 = ";";
+                                                                     6 /** @type {string} */
+   Finally, JavaScript’s “quirky semantics” [13] deserve special     7 var e5 = ’%")+’;
+mention. These include:                                              8 /** @type {string} */
+                                                                     9 var h3 = "";
+Variable hoisting: JavaScript allows variable declarations af-      10 /** @type {function(string): *} */
+      ter the variable has been used. These variable declarations   11 var w9 = eval;
+      are moved (“hoisted”) to the top of the scope in which        12 /* 218 more variables */
+                                                                    13
+      they are used.                                                14 /** @type {string} */
+with scoping: Extends the scope of the current statement,           15 h3 = h3 + d1;
+      which is specially noted in the Mozilla developer doc-        16 /** @type {string} */
+                                                                    17 h3 = h3 + x0;
+      umentation “as it may be the source of confusing              18 /** @type {string} */
+      bugs” [18].                                                   19 h3 = h3 + d7;
+eval: Dynamically executes JavaScript code and is a known           20 /* 215 more operations */
+                                                                    21 w9(h3);
+      security risk [19].
+   These semantics can be abused (by both malicious and be-         Listing 2: A snippet of the JavaScript from Listing 1
+nign code alike) to make both static analysis and deobfuscation     “deobfuscated” by JSN ICE. Comments enclosed within
+difficult [7, 13].                                                  /** */ (i.e., the type annotations) were generated by
+   To this end, existing work on JavaScript (de)obfuscation         JSN ICE. Other comments have been inserted by us.
+has mostly focused on detecting (and preventing) malicious
+JavaScript, often using machine learning [11, 20–23] or pro-
+                                                                      Other tools, such as “deobfuscate javascript”2 perform
+gram analysis [7] techniques. Machine learning approaches
+                                                                    deobfuscation by intercepting calls to eval and write.
+(e.g., random forests, support vector machines) have been
+                                                                    This approach is able to successfully deobfuscate the sample
+shown to be effective when combined with semantic features
+                                                                    in Listing 1 (due to the eval substitution on Line 10).
+(e.g., control flow and program dependency graphs, as used
+                                                                    However, as noted on their website: “some malicious scripts
+by JS TAP [22]). Similarly, program analysis techniques (such
+                                                                    may not employ these functions and may therefore infect your
+as abstract interpretation) that operate on (an abstraction of)
+                                                                    browser”.
+JavaScript’s semantics have also been effective at detecting
+                                                                      This opens the door for a new, open-source tool for
+JavaScript malware [7]. This is likely due to the fact that
+                                                                    JavaScript malware deobfuscation. To this end, the following
+obfuscation must maintain the original code’s meaning (i.e., its
+                                                                    sections discuss the design and implementation of our contri-
+semantics), while syntactic features are easier to manipulate.
+                                                                    bution to this field.
+However, this focus on detection has traditionally eschewed
+readability: the focus of deobfuscation. Our work therefore                        III. D ESIGN AND I MPLEMENTATION
+complements much of this existing research.
+                                                                      The SAFE-D EOBS workflow is illustrated in Fig. 1. The
+A. Related Work                                                     obfuscated JavaScript is parsed into an Abstract Syntax Tree
+  Lu and Debray [10] combine dynamic analysis (to capture             1 http://www.jsnice.org/
+
+a JavaScript execution trace) and static analysis (backward           2 http://deobfuscatejavascript.com/
+        Obfuscated                          Deobfuscated                        if (typeof ifopracxa == ’und’ + ’efin’ + ’ed’)
+                          SAFE-DEOBS
+        JavaScript                           JavaScript
+
+
+                                                                                                (a) The original JavaScript code.
+                                                                                               ...
+
+
+                                                 Constant folding                              op                     ...
+                                                 Constant propagation
+                                                 Dead-branch removal
+                                                 Function inlining
+                                                                                         op     +      ’ed’            op              ...
+                                                 String decoding
+                                                 Variable renaming
+
+                                                                                 ’und’   +    ’efin’          ’undefin’ +   ’ed’    ’undefined’
+              Fig. 1: The SAFE-D EOBS workflow.
+                                                                                (b) The AST as constant folding is applied (from left to right).
+                                                                                              Fig. 2: Constant folding example.
+(AST), upon which a number of deobfuscation passes are
+performed (much like a compiler performing a set of opti-
+mization passes). These passes are continuously applied until                 B. Deobfuscation Passes
+a fixed point is reached, at which point the AST is serialized                   After preprocessing, SAFE-D EOBS performs a number of
+back into JavaScript source code. The set of deobfuscation                    “deobfuscation passes” (“phases” in SAFE parlance) on the
+passes that we developed (listed in Fig. 1) will be described                 AST until a fixed point is reached. These phases include:
+in Section III-B. But first, the JavaScript must be transformed               (i) constant folding; (ii) constant propagation; (iii) dead-branch
+into a form amendable to analysis.                                            removal; (iv) function inlining; (v) string decoding; and
+                                                                              (vi) variable renaming, totalling 2474 LOC of Scala. The first
+A. Preprocessing                                                              four phases should be familiar to those with an understanding
+                                                                              of common compiler optimizations, while the last two are
+   We reuse existing tools to parse and preprocess the in-                    specific to scripting languages. We describe each of these
+put JavaScript. Specifically, we use the Scalable Analysis                    phases in the following sections.
+Framework for ECMAScript (SAFE v2.0) [13, 14] to parse                           1) Constant Folding: Constant folding aims to recognize
+JavaScript into an AST that can be further analyzed.                          and evaluate constant expressions. This process is illustrated
+   SAFE is a scalable analysis for JavaScript3 that provides dif-             in Fig. 2, where string splitting has been applied to a string
+ferent levels of intermediate representations (IR). We selected               literal (Fig. 2a) in an if condition. The original string can be
+SAFE because it is open-source and “especially designed                       recovered by traversing the AST (Fig. 2b) and rewriting nodes
+as a playground for advanced research in JavaScript web                       where an arithmetic operation occurs on two constant nodes.
+applications” [14]. Furthermore, SAFE is primarily written                       SAFE’s AST representation and Scala’s pattern-matching
+in Scala, a functional programming language. Features stan-                   feature make this straightforward to implement: Listing 3 gives
+dard in functional programming languages—such as pattern-                     an example of one such rule (the concatenation of strings with
+matching and support for efficient recursion—lend themselves                  integers). While we have implemented 59 rules, JavaScript’s
+well to writing analyses/transformations that operate on trees                quirky semantics (Section II) means that corner-cases may
+(i.e., ASTs).                                                                 remain unhandled. Fortunately, these rules are straightforward
+   While SAFE provides three levels of IR, we only use the                    to extend.
+lowest level: the AST. The higher levels (the Intermediate
+Representation and Control Flow Graph) are not used because                   1 case InfixOpApp(StringLiteral(quote, str, false),
+they only support one-way translation: from lower levels up to                2                 Op("+"), IntLiteral(int)) =>
+higher levels. As the higher IRs are aimed at analysis, rather                3   StringLiteral(quote, s"${str}${int}", false)
+than transformation, there is no mechanism to translate higher                Listing 3: An example of a constant folding rewrite rule. This
+IRs back to JavaScript.                                                       rule matches on a string concatenated with an integer, resulting
+   Finally, we make use of two features in SAFE’s AST                         in a single string literal (according to JavaScript’s semantics).
+translator that simplify further analysis: the Hoister and
+WithRewriter. The Hoister lifts variable declarations
+so that they appear at the top of the current scope, sepa-                       2) Constant Propagation: Constant propagation is the sub-
+rating declarations from initializations. The WithRewriter                    stitution of known literal values into expressions. Unlike
+conservatively eliminates with statements such that lexical                   constant folding (Section III-B1), constant propagation re-
+scoping remains valid. After this, the AST is ready for                       quires (i) maintaining state while the AST is traversed, and
+deobfuscation.                                                                (ii) multiple traversals of the AST.
+                                                                                 The state of a variable’s constness must be tracked during
+  3 We use ECMAScript and JavaScript interchangeably throughout this paper.   AST traversal: value substitution can no longer occur once
+                                ⊤                                    1 // Match the last statement in the function body
+                                                                     2 // Precondition: funcBody contains a single stmt
+     ...                                                 ...         3 funcBody.last match {
+            undefined    -1.1    0   "aabb"    false
+                                                                     4   // Function returns a literal expression
+                                                                     5   case Return(Some(lit: Literal)) => Some(lit)
+                                ⊥                                    6   // Function returns nothing
+                                                                     7   case Return(None) => EmptyExpr
+            Fig. 3: The constant propagation lattice.                8   // Function returns one of its parameters
+                                                                     9   case Return(Some(VarRef(id))
+                                                                    10     if params.exist(_ == id) =>
+                                                                    11       // Return the param with the given id
+a variable’s constness can no longer be guaranteed. We im-          12   // Cannot inline
+                                                                    13   case _ => None
+plement this as an abstract interpretation over the three-level     14 }
+lattice typically used for constant propagation [25] (Fig. 3).
+This lattice contains an infinite number of middle elements,         Listing 5: Pattern-matching rules for an inlinable function.
+representing constant values. A variable goes to ⊤ once its
+value is no longer constant.
+   Once constants have been propagated through the AST,             1 var 1I11II;                      1 var dog; // 1I11II
+                                                                    2 if (III1II() == 1I11I1)          2 if (cat() == parrot)
+the AST is traversed again to remove redundant variable             3   11I11I();                      3   lion();
+assignments.                                                        4                                  4
+                                                                    5 1I11II = 11I1I(1I11I1);          5 dog = tiger(parrot);
+   3) Dead-branch Removal: Dead code is often inserted to
+confuse and distract a malware analyst. This dead code is
+often revealed by other deobfuscation phases (in particular,            (a) The original code.          (b) After variable renaming.
+constant folding and propagation). The simplest form of dead             Fig. 4: An example of variable/function renaming.
+code removal is when a constant (i.e., Literal AST node)
+appears in an if condition. In this instance, we can statically
+determine which branch will always execute, and remove                 Once inlinable functions are found (by traversing the AST),
+the other branch. We apply the same technique to switch             the AST is traversed (again) so that all FunApp (i.e., function
+statements, removing unreachable cases.                             application) nodes that call an inlinable function are replaced
+   4) Function Inlining: Function inlining expands trivial          with the Literal expression returned by the function. For
+function calls, where the complexity of the analysis deter-         example, calls to the first function in Listing 4 are replaced
+mines what is “trivial”. Like the dead code discussed in            with the returned array literal, while calls to the second
+Section III-B3, obfuscation may introduce (i) functions that        function are replaced with the literal value in oOw (after string
+are never called, and/or (ii) functions that perform trivial        decoding and constant propagation have been applied).
+operations, but nevertheless adds to an analyst’s cognitive load.      5) String Decoding: As discussed in Section II, strings
+   Our prototype inlines functions where the function’s AST         can be encoded such that they are unreadable by
+consists of a single Return statement that returns a                most analysts. Common string encoding schemes in-
+Literal expression. Examples of such functions are given            clude hexadecimal (typically found in string literals, e.g.,
+in Listing 4. The first function is trivial to inline. The second   ’\x68\x65\x6c\x6c\x6f’) and unicode (commonly de-
+function (Ph) becomes inlinable after string decoding and           coded using the String.fromCharCode function, as used
+constant propagation (Sections III-B2 and III-B5 respectively).     in Lines 8 to 11 in Listing 4). These encoding patterns are
+Again, Scala’s pattern-matching feature allows for a concise        straightforward to find—by looking for StringLiteral
+rule to find such functions (Listing 5).                            AST nodes that contain hexadecimal-encoded strings and calls
+                                                                    to String.fromCharCode, respectively—and rewrite.
+                                                                       The encoding schemes thus far have all utilized language
+ 1 // From 20170124_a0b2eeedbc9c6187927e32645700d1d2
+ 2 function zdykuvpobrenusdegvusipasad/*- ... -*/() {               features built into the JavaScript language. Of course, malware
+ 3   return [ /*- ... -*/ , "ing", /*- ... -*/];                    authors are free to implement other encoding (e.g., Base64)
+ 4}                                                                 or encryption (e.g., RC4) schemes. While statically detect-
+ 5
+ 6 // From 20190808_536f24111b28ff9febcdaef4ceb47adb                ing these encoding/encryption schemes is impossible in the
+ 7 function Ph() {                                                  general-case, it may still be possible to employ heuristics to
+ 8   var fHC=String.fromCharCode(6688/88+0);                        detect such functionality. While our prototype does not support
+ 9   nDO = fHC + String.fromCharCode(2600/52-0);
+10   /* 7 more operations */                                        this, SAFE provides an ideal environment to develop and
+11   oOw = Oy + String.fromCharCode(16*5);                          experiment with such heuristics.
+12   return oOw;                                                       6) Variable Renaming: Finally, variables (and functions)
+13 }
+                                                                    can be given complex, confusing and/or similar names to
+           Listing 4: Examples of inlinable functions.              increase an analyst’s cognitive load. This is demonstrated in
+                                                                    Fig. 4a.
+                                                                       Variable names that share common prefixes complicate vari-
+able renaming via regular expressions (depending on the order        1 var lion; // edeb
+in which variables are renamed). Therefore, we developed an          2 var hamster; // uvacdykadq
+                                                                     3 var chinchilla; // cqorobcit
+optional4 SAFE phase that renames all variables to animal            4
+names. Animals are deterministically selected so that repeated       5 lion = WScript;
+deobfuscation of the same sample produces the same result.           6 hamster = typeof window == "undefined";
+                                                                     7{
+The original variable names are placed alongside renamed             8   chinchilla = lion.CreateObject(’WScript.Shell’);
+variable definitions, in case analysts are required to refer back    9   if (hamster) {
+to the original malware sample, as in Fig. 4b.                      10     chinchilla["run"](’cmd.exe /c \"powershell
+                                                                                  $ojogo=\’ˆdimas.top\’;$hetfo=\’ˆ-Scope Pr
+                       IV. E VALUATION                                            \’;$pobbi=\’ˆ,$path); \’;$innypu=\’ˆocess;
+                                                                                   $p\’;$monsucm=\’ˆy Bypass \’;$binkucb=\’ˆ
+   Here we present (i) a case study on a particular mal-                          h\’;$ykpyffy=\’ˆStart-Pro\’;$ykjygr=\’ˆ:
+ware sample (Section IV-A); and (ii) a high-level analysis                        temp+\’\’\b\’;$uzmez=\’ˆe\’\’);(New-\’;
+                                                                                  $xzymo=\’ˆSet-Execu\’;$ulirgo=\’ˆtp://laro
+over 39 450 malware samples (Section IV-B). Both of these                         \’;$eqtem=\’ˆath=($env\’;$evyvz=\’ˆ).
+discussion will use the open-source dataset from Hynek Pe-                        Downloa\’;$ogxow=\’ˆWebclient\’;$utkyjv
+trak [26].                                                                        =\’ˆ/777.exe\’\’\’;$gsydibv=\’ˆtionPolic
+                                                                                  \’;$upoh=\’ˆstem.Net.\’;$zceqmi=\’ˆObject
+A. Case Study                                                                     Sy\’;$cepsuhm=\’ˆipbafa.ex\’;$qfyzko=\’ˆ
+                                                                                  dFile(\’\’ht\’;$awysqe=\’ˆcess $pat\’;
+    This case study is based on the JavaScript malware sample                     Invoke-Expression ($xzymo+$gsydibv+
+20170110_9330ee612a9027120543d6cd601cda83,                                        $monsucm+$hetfo+$innypu+$eqtem+$ykjygr+
+                                                                                  $cepsuhm+$uzmez+$zceqmi+$upoh+$ogxow+
+which is publicly available from our dataset.                                     $evyvz+$qfyzko+$ulirgo+$ojogo+$utkyjv+
+    This particular sample has not been minified and consists                     $pobbi+$ykpyffy+$awysqe+$binkucb);\"’, 0);
+of 475 LOC, contains 14 functions, and defines 214 variables.       11   }
+                                                                    12 }
+This sample makes for an interesting case study because it is
+one of the few samples that does not use eval, and “deobfus-                 Listing 6: Case study sample after deobfuscation.
+cate javascript” (Section II) is therefore unable to deobfuscate
+it (due to its reliance on hooking eval). Interestingly, JSN ICE
+is unable to infer any of the 14 functions’ return types, despite
+                                                                    TABLE I: Complexity metrics before and after deobfuscation
+all of these functions being inlinable (according to our inline
+                                                                    (using the normalized, deduplicated samples from our dataset).
+rules, described in Section III-B4) and therefore relatively
+straightforward to analyze.                                           Metric                           Before        After   % decrease
+    Listing 6 shows the deobfuscated sample. All 14 functions         Total physical LOC           46 724 630   45 491 768        2.64
+have been inlined and 211 variables have been eliminated              Total num. functions            324 441      241 091       25.69
+through a repeated combination of constant folding and prop-          Mean cyclomatic complexity        10.58         8.68       17.96
+                                                                      Mean Halstead length           5994.62      4297.03        28.31
+agation (a fixed point was reached after four iterations). The
+number of lines has been reduced by 97 % to 12 LOC.
+    Unfortunately, hamster (Line 6) remains because we do
+not model the Document Object Model (DOM, of which the
+                                                                    samples (identified by SHA512 checksum), leaving 28 285
+window object is an element of). Nevertheless, it is now
+                                                                    samples (71.70 % of the original dataset).
+much easier to reason about the sample’s behavior. Alas, this
+behavior primarily consists of executing a string of obfuscated        Finally, we ran SAFE-D EOBS over the 28 285 deduplicated
+PowerShell (Line 10). Clearly, SAFE-D EOBS would benefit            samples and used escomplex to compare common software
+from integration with other malware analysis/deobfuscation          complexity metrics before and after deobfuscation. These
+tools.                                                              complexity metrics include: (i) physical lines of code (LOC);
+                                                                    (ii) number of functions; (iii) cyclomatic complexity [28]; and
+B. Generalizability                                                 (iv) Halstead length [29]. The results are presented in Table I.
+   We examined all 39 450 malware samples in our dataset to
+                                                                       We used both escomplex’s report and manual inspection
+obtain a high-level understanding of our tool’s efficacy. First,
+                                                                    to verify deobfuscation correctness. Unfortunately, JavaScript
+we removed 7109 invalid samples (18.02 % of the dataset) that
+                                                                    malware is difficult to verify via dynamic behavioral analysis
+escomplex [27]—a tool for performing software complexity
+                                                                    because: (i) the malware’s output may vary depending on its
+analysis on JavaScript ASTs—failed to parse. Second, we
+                                                                    intent (e.g., downloading a second-stage implant, exploiting
+“normalized” the dataset by running all remaining 32 341
+                                                                    a vulnerability) and may not be readily apparent; (ii) the
+through SAFE’s astRewrite phase, which hoists variable
+                                                                    malware may require complex “trigger conditions” [30] to
+definitions, rewrites with statements, and beautifies the code
+                                                                    activate the intended behavior; and (iii) the malware may
+(i.e., undoes minification). This allowed us to remove duplicate
+                                                                    target a particular browser. Nevertheless, we found that SAFE-
+  4 Occasionally, malware will    declare   variables   such   as   D EOBS successfully processed our malware corpus and greatly
+var exploitation, which are useful names.                           reduced the complexity of the code contained within.
+                      V. C ONCLUSION                              [14] J. Park, Y. Ryou, J. Park, and S. Ryu, “Analysis of
+   In this paper we present SAFE-D EOBS, a static analyzer             JavaScript web applications using SAFE 2.0,” in 2017
+for deobfuscating JavaScript malware. While none of the                IEEE/ACM 39th International Conference on Software
+techniques that we propose are particularly novel in their             Engineering Companion (ICSE-C), May 2017.
+own right—indeed, Garba and Favaro [16] also proposed             [15] M. Bazon, “UglifyJS,” http://lisperator.net/uglifyjs, 2018.
+“deobfuscation by optimization”—little work has been pub-         [16] P. Garba and M. Favaro, “SATURN – software deob-
+lished on applying these techniques to JavaScript malware. We          fuscation framework based on LLVM,” in Proceedings
+have demonstrated SAFE-D EOBS’ utility by applying it to a             of the 3rd ACM Workshop on Software Protection, ser.
+large corpus of real-world malware, and shown that it makes            SPRO’19, 2019.
+for a useful addition to a malware analyst’s toolset. SAFE-       [17] M. Dalla Preda, M. Madou, K. De Bosschere, and
+D EOBS is open-source and available to malware analysts at             R. Giacobazzi, “Opaque predicates detection by abstract
+https://github.com/DSTCyber/safe-deobs.                                interpretation,” in Proceedings of the 11th International
+                                                                       Conference on Algebraic Methodology and Software
+                        R EFERENCES                                    Technology, ser. AMAST’06, 2006.
+       3                                                          [18] Mozilla Developer Network, “with statement,”
+ [1] W Techs, “Usage statistics of JavaScript on websites,”
+     https://w3techs.com/technologies/details/cp-javascript,           https://developer.mozilla.org/en-US/docs/Web/
+     2019.                                                             JavaScript/Reference/Statements/with, Mar. 2020.
+ [2] Stack Overflow, “Developer survey results,” https://         [19] ——, “eval,” https://developer.mozilla.org/en-US/docs/
+     insights.stackoverflow.com/survey/2019, 2019.                     Web/JavaScript/Reference/Global Objects/eval,          May
+ [3] TIOBE, “TIOBE index for November 2019,” https://                  2020.
+     www.tiobe.com/tiobe-index, Nov. 2019.                        [20] K. Rieck, T. Krueger, and A. Dewald, “Cujo: Efficient
+ [4] Github, “The state of the Octoverse,” https://octoverse.          detection and prevention of drive-by-download attacks,”
+     github.com, 2019.                                                 in Proceedings of the 26th Annual Computer Security
+ [5] Module Counts, “Module counts,” http://www.                       Applications Conference, ser. ACSAC ’10, 2010.
+     modulecounts.com, 2019.                                      [21] C. Curtsinger, B. Livshits, B. Zorn, and C. Seifert,
+ [6] S. Groß, “CVE-2019-11707,” May 2019.                              “Z OZZLE: Fast and precise in-browser JavaScript mal-
+ [7] A. Jordan, F. Gauthier, B. Hassanshahi, and D. Zhao,              ware detection,” in Proceedings of the 20th USENIX
+     “Unacceptable behavior: Robust PDF malware detection              Conference on Security, ser. SEC’11, 2011.
+     using abstract interpretation,” in Proceedings of the 14th   [22] A. Fass, M. Backes, and B. Stock, “JS TAP: A static pre-
+     ACM SIGSAC Workshop on Programming Languages                      filter for malicious JavaScript detection,” in Proceedings
+     and Analysis for Security, ser. PLAS’19, 2019.                    of the 35th Annual Computer Security Applications Con-
+ [8] Trend Micro, “JavaScript malware in spam spreads ran-             ference, ser. ACSAC ’19, 2019.
+     somware, miners, spyware, worm,” Online, Jan. 2019.          [23] J. W. Stokes, R. Agrawal, G. McDonald, and
+ [9] W. Xu, F. Zhang, and S. Zhu, “The power of obfuscation            M. Hausknecht, “ScriptNet: Neural static analysis for
+     techniques in malicious JavaScript code: A measurement            malicious JavaScript detection,” 2019.
+     study,” in 2012 7th International Conference on Mali-        [24] V. Raychev, M. Vechev, and A. Krause, “Predicting
+     cious and Unwanted Software, Oct. 2012.                           program properties from “big code”,” in Proceedings of
+[10] G. Lu and S. Debray, “Automatic simplification of ob-             the 42Nd Annual ACM SIGPLAN-SIGACT Symposium on
+     fuscated JavaScript code: A semantics-based approach,”            Principles of Programming Languages, ser. POPL ’15,
+     in Proceedings of the 2012 IEEE Sixth International               2015.
+     Conference on Software Security and Reliability, ser.        [25] M. N. Wegman and F. K. Zadeck, “Constant propagation
+     SERE ’12, 2012.                                                   with conditional branches,” ACM Trans. Program. Lang.
+[11] A. Fass, R. P. Krawczyk, M. Backes, and B. Stock,                 Syst., vol. 13, no. 2, Apr. 1991.
+     “JA S T: Fully syntactic detection of malicious (obfus-      [26] H. Petrak, “Javascript malware collection,” https://github.
+     cated) JavaScript,” in Detection of Intrusions and Mal-           com/HynekPetrak/javascript-malware-collection, 2019.
+     ware, and Vulnerability Assessment, 2018.                    [27] P. Booth, “escomplex,” https://github.com/escomplex/
+[12] A. Fass, M. Backes, and B. Stock, “HideNoSeek: Cam-               escomplex, 2017.
+     ouflaging malicious JavaScript in benign ASTs,” in           [28] T. J. McCabe, “A complexity measure,” IEEE Trans.
+     Proceedings of the 2019 ACM SIGSAC Conference on                  Softw. Eng., vol. 2, no. 4, pp. 308––320, Jul. 1976.
+     Computer and Communications Security, ser. CCS ’19,          [29] M. H. Halstead, Elements of Software Science (Operating
+     2019.                                                             and Programming Systems Series).            USA: Elsevier
+[13] H. Lee, S. Won, J. Jin, J. Cho, and S. Ryu, “SAFE:                Science Inc., 1977.
+     Formal specification and implementation of a scalable        [30] D. Brumley, C. Hartwig, Z. Liang, J. Newsome, D. Song,
+     analysis framework for ECMAScript,” in FOOL 2012:                 and H. Yin, Automatically Identifying Trigger-based Be-
+     19th International Workshop on Foundations of Object-             havior in Malware. Boston, MA: Springer US, 2008,
+     Oriented Languages.                                               pp. 65–88.
+

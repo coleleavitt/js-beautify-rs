@@ -1,0 +1,1226 @@
+Predicting the Resilience of Obfuscated Code
+    Against Symbolic Execution Attacks
+            via Machine Learning
+   Sebastian Banescu, Technische Universität München; Christian Collberg,
+ University of Arizona; Alexander Pretschner, Technische Universität München
+https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/banescu
+
+
+
+         This paper is included in the Proceedings of the
+                26th USENIX Security Symposium
+                   August 16–18, 2017 • Vancouver, BC, Canada
+                                 ISBN 978-1-931971-40-9
+
+
+
+
+                                              Open access to the Proceedings of the
+                                               26th USENIX Security Symposium
+                                                    is sponsored by USENIX
+                  Predicting the Resilience of Obfuscated Code Against
+                   Symbolic Execution Attacks via Machine Learning
+
+                            Sebastian Banescu                            Christian Collberg
+                      Technische Universität München                  University of Arizona
+                                             Alexander Pretschner
+                                        Technische Universität München
+
+
+                       Abstract                               sumable by the end-user device. If end-users are mali-
+                                                              cious, then they can get access to the unencrypted code
+Software obfuscation transforms code such that it is more
+                                                              or data, e.g. by dumping the memory of the device on
+difficult to reverse engineer. However, it is known that
+                                                              which the client software is running. Malicious end-
+given enough resources, an attacker will successfully re-
+                                                              users are called man-at-the-end (MATE) attackers and
+verse engineer an obfuscated program. Therefore, an
+                                                              their capabilities include everything from static analy-
+open challenge for software obfuscation is estimating the
+                                                              sis to dynamic modification of the executable code and
+time an obfuscated program is able to withstand a given
+                                                              memory (e.g. debugging, tampering with code and data
+reverse engineering attack. This paper proposes a gen-
+                                                              values, probing any hardware data bus, etc.).
+eral framework for choosing the most relevant software
+                                                                 In order to raise the bar against MATE attackers, ob-
+features to estimate the effort of automated attacks. Our
+                                                              fuscation tools use code transformations to modify the
+framework uses these software features to build regres-
+                                                              original code such that it is harder to analyze and tamper
+sion models that can predict the resilience of different
+                                                              with, while preserving the functionality of the program.
+software protection transformations against automated
+                                                              Provably secure code obfuscation has been proposed in
+attacks. To evaluate the effectiveness of our approach,
+                                                              the literature, however, it is still impractical [3, 6, 7]. On
+we instantiate it in a case-study about predicting the time
+                                                              the other hand, dozens of practical obfuscation transfor-
+needed to deobfuscate a set of C programs, using an at-
+                                                              mations have been proposed since the early 1990s [14],
+tack based on symbolic execution. To train regression
+                                                              however, their security guarantees are unclear.
+models our system requires a large set of programs as
+                                                                 Researchers and practitioners alike have struggled
+input. We have therefore implemented a code genera-
+                                                              with evaluating the strength of different obfuscating code
+tor that can generate large numbers of arbitrarily com-
+                                                              transformations. Many approaches have been proposed
+plex random C functions. Our results show that features
+                                                              (see Section 2), however, despite the numerous efforts in
+such as the number of community structures in the graph-
+                                                              this area, a recent survey on common obfuscating trans-
+representation of symbolic path-constraints, are far more
+                                                              formations and deobfuscation attacks indicates that after
+relevant for predicting deobfuscation time than other fea-
+                                                              more than two decades of research, we are still lacking
+tures generally used to measure the potency of control-
+                                                              reliable concepts for evaluating the resilience of code ob-
+flow obfuscation (e.g. cyclomatic complexity). Our best
+                                                              fuscation against attacks [42].
+model is able to predict the number of seconds of sym-
+                                                                 This paper makes the following contributions:
+bolic execution-based deobfuscation attacks with over
+90% accuracy for 80% of the programs in our dataset,            • A general framework for selecting program features
+which also includes several realistic hash functions.             which are relevant for predicting the resilience of
+                                                                  software protection against automated attacks.
+
+1   Introduction                                                • A free C program generator, which was used to cre-
+                                                                  ate a dataset of over 4500 different programs in or-
+Software developers often protect premium features and            der to benchmark our approach.
+content using cryptography, if secure key storage is pos-       • A case study involving over 23000 obfuscated pro-
+sible. However, there are some risks regarding the use            grams, where we build and test regression models
+of cryptography in this context, i.e. code and data must          to predict the resilience of the obfuscated programs
+be decrypted in order to be executable, respectively con-         against symbolic execution attacks.
+
+
+
+USENIX Association                                                             26th USENIX Security Symposium          661
+    • A set of highly relevant features for predicting the     restrictions regarding which obfuscating transformations
+      effort of attacks based on symbolic execution.           can follow each other. Our work focuses on prediction of
+    • A model that can predict the resilience of several       resilience, which is something that the OE does not do.
+      code obfuscating techniques against an attack based      However, our approach could be integrated into the OE to
+      on symbolic execution, with over 90% accuracy for        improve the decision making process (see Section 4.4).
+      80% of the programs in our dataset.                         Karnick et al. [26] proposed to measure the quality of
+                                                               Java obfuscators by summing up potency and resilience
+  The remainder of this paper is organized as follows.         and subtracting cost of memory consumption, file stor-
+Section 2 describes related work. Section 3 describes          age size and execution time from the sum. They mea-
+our framework and the C program generator. Section 4           sure potency with a subset of the features proposed by
+describes the case-study. Section 5 presents conclusions       Collberg et al. [15]. They measure resilience by us-
+and future work. Acknowledgements are expressed in             ing concrete implementations of deobfuscators, measur-
+Section 6. Details regarding the availability our dataset      ing whether they were successful or if they encountered
+and software tools are given in Section 7.                     errors and averaging the measurements across the total
+                                                               number of deobfuscators. We acknowledge that using
+2     Related Work                                             multiple concrete implementations of a deobfuscation at-
+                                                               tack (e.g. disassembly, CFG simplification) is important
+Collberg et al. [15] proposed a general taxonomy for           to weed out any issues specific to a particular implemen-
+evaluating the quality of obfuscating transformations.         tation. However, in this work we aim to provide a more
+This taxonomy states that code obfuscation should be           fine-grained measure of deobfuscation effort, instead of
+evaluated with respect to: potency against human-              a categorical classification such as succeeded or failed
+assisted attacks, resilience against automated attacks,        for each deobfuscation attack implementation, as done in
+cost (in terms of performance overhead) added by the           [26]. Moreover, we also predict this fine-grained effort.
+obfuscating transformation and stealth, which measures            Anckaert et al. [2] propose applying concrete software
+the difficulty of identifying parts of obfuscated code in      complexity metrics on four program properties (i.e. in-
+a given program. Collberg et al. [15] also proposed us-        structions, control flow, data flow and data), to mea-
+ing several existing software features to evaluate potency,    sure resilience. Similarly to our work, Anckaert et
+namely: program length, cyclomatic complexity, nesting         al. measure resilience of different obfuscating transfor-
+complexity, data flow complexity, fan-in/-out complex-         mations against concrete implementations of deobfusca-
+ity, data structure complexity and object oriented design      tion attacks. However, they apply deobfuscation attacks
+metrics. However, in their empirical studies Ceccato et        which are specific to different obfuscating transforma-
+al. [11] have found that potency does not always corre-        tions, while we use a general deobfuscation attack (based
+late with the previous software metrics. Dalla Preda [17]      on symbolic execution) on all obfuscating transforma-
+proposes using abstract interpretation to model attackers,     tions. Moreover, they disregard the effort needed for de-
+which can either break a certain obfuscation transfor-         obfuscation and measure the effect of different obfuscat-
+mation or not. However, they do not propose any fine-          ing transformations on software complexity metrics and
+grained features for measuring resilience. On the other        the subsequent effect of deobfuscation on these metrics.
+hand, there have also been works that propose measures         In this paper we are chiefly concerned with predicting the
+for resilience. Udupa et al. [46] propose using the edit       effort needed to run a successful deobfuscation attack.
+distance between control flow graphs of the original code         Wu et al. [48] propose using a linear regression model
+and deobfuscated code. Mohsen and Pinto [33] propose           over a fixed set of features, for measuring the potency
+using Kolmogorov complexity. Banescu et al. [5] pro-           of obfuscating transformations. In contrast to our work,
+pose using the effort needed to run a deobfuscation at-        they do not provide any evaluation of their approach.
+tack. However, they do not attempt to predict the effort       They suggest obtaining the ground truth for training and
+needed for deobfuscation, which has been identified as a       testing a linear regression model, from security experts
+gap in this field [45]. In this paper we focus on predicting   who manually deobfuscate the obfuscated programs and
+the effort needed by an automated deobfuscation attack.        indicate the effort required for each program, which is far
+   Our work is complementary to the Obfuscation Exec-          more expensive compared to our approach of using auto-
+utive (OE) proposed by Heffner and Collberg [23]. The          mated attacks. We obtain our ground truth by running an
+OE uses software complexity metrics and performance            automated attack and recording the effort (measured in
+measurements to choose a sequence of obfuscating trans-        execution time), needed to deobfuscate programs. More-
+formations, that should be applied to a program in order       over, we also propose a way of selecting which features
+to increase its potency, while our paper is solely con-        to use for building a regression model.
+cerned with resilience. Moreover, the OE also proposes            In sum, Collberg’s taxonomy [15] proposes evaluating
+
+
+
+662    26th USENIX Security Symposium                                                               USENIX Association
+obfuscation using four dimensions. Most of the related
+work focuses on simply measuring potency, resilience
+and cost. Wu et al. [48] discuss estimating potency.
+Zhuang and Freiling [50] propose using a naive Bayes
+algorithm to estimate the optimal sequence of obfuscat-
+ing transformations, from a performance point of view.
+Kanzaki et al. [25] propose code artificiality as a measure
+to estimate stealth. However, there is a gap in estimating
+resilience, which we fill in this work.
+
+
+3     Approach
+Resilience is defined as a function of deobfuscator ef-
+fort1 and programmer effort (i.e. the time spent building
+the deobfuscator) [15]. However, in many cases we can
+consider the effort needed to build the deobfuscator to
+be negligible, because an attacker needs to invest the ef-
+fort to build a deobfuscator only once and can then reuse
+it or share it with others. Our general approach is il-
+lustrated as a work-flow in Figure 1, where ovals depict
+inputs and outputs of the software tools, which are rep-
+resented by rectangles. The work-flow requires a dataset                         Figure 1: General attack time prediction framework.
+of original (un-obfuscated) programs to be able to start
+(step 0 in Figure 1). To generate these programs we have
+developed a C code generator presented in Section 3.1.                         features are selected, the framework uses this subset of
+Afterwards, an obfuscation tool is then used to generate                       features to build a regression model via a machine learn-
+multiple obfuscated (protected) versions of each of the                        ing algorithm (step 4 in Figure 1).
+original programs (step 1 in Figure 1). Subsequently, an                          Note that the proposed approach is not limited to ob-
+implementation of a deobfuscation attack (e.g. control-                        fuscation and deobfuscation. One can substitute the ob-
+flow simplification [49], secret extraction [5], etc.) is ex-                  fuscation tool in Figure 1, with any kind of software
+ecuted on all of the obfuscated programs, and the time                         protection mechanism (e.g. code layout randomization
+needed to successfully complete the attack for each of                         [38]) and the deobfuscation tool by any known attack
+the obfuscated programs is recorded (step 2 in Figure 1).                      implementation corresponding to that software protec-
+In parallel, feature values (e.g. source code metrics) are                     tion mechanism (e.g. ROPeme [27]). This way the set
+extracted from the obfuscated programs.                                        of relevant features and the output prediction model will
+   Once the attack times are recorded and software fea-                        estimate the strength of the chosen protection mechanism
+tures are extracted from all programs, one could directly                      against the chosen attack implementation.
+use this information to build a regression model for pre-
+dicting the time needed for deobfuscation. However,                            3.1   C Program Generator
+some features could be irrelevant to the deobfuscation
+attack and/or they could be expensive to compute. More-                        One important challenge of the proposed approach is ob-
+over, for most regression algorithms the resource usage                        taining a dataset of unobfuscated (original) programs for
+during the training phase grows linearly or even expo-                         the input to the framework. This dataset should be large
+nentially with the number of different features used as                        enough to serve as a training set for the regression model
+predictors. Therefore, we add an extra step to our ap-                         in the last step of the framework, because the quality of
+proach, namely a Feature Selection Algorithm, which se-                        the model depends on the training set. Ideally, we would
+lects only the subset of features which are most relevant                      have access to a large corpus of open source programs
+to the attack (step 3 in Figure 1). Feature selection can be                   that contain a security check (such as a license check)
+performed in many ways. Section 3.2 briefly describes                          that needed to be protected against discovery and tam-
+how we approached feature selection. After the relevant                        pering, as presented in [4]. For example, we could select
+    1 In this paper we quantify deobfuscator effort via the time it takes to
+                                                                               a collection of such programs from popular code sharing
+run a successful attack on a certain hardware platform; however, note
+                                                                               sites such as GitHub. Unfortunately, open source pro-
+that we could easily map time to CPU cycles, to provide a hardware             grams tend not to contain the sorts of security checks
+independent measure of attack effort.                                          required by our study. To mitigate this we could manu-
+
+
+
+USENIX Association                                                                            26th USENIX Security Symposium         663
+    1 void f ( int * in , int * out ) {
+    2   long s [2] , local1 = 0;
+    3   // Expansion phase
+    4   s [0] = in [0] + 762;
+    5   s [1] = in [0] | (9 << ( s [0] % 16 | 1) ) ;            Figure 3: RandomFunsControlStructures grammar
+    6   // Mixing phase
+    7   while ( local1 < 2) {
+    8       s [1] |= ( s [0] & 15) << 3;
+    9       s [( local1 + 1) % 2] = s [ local1 ];                  We implemented this approach as the RandomFuns
+   10       local1 += 1;
+   11   }                                                       transformation as part of the Tigress C Diversifier/Obfus-
+   12   if ( s [0] > s [1]) {                                   cator [13]. This transformation offers multiple options2
+   13       s [0] |= ( s [1] & 31) << 3;
+   14   } else {                                                that can be tuned by the end user in order to control the
+   15       s [1] |= ( s [0] & 15) << 3;                        set of generated programs. However, here we only pro-
+   16   }
+   17   s [0] = s [1];                                          vide a description of those options which have been used
+   18   // Compression phase                                    to generate the dataset of programs used in the experi-
+   19   out [0] = ( s [0] << ( s [1] % 8 | 1) ) ;
+   20 }                                                         ments from Section 4, i.e.:
+   21 void main ( int ac , char * av []) {
+   22   int out ;                                                 • RandomFunsTypes indicates the data type of the in-
+   23   f ( av [1] , & out ) ;
+   24   if ( out == 0 xa199abd8 )
+                                                                    put, output and state arrays. The current implemen-
+   25       printf ( " You win ! " ) ;                              tation supports the following primitive types: char,
+   26 }
+                                                                    short, int, long, float and double.
+   Figure 2: Randomly generated program example.                  • RandomFunsForBound indicates the type of upper
+                                                                    bound in a for loop. The possible types are: (1) a
+                                                                    constant value, (2) a value from the input array and
+ally insert a security check into a few carefully chosen            (3) a value from the input array modulo a constant.
+open source programs. While this would have the ad-               • RandomFunsOperators indicates the allowable
+vantage of using real code for the study, it does not scale         operators in the body of the function. Possible val-
+for a large enough dataset. Moreover, we have noticed               ues include: arithmetic operators (addition PlusA,
+that in capture the flag (CTF) competitions, attackers al-          subtraction MinusA, multiplication Mult, division
+ways seem to locate the license checking code via pat-              Div and modulo Mod), left shift Shiftlt, right
+tern recognition or taint analysis [41], in order to reduce         shift Shiftrt, comparison operators (less than Lt,
+the part of the code which needs to be symbolically ex-             greater than Gt, less or equal Le, greater or equal
+ecuted. Afterwards, they apply symbolic execution on                Ge, equal Eq, different Ne) and bitwise operators
+the license checking code snippet, not on the whole ex-             (and BAnd, or BOr and xor BXor).
+ecutable code (e.g. built from a GitHub project), which
+removes the utility of using open source projects in the          • RandomFunsControlStructures indicates the
+first place. Since we only want to focus on the second              control structure of the function. If this option is not
+part of this attack (i.e. symbolically executing the license        set, a random structure will be chosen. The value of
+checking code snippet), our C program generator pro-                this option is a string, which follows a simple gram-
+duces a large number of simple programs with diverse                mar depicted in Figure 3, where (bb n) specifies that
+license checking algorithms, having a variety of control-           the structure should be a basic block with n state-
+and data-flows.                                                     ments, where n is an integer. Note that the branch
+   The code generator operates at the function level.               conditions are implicit and randomly generated.
+Each generated function takes an array of primitive type          • RandomFunsPointTest adds an if -statement in the
+(e.g. char, int) as input (i.e. in) and outputs another ar-         main function, immediately after the call to the ran-
+ray of primitive type (i.e. out), as shown in Figure 2.             dom function (lines 24-25 in Figure 2). This if state-
+Each function first expands the input array into a (typ-            ment compares the output of the random function
+ically larger) state array via a sequence of assignment             with a constant. If the two values are equal then
+statements containing operations (e.g. arithmetic, bit-             “You win!” is printed on standard output, indicating
+wise, etc.) involving the inputs (lines 3-5). After input           that the random function was given an input which
+expansion, the values in the state array are processed via          led it to execute the true branch of the if -statement.
+control flow statements containing various operations on            Few inputs of the random function take this path,
+the state variables (lines 6-17). Finally, the state array is       hence, finding such an input is equivalent to finding
+compressed into the (typically smaller) output array via            a valid license key.
+assignment statements (lines 18-19). These three phases            2 For a full list of options and features visit the web-
+represent a generic way to map data from an input do-           page of RandomFuns at http://tigress.cs.arizona.edu/
+main to an output domain, as a license check would do.          transformPage/docs/randomFuns.
+
+
+
+
+664   26th USENIX Security Symposium                                                                 USENIX Association
+The reason why we chose to implement these features is          dicates the absence of correlation. After computing the
+that we suspect them to be relevant for the deobfuscation       correlation, we sort the features by their absolute corre-
+attack presented in [5], which is used in our case study        lation values in descending order and store them in a list
+presented in Section 4. An important limitation of the C        L. The caveat in selecting the top ten features with the
+code generator is that it does not add system calls inside      highest correlation is that several of those top ten fea-
+the generated code. We plan to add this feature in future       tures may contain couples which are highly correlated
+work.                                                           with each other. This means that we could discard one of
+                                                                them and still obtain about the same prediction accuracy.
+                                                                To avoid this issue, for each pair of highly correlated fea-
+3.2     Selecting Relevant Features                             tures in L, we remove the one with a lower correlation to
+Given a set of several software features (e.g. complexity       the deobfuscation attack time. Afterwards, we select the
+metrics), it is unclear which software features one should      remaining features with the highest correlations.
+aim to change (by applying various obfuscating transfor-
+mations), such that the resulting obfuscated program is
+                                                                3.2.2     Second approach: Variable Importance
+more resilient against certain automated deobfuscation
+attacks. A conservative approach would be to simply use         Another way of selecting relevant features from a large
+all available software features in order to build a pre-        set of features is to first build a regression model (e.g. via
+diction model. However, this approach does not scale            random forest, support vector machines, neural net-
+for several regression algorithms, because of the large         works, etc.), using all available features and record the
+amount of hardware resources needed and also the time           prediction error. Concretely, we would:
+needed to train the model. There are several approaches
+for feature selection published in the literature, e.g. using       1. Check the importance of each variable (i.e. feature)
+genetic algorithms [8] or simulated annealing [29]. From               using the technique described in [9], i.e. add random
+our experiments we noticed that such feature extraction                noise by permuting values for the i-th variable and
+algorithms are time-consuming, i.e. even with datasets of              average the difference between the prediction error
+the order of tens of thousands of entries and a few dozen              after randomization and before.
+features it takes weeks of computation time. We have ex-
+perimented also with principal component analysis [40],             2. Repeat this for all i = {1, . . . , n}, where n is the total
+however, this approach did not yield better results for                number of variables.
+our dataset. Therefore, in this section we describe a               3. Rank the variables according to their average dif-
+few light-weight approaches for selecting a subset of fea-             ference in prediction error, i.e. the higher the pre-
+tures, which are most relevant for a particular deobfusca-             diction error, the more important the variable is for
+tion attack. The first approach is based on computing                  the accuracy of the regression model.
+correlations and the second approach is based on vari-
+able importance in regression models. In Section 4 we              Similarly, to the previous approach based on Pearson
+compare these approaches by building regression mod-            correlation, we select those features which have the high-
+els using the features selected by each approach.               est importance. In order to reduce over-fitting the re-
+                                                                gression model to our specific dataset, we employ 10-
+3.2.1   First approach: Pearson Correlation                     fold-cross-validation, i.e. the dataset is partitioned into
+                                                                10 equally sized subsets, training is performed on 9 sub-
+One intuitive way to select relevant features, first pro-       sets and testing is performed on the remaining subset,
+posed by Hall [22], is by computing the Pearson correla-        for each combination of 9 subsets. Variable importance
+tion [39] between each of the software features and the         is averaged over all of these 10 regression models. Then
+attack time. The Pearson correlation is a value in the          the features are ranked according to their average impor-
+range [−1, 1]. A positive value means that both the time        tance, i.e. difference in prediction error when the values
+needed for deobfuscation and the software feature tend          of that variable are permuted. This procedure is called
+to have the same increasing trend, while a negative value       recursive feature elimination [21].
+indicates that the deobfuscation time decreases as the
+software feature increases. If the absolute value of this
+correlation is in the range [0.8, 1] the variables are said     4      Case-Study
+to be very strongly correlated. Furthermore, the range
+[0.6, 0.8) corresponds to strong correlation, [0.4, 0.6) to     This section presents a case-study in which we evaluate
+moderate correlation, [0.2, 0.4) to weak correlation, and       the approach proposed in Section 3. We are interested in
+(0, 0.2) to very weak correlation. Finally, a value of 0 in-    answering the following research questions:
+
+
+
+USENIX Association                                                                 26th USENIX Security Symposium             665
+                                                                   RandomFunsOperators Parameter Value                         Description
+RQ1 Which features are most relevant for predicting                PlusA, MinusA, Lt, Gt, Le, Ge, Eq,                          Simple arithmetic and compar-
+    the time needed to successfully run the symbolic-              Ne                                                          ison operators
+                                                                   PlusA, MinusA, Mult, Div, Mod, Lt,                          Harder arithmetic and compar-
+    execution attack presented in [5]?                             Gt, Le, Ge, Eq, Ne                                          ison operators
+                                                                   Shiftlt, Shiftrt, BAnd, BXor, BOr,                          Shift, bitwise and comparison
+RQ2 Which regression algorithms generate models that               Lt, Gt, Le, Ge, Eq, Ne                                      operators
+    can predict the attack effort with the lowest error?           PlusA, MinusA, Mult, Div, Mod,                              Harder arithmetic, shift, bit-
+                                                                   Lt, Gt, Le, Ge, Eq, Ne, Shiftlt,                            wise and comparison operators
+                                                                   Shiftrt, BAnd, BXor, BOr
+   Due to space constraints, in this paper we will focus
+on the deobfuscation attack based on symbolic execution        Table 1: Operator parameter values given to C code gen-
+presented in [5], which is equivalent to extracting a secret   erator used for generating dataset.
+license key hidden inside the code of the program via ob-
+fuscation. However, in future work we plan to apply the         RandomFunsControlStructures Parameter Value (see                      Ctrl-    Num.      Num.
+                                                                grammar in Figure 3)                                                  flow     of if -   of
+approach proposed in Section 3, to other types of auto-                                                                               depth    stmts     Loops
+mated attacks, such as control-flow simplification [49].        (if (bb n) (bb n))                                                    1        1         0
+                                                                (if (bb n))(if (bb n))                                                1        2         0
+Note that even for other attacks the work-flow from Fig-        (if (bb n))(if (bb n))(if (bb n))                                     1        3         0
+ure 1 remains unchanged. However, the attack imple-             (if (if (bb n) (bb n)) (bb n))
+                                                                (if (if (bb n) (bb n)) (if (bb n) (bb n)))
+                                                                                                                                      2
+                                                                                                                                      2
+                                                                                                                                               2
+                                                                                                                                               3
+                                                                                                                                                         0
+                                                                                                                                                         0
+mentation and the software features will change.                (if (if (if (bb n) (bb n)) (bb n)) (bb n))                            3        3         0
+                                                                (if (if (if (bb n) (bb n)) (if (bb n) (bb n))) (bb n))                3        4         0
+                                                                (if (if (if (bb n) (bb n)) (if (bb n) (bb n))) (if (bb n) (bb n)))    3        5         0
+                                                                (for (bb n))                                                          1        0         1
+4.1     Experimental Setup                                      (for (if (bb n) (bb n)))                                              2        1         1
+                                                                (for (bb n))(for (bb n))                                              1        0         2
+All steps of the experiment were executed on a physical         (for (for (bb n)))
+                                                                (for (if (if (bb n) (bb n)) (bb n)))
+                                                                                                                                      2
+                                                                                                                                      3
+                                                                                                                                               0
+                                                                                                                                               2
+                                                                                                                                                         2
+                                                                                                                                                         1
+machine with a 64-bit version of Ubuntu 14.04, an In-           (for (if (bb n) (bb n))(if (bb n) (bb n)))                            2        2         1
+                                                                (for (if (if (bb n) (bb n)) (if (bb n) (bb n))))                      3        3         1
+tel Xeon CPU having 3.5GHz frequency and 64 GB of               (for (for (if (bb n) (bb n))))                                        3        1         2
+RAM. Subsequently we describe the tools that we have
+used and how we have used them. The following subsec-          Table 2: Control structure parameter values given to C
+tions correspond to the steps from 0 to 4 in Figure 1.         code generator used for generating dataset.
+
+4.1.1    Dataset of Original Programs
+                                                               win!” to standard output. We have set this constant value
+We have used the code generator described in Section 3.1       to be equal to the output of the randomly generated func-
+to generate a dataset of 4608 unobfuscated C programs.         tion when its input is equal to “12345”. Therefore, all of
+The following is a list of parameters and their corre-         the 4608 programs will print “You win!” on the standard
+sponding values we used to generate this dataset:              output if their input argument is “12345”. The reason for
+                                                               doing this will become clear when we explain the deob-
+   • The random seed value: Seed ∈ {1,2,4} (3 values).         fuscation attack in Section 4.1.3.
+   • The data type of variables: RandomFunsTypes ∈                Since this set of 4608 programs might seem too homo-
+     {char, short, int, long} (4 values).                      geneous for building a regression model, we used another
+   • The bounds of for-loops: RandomFunsForBound ∈             set of 11 non-cryptographic hash functions3 in our exper-
+     {constant, input, boundedInput} (3 values).               iments. Similarly to the randomly generated functions,
+                                                               these hash functions, process the input string passed as
+   • The operators allowed in expressions: Random-
+                                                               an argument to the program and it compares the result
+     FunsOperators presented in Table 1 (4 values),
+                                                               to a fixed value. In the case of the hash functions we
+     which also describes each parameter value.
+                                                               print a distinctive message on standard output whenever
+   • The control structures: RandomFunsControl-                the input argument is equal to “my license key”. Ta-
+     Structures presented in Table 2 (16 values),              ble 3 shows the minimum, median, average and maxi-
+     which also shows the depth of the control flow.           mum values of various code metrics of only the origi-
+   • The number of statements per basic block was              nal (un-obfuscated) set of programs, as computed by the
+     changed via the value of n ∈ {1, 2} from Table 2.         Unified Code Counter (UCC) tool [37] and the total num-
+                                                               ber of lines of code (LOC). Each metric was computed on
+The total number of combinations is therefore: 3 ×             the entire C file of each program, which includes the ran-
+4 × 3 × 4 × 16 × 2 = 4608. All other parameters                domly generated function and the main function. Note
+were kept to their default values, except for the              that by summing up the metrics on the first 6 rows we
+RandomFunsPointTest, which was set to true, mean-              obtain the total number of lines of code in our C pro-
+ing that the return value of the randomly generated func-      grams. The important thing to note from Table 3 is that
+tion is checked against a constant value and if they are
+equal the program prints a distinctive message, i.e. “You          3 http://www.partow.net/programming/hashfunctions/
+
+
+
+
+666     26th USENIX Security Symposium                                                                                           USENIX Association
+        Code Metric     Min     Med     Avg      Max                      Code Metric       Min      Med      Avg      Max
+        Calculations   10.00   27.00   34.64   152.00                     Calculations      4.00     6.00     6.45    12.00
+        Conditionals    7.00   10.00   10.02    16.00                     Conditionals      3.00     3.00     3.27     4.00
+        Logical         4.00    9.00   12.17    69.00                     Logical           2.00     6.00     5.36    11.00
+        Assignment      9.00   17.00   18.13    46.00                     Assignment        8.00     9.00     9.91    16.00
+        L1.Loops        2.00    3.00    2.85     4.00                     L1.Loops          1.00     1.00     1.00     1.00
+        L2.Loops        0.00    0.00    0.19     1.00                     L2.Loops          0.00     0.00     0.00     0.00
+        Total LOC      32.00   66.00   78.00   288.00                     Total LOC        18.00    25.00    25.99    44.00
+        Average CC      2.67    3.33    3.21     4.00                     Average CC        2.00     2.00     2.14     2.50
+
+Table 3: Overview of un-obfuscated randomly generated           Table 4: Overview of un-obfuscated simple hash pro-
+programs.                                                       grams.
+
+these 4608 programs vary in size and complexity, as was            We obfuscated each of the generated programs us-
+intended, in order to capture a representative range of li-     ing these transformations with all the default settings
+cense checking algorithms.                                      (except for opaque predicates where we set the number
+   To increase the number of programs in this set, we           of inserted predicates to 16), we obtained 5 × 4608 =
+generated 275 different variants for each of the non-           23040 obfuscated programs4 . We obfuscated each of
+cryptographic hashes using combinations of multiple ob-         the non-cryptographic hash functions with every possible
+fuscation transformations. The point which we aim to            pair of these 5 obfuscation transformations and obtained
+show here is that even if we add a small heterogeneous          25 × 11 = 275 obfuscated programs.
+subset to our larger homogeneous set of programs, the              Table 5 and Table 6 show the minimum, median,
+smaller subset is going to be predicted with the same ac-       average and maximum values of various code metrics
+curacy as the programs from the larger set. Table 4 shows       of the obfuscated set of randomly generated programs,
+the minimum, median, average and maximum values of              respectively the obfuscated programs involving simple
+various code metrics of only the original (un-obfuscated)       hash functions, as computed by the UCC tool. Each
+non-cryptographic hash functions, as computed by the            metric was computed on the entire C file of each pro-
+UCC tool and the total number of lines of code (LOC).           gram, which includes the randomly generated function,
+Each metric was computed on the entire C file of each           the main function and other functions generated by the
+program, which includes the hash function and the main          obfuscating transformation which is applied. For in-
+function, but no comment lines or empty lines.                  stance, the encode literals transformation generates an-
+                                                                other function which dynamically computes the values
+4.1.2   Obfuscation Tool                                        of constants in the code using a switch statement with
+                                                                a branch for each constant. Due to this reason we also
+We have used five obfuscating transformations offered
+                                                                notice that after applying the encode literals transfor-
+by Tigress [13], in order to generate five obfuscated ver-
+                                                                mation to a program, its average cyclomatic complexity
+sions of each of the 4608 programs generated by our code
+                                                                (CC) is slightly reduced because this function has CC=1
+generator and the 11 non-cryptographic hash functions.
+                                                                and it is averaged with two other functions with higher
+The obfuscating transformations we have used are:
+                                                                CCs. Comparing the numbers in these two table with
+  • Opaque predicates: introduce branch conditions in           those from Tables 3 and 4, it is important to note that the
+    the original code, which are either always true or          size and complexity of the obfuscated programs have in-
+    always false for any possible program input. How-           creased by one order of magnitude on average, w.r.t. un-
+    ever, their truth value is difficult to learn statically.   obfuscated programs.
+  • Literal encoding: replaces integer/string constants
+    by code that generates their value dynamically.             4.1.3    Deobfuscation Tool
+  • Arithmetic encoding: replaces integer arithmetic
+                                                                Since all of the original programs print a distinctive mes-
+    with more complex expressions, equivalent to the
+                                                                sage (i.e. “You win!”) when a particular input value
+    original ones.
+                                                                is entered, we can define the deobfuscation attack goal
+  • Flattening: replaces the entire control-flow struc-         as: finding an input value that leads the obfuscated pro-
+    ture by a flat structure of basic blocks, such that it is   gram to output “You win!”, without tampering with the
+    unclear which basic block follows which.
+                                                                   4 Tigress transforms have multiple options that affect the generated
+  • Virtualization: replaces the entire code with byte-         code, and makes it more or less amenable to analysis. For this study,
+    code that has the same functional semantics and an          we avoid transformations and options that would generate obfuscated
+    emulator which is able to interpret the bytecode.           code not analyzable by KLEE, which we use as our deobfuscation tool.
+
+
+
+
+USENIX Association                                                                 26th USENIX Security Symposium                 667
+      Code Metric     Min      Med      Avg       Max         erator, for 10 times each. All of the symbolic execu-
+      Calculations   22.00    98.00   183.36    870.00        tions successfully generated a test case where the in-
+      Conditionals    4.00    21.00   105.41    504.00        put was “12345”, which is the input needed to achieve
+      Logical         4.00    14.00    63.75    458.00
+                                                              the attacker goal. Similarly we ran KLEE with a sym-
+      Assignment     10.00    32.00   222.88   1078.00
+      L1.Loops        2.00     3.00     2.99     10.00        bolic argument length of 16 characters, on all of the un-
+      L2.Loops        0.00     0.00     0.25     12.00        obfuscated and obfuscated non-cryptographic hash func-
+      Total LOC      42.00   168.00   578.64   2932.00        tions, for 10 times each. Again the correct test cases were
+      Average CC      1.80     5.25    15.73     66.75        generated on all symbolic executions, but this time the
+                                                              input was “my license key”. Note that this is only one
+Table 5: Overview of obfuscated randomly generated            way to attack an obfuscated program, and that it does not
+programs.                                                     produce a simplified version of the obfuscated code as in
+                                                              [49]. Rather, it extracts a hidden license key value from
+      Code Metric     Min     Med       Avg       Max
+                                                              the obfuscated code. We computed the mean (M) and the
+      Calculations   18.00   27.00    127.70    350.00
+                                                              standard deviation (SD) of the reported times across all
+      Conditionals    3.00   10.00    100.81    444.00
+      Logical         2.00    6.00     54.45    240.00
+                                                              the 10 runs of KLEE and obtained that 83% of the pro-
+      Assignment     11.00   17.00    217.36    963.00        grams have a relative standard deviation (RSD = SD/M)
+      L1.Loops        1.00    1.00      1.02      2.00        under 0.25 and 94% have RSD ≤ 0.50. This means that
+      L2.Loops        0.00    0.00      0.36      3.00        the difference between multiple runs of KLEE on the
+      Total LOC      35.00   61.00    501.70   2002.00        same program is small.
+      Average CC      1.50    3.33     18.80     76.00
+
+Table 6: Overview of obfuscated simple hash programs.         4.1.4    Software Feature Extraction Tools
+                                                              Many papers [32, 43, 1, 4] suggest that the complexity of
+program. As presented in [4], this deobfuscation goal         branch conditions is a program characteristic with high
+is equivalent to finding a hidden secret key and can be       impact on symbolic execution. However, these papers
+achieved by employing an automated test case genera-          do not clearly indicate how this complexity should be
+tor. A state of the art approach for test case generation     measured. One way to do this is by first converting the
+is called dynamic symbolic execution (often it is simply      C program into a boolean satisfiability problem (SAT in-
+called symbolic execution). Such an approach is imple-        stance), and then extracting features from this SAT in-
+mented by several free and open source software tools         stance. There are several tools that can convert a C pro-
+such as KLEE [10], angr [44], etc. The first step of          gram into a SAT instance, e.g. the C bounded model
+symbolic execution is to mark a subset of program data        checker (CBMC) [12] or the low-level bounded model
+(e.g. variables) as symbolic, which means that they can       checker (LLBMC) [31], etc. However, the drawback of
+take any value in the range of its type. Afterwards, the      these tools is that the generated SAT instances may be as
+program is interpreted and whenever a symbolic value          large as 1GBs even for programs containing under 1000
+is involved in an instruction, its range is constrained ac-   lines of code, because they are not optimized. Hence, for
+cordingly. Whenever a branch based on a symbolic value        our dataset, the generated SAT instances would require
+is encountered, symbolic execution forks the state of the     somewhere in the order of 10TBs of data and several
+program into two different states corresponding to each       weeks of computational power, which is prohibitively ex-
+of the two possible truth values of the branch. The ranges    pensive.
+of the symbolic variable in these two forked states are          Instead, we took a faster alternative approach for ob-
+disjoint. This leads to different constraints on symbolic     taining an optimized SAT instance from a C program,
+variables for different program paths. The symbolic ex-       which we describe next. KLEE generates a satisfiability
+ecution engine sends these constraints to an SMT solver,      modulo theories (SMT) instance for each execution path
+which tries to find a concrete set of values (for the sym-    of the C program. We selected the SMT instance cor-
+bolic variables), which satisfy the constraints. Giving the   responding to the difficult execution path that prints out
+output of the SMT solver as input to the program will         the distinctive message on standard output5 . These SMT
+lead the execution to the path corresponding to that con-         5 Note that it is not necessary to execute KLEE to obtain the SMT
+straint.                                                      instance corresponding to the difficult execution path. The developer
+   Since we have the C source code for the obfuscated         knows the correct license key, therefore s/he can give the correct license
+programs, we chose to use KLEE as a test case genera-         key and record the instruction trace of the execution. Afterwards, the
+                                                              developer can substitute the constant input argument in the trace, with
+tor in this study. We ran KLEE with a symbolic argu-          a symbolic input and then extract the path constraint by combining all
+ment length of 5 characters, on all of the un-obfuscated      expressions in the trace. This path constraint does not need to be solved
+and obfuscated programs generated by our code gen-            by the SMT solver, but simply converted to SAT.
+
+
+
+
+668   26th USENIX Security Symposium                                                                         USENIX Association
+                                                               RMSE (Repeated Cross−Validation)
+instances (corresponding to the difficult path), were the
+most time-consuming to solve by KLEE’s SMT solver,                                                54
+
+STP [19]. Many SMT solvers, including Microsoft’s
+                                                                                                  53
+Z3 [18], internally convert SMT instances to SAT in-
+stances in order to solve them faster. Therefore, we mod-                                         52
+
+ified the source code of Z3 to output the internal SAT
+                                                                                                                ●
+
+instance, which we saved in separate files for each of                                            51
+                                                                                                           10       20   30           40   50   60
+the programs in our dataset. For extracting features from                                                                 Variables
+these SAT instances we used SATGraf [36], which com-
+putes graph metrics for SAT instances, where each node                        Figure 4: RF models with different feature subsets.
+represents a variable and there is an edge between vari-
+ables if they appear in the same clause. SATGraf com-
+putes features such as the number of community struc-        4.1.5                                     Regression Algorithms
+tures in the graph, their modularity (Q value), and also     For the purpose of regression we have used the R soft-
+the minimum, maximum, mean and standard deviation            ware environment6 for statistical computing. R provides
+of nodes and edges, inside and between communities.          several software packages for regression algorithms out
+Such features have been shown to be correlated with          of which we used e1071, randomForest, rgp and h2o:
+the difficulty of solving SAT instances [35]. Therefore,
+since symbolic execution includes many queries to an                    • The “e1071” package for regression via the support
+SMT/SAT solver, as shown in [4], these features are ex-                   vector machine (SVM) algorithm.
+pected to be good predictors of the time needed for a                   • The “randomForest” package for regression via the
+symbolic execution based deobfuscation attack. In sum,                    random forest (RF) algorithm.
+we transform the path that corresponds to a successful
+deobfuscation attack into a SAT instance (via an SMT                    • The “rgp” package for regression via genetic pro-
+instance), and then compute characteristics of this for-                  gramming (GP).
+mula, to be used as features for predicting the effort of               • The “h2o” package for regression via neural net-
+deobfuscating the program.                                                works (NNs).
+
+                                                             4.2                                       Feature Selection Results
+   For computing source code features often used in soft-    This section presents the results for the Feature Selection
+ware engineering, on both the original and obfuscated        Algorithms presented in Section 3.2. However, before se-
+programs, we used the Unified Code Counter (UCC)             lecting the most relevant features, we identify how many
+tool [37]. This tool outputs a variety of code metrics in-   features (predictor variables) are needed to get good pre-
+cluding three variations of the McCabe cyclomatic com-       diction results. For this purpose we performed a 10-fold-
+plexity, their average and the number of: calculations,      cross validation with linear and random forest (RF) re-
+conditional operations, assignments, logical operations,     gression models using all combinations of 5, 10 and 15
+loops at three different nesting levels, pointer opera-      metrics, as well as a model with all metrics. The results
+tions, mathematical operations, logarithmic operations       in Figure 4 show that using 15 variables is enough to ob-
+and trigonometric operations. For the programs in our        tain an RF model with root-mean-squared-error (RMSE)
+dataset the last four metrics are all zeros, therefore, in   values which are as good as those from RF models built
+our experiments we only used the other eleven metrics.       using all variables. Similar results were obtained for lin-
+Additionally, we also propose using four other program       ear models, except that the overall RMSE was higher
+features, namely: the execution time of the program, the     w.r.t. that of the RF models. Therefore, in the experi-
+maximum RAM usage of the program, the compiled pro-          ments presented in the following sections, we will only
+gram file size and the type of obfuscating transformation.   select the top best 15 features in both of the two ap-
+                                                             proaches described in Section 3.2.
+
+   In total we have 64 features out of which 49 are SAT      4.2.1                                     First approach: Pearson Correlation
+features which characterize the complexity of the con-
+                                                             After employing the algorithm described in Sec-
+straints on symbolic variables and 15 are program fea-
+                                                             tion 3.2.1, we were left with a set of 25 features,
+tures which characterize the structure and size of the
+                                                             with their Pearson correlation coefficients ranging from
+code. In the following we show that not all of these fea-
+tures are needed for good prediction results.                                 6 https://www.r-project.org/
+
+
+
+
+USENIX Association                                                                                              26th USENIX Security Symposium       669
+                                          Pearson Correlation                                                      Variable Importance
+
+                            0.15   0.20    0.25   0.30   0.35   0.40   0.45                             0.0e+00   4.0e+06     8.0e+06    1.2e+07
+
+            mean_clause                                                                       weight
+                meanvar                                                                       sdinter
+             sdedgeratio                                                                     ol_coms
+               meanintra                                                                   meaninter
+            mean_reused                                                                   sdedgeratio
+               meancom                                                                     meancom
+           unique_edges                                                                    meanintra
+                    vars                                                                      sdcom
+                  sdinter                                                                     sdintra
+          max_community                                                                          ol_q
+                ol_coms                                                                     edgeratio
+            maxedgeratio                                                                        Risk
+                maxinter                                                                    L1.Loops
+               max_total                                                                 max_clause
+                   Trans                                                               num_max_inter
+
+
+
+        Figure 5: Top 15 features via first approach.                             Figure 6: Top 15 features via second approach.
+
+
+0.4523 to -0.0302. The top 15 metrics in this range
+are shown in Figure 5. The strongest Pearson correla-
+tion of the time needed for running the deobfuscation
+attack is with the average size of clauses in the SAT in-                     The features selected using this approach are quite dif-
+stance (mean clause), followed by: the average number                         ferent from those selected in Section 4.2.1. The com-
+of times any one variable is used (meanvar), the stan-                        mon features between these two approaches are: sdinter,
+dard deviation of the ratio of inter to intra community                       ol coms, sdedgeratio, meancom and meanintra. The first
+edges (sdedgeratio), the average number of intra com-                         two common features are ranked 2nd and 3rd according
+munity edges (meanintra), the average number of times                         to variable importance, however, the most important fea-
+a clause with the same variable (but different literals)                      ture w.r.t. variable importance is the weight of the graph
+is repeated (mean reused), the average community size                         (weight), computed as the sum of positive literals mi-
+(meancom), the number of unique edges (unique edges),                         nus the sum of negative literals. The 4th most important
+the number of variables (vars), the standard deviation                        variable in Figure 6 is the average number of inter com-
+of the number of inter community edges (sdinter), the                         munity edges (meaninter), followed by: sdedgeratio,
+maximum number of distinct communities any one com-                           meancom, meanintra (see descriptions of these 3 features
+munity links to (max community), the number of com-                           in Section 4.2.1), the standard deviation of community
+munities detected with the online community detection                         sizes (sdcom), the standard deviation of intra community
+algorithm (ol coms), the maximum ratio of inter to in-                        edges (sdintra), the modularity of the SAT graph struc-
+tra community edges within any community (maxedger-                           ture (ol q), the overall ratio of inter to intra community
+atio), the maximum number of inter community edges                            edges (edgeratio), the category of the McCabe cyclo-
+(maxinter), the maximum number of edges in a commu-                           matic complexity [30] (Risk), the number of outer-loops
+nity (max total) and finally the type of obfuscation trans-                   (L1.Loops), the size of the longest clause (max clause)
+formation employed.                                                           and the number of communities that have the maximum
+   None of the previous features are very strongly cor-                       number of inter community edges (num max inter).
+related to deobfuscation time. The first three features
+are moderately correlated, the following ten features are                        Similarly, to the first approach, the majority of se-
+weakly correlated and finally the last two features are                       lected features are SAT features. The only two features
+very weakly correlated. However, notice that the top                          which are not SAT features are Risk and L1.Loops which
+fourteen features are all SAT features, and none are code                     are computed by the UCC tool. The number of loops was
+metrics from the UCC tool or program features such as                         indeed indicated also in [4] as being an important fea-
+execution time, memory usage or file size.                                    ture. The Risk has four possible values depending on the
+                                                                              value of the cyclomatic complexity (CC), i.e. low if CC
+4.2.2    Second approach: Variable Importance                                 ∈ [1, 10], moderate if CC ∈ [11, 20], high if CC ∈ [21, 50]
+                                                                              and very high if CC is above 50. CC gives a measure
+To rank our features according to variable importance                         of the complexity of the branching structure in programs
+we performed recursive feature elimination via random                         (including if-statements, loops and jumps). However, it
+forests, as indicated in Section 3.2.2. Figure 6 shows                        is remarkable that the CC value was ranked lower than
+the top 15 features sorted by their variable importance.                      the Risk.
+
+
+
+670     26th USENIX Security Symposium                                                                                          USENIX Association
+                                                             munity structures, i.e. many more intra-community, than
+                                                             inter-community edges. To check this observation, we
+                                                             downloaded the Mironov-Zhang [32] and the Li-Ye [28]
+                                                             benchmark suites for SAT solvers, containing solvable
+                                                             versions of more realistic hash functions such as MD5
+                                                             and SHA. All of these instances had balanced commu-
+                                                             nity structures. For example, Figure 7 illustrates the
+                                                             graph representation of the SAT instance7 of the MD5-
+                                                             27-4 hash function of the Li-Ye benchmark suite[28]
+                                                             proposed during the 2014 SAT Competition. It is visi-
+                                                             ble – from the number of yellow dots – that this graph
+                                                             has a high number of variables. More importantly it
+                                                             is also visible that one cannot easily distinguish graph
+                                                             community structures, because they are relatively small
+                                                             and well connected with other communities. This kind
+                                                             of structure is hard to solve, because each assignment of
+                                                             a variable has a large number of connections and there-
+                                                             fore ramifications inside the graph at the time when unit
+                                                             propagation is performed by the SAT solver. However,
+                                                             note that if the graph is fully connected, then it is easy to
+Figure 7: Graph representation of SAT instance corre-        solve. Therefore, there is a fine line between having too
+sponding to an MD5 hash with 27 rounds. Solving this         many connections and too few, where the difficulty of
+instance takes approximately 25 seconds on our testbed.      SAT instances increases dramatically. This last observa-
+                                                             tion is similar to the constrainedness of search employed
+                                                             by Gent et al. [20], when analyzing the likelihood of find-
+                                                             ing solutions to different instances of the same search
+                                                             problem. This makes sense since a SAT solver is execut-
+                                                             ing a search when it is trying to solve a SAT instance.
+                                                                On the other hand, many of our randomly generated
+                                                             C programs which were fast to deobfuscate, had estab-
+                                                             lished community structures. For example, Figure 8 il-
+                                                             lustrates the graph representation of a program generated
+                                                             using our C code generator. This program was generated
+                                                             with the following parameter values:
+
+                                                                • RandomFunsTypes was set to int.
+
+                                                                • RandomFunsForBound was set to a constant value.
+
+Figure 8: Graph representation of SAT instance corre-           • RandomFunsOperators was set to Shiftlt,
+sponding to a program whose symbolic execution time is            Shiftrt, Lt, Gt, Le, Ge, Eq, Ne, BAnd, BOr and
+under 1 second.                                                   BXor.
+
+                                                                • RandomFunsControlStructures was set to (if (if
+4.2.3   Insights from Feature Selection Results                   (if (bb n) (bb n)) (if (bb n) (bb n))) (if (bb n) (bb n))).
+SAT features are important for symbolic execution, be-          • n = 1.
+cause most of the time of the attack is spent waiting for
+the SAT solver to find solutions for path constraints [4].      • RandomFunsPointTest was set to true.
+Taking a closer look at the common SAT features of both
+feature selection approaches, we can characterize those      Given these parameter values, this instance is expected
+SAT instances, which are harder to solve. The graph          to be fast to solve, because it does not involve any loops
+representation of such an instance has a large number of     dependent on symbolic inputs and it only involves logical
+balanced community structures, i.e. a similar number of      and bitwise operators.
+intra- and inter-community edges. On the other hand,            7 These graph representations were generated using the SATGraf
+
+easy to solve instances tend to have established com-        tool [36].
+
+
+
+
+USENIX Association                                                            26th USENIX Security Symposium             671
+                                                              trated in Figure 10. This instance, has a balanced com-
+                                                              munity structure, hence, slower to solve (438 seconds)
+                                                              and shares a resemblance to the MD5 instance from Fig-
+                                                              ure 7. We have also noticed that the arithmetic encoding
+                                                              transformation has this effect on SAT instances. How-
+                                                              ever, the opaque predicate and literal encoding alone do
+                                                              not have such an effect.
+                                                                 As a conclusion of this section we observe that bal-
+                                                              anced community structures translate to a high diffusion
+                                                              of the symbolic input to output bits, i.e. affecting any bit
+                                                              of the input license key will affect the result of the output.
+                                                              This is the case for collision-resistant hash functions, as
+                                                              well as the effect of obfuscation transformations like vir-
+                                                              tualization, flattening and arithmetic encoding.
+
+
+                                                              4.3    Regression Results
+Figure 9: Graph representation of SAT instance corre-         For each of the regression algorithms presented next,
+sponding to a non-cryptographic hash function which is        we have used several different configuration parameters.
+solved in about 7.5 seconds.                                  Due to space limitations, we only present the configu-
+                                                              ration parameters which gave the best results. We ran-
+                                                              domly shuffled the programs in our 2 datasets of pro-
+                                                              grams into one single dataset and performed 10-fold
+                                                              cross-validation for each experiment. To interpret the
+                                                              root-mean-squared-error (RMSE) we normalize it by the
+                                                              range between the fastest and slowest times needed to
+                                                              run the deobfuscation attack on any program from our
+                                                              dataset. Since our dataset contains outliers (i.e. either
+                                                              very high and very low deobfuscation times), the nor-
+                                                              malized RMSE (NRMSE) values are very low for all al-
+                                                              gorithms, regardless of the selected feature subsets, as
+                                                              shown in Table 7. This could be misinterpreted as ex-
+                                                              tremely good prediction accuracy regardless of the re-
+                                                              gression algorithm and feature set. However, we pro-
+                                                              vide a clearer picture of the accuracy of each regression
+                                                              model by computing the NRMSEs after removing 2%
+                                                              and 5% of outliers from both the highest and the lowest
+                                                              deobfuscation times in the dataset. This means that in
+Figure 10: Graph representation of SAT instance corre-
+                                                              total we remove 4%, respectively 10% of outliers. In-
+sponding to same non-cryptographic hash function from
+                                                              stead of showing just the numeric values of the NRMSE
+Figure 9, after being obfuscated with virtualization and
+                                                              for each these three cases (0%, 4% and 10% of outliers
+subsequently control-flow flattening. This instance is
+                                                              removed), we show cumulative distribution functions of
+solved in about 438 seconds.
+                                                              the relative (normalized) error in the form of line plots,
+                                                              e.g. Figure 11. These line plots show the maximum and
+   In this context of representing SAT instances as           the median errors for all the three cases, where the x-
+graphs, it is interesting to note the effect of obfuscation   axis represents the percentage of programs for which the
+transformations on SAT instances. For instance, Figure 9      relative error (indicated on the y-axis) is lower than the
+illustrates the SAT instance of a non-obfuscated, non-        plotted value.
+cryptographic hash function from our dataset. The com-           Note that in addition to the following regression al-
+munity structures of this hash function are established,      gorithms we have also employed both linear models and
+hence, the instance can be solved in about 7.5 seconds.       generalized linear models [34]. However, the results of
+However, after applying two layers of obfuscation, first      the models generated by these algorithms were either
+using the virtualization and then the flattening, trans-      much worse compared to the models presented in the fol-
+forms the SAT instance of this program into the one illus-    lowing, or the models did not converge after 24 hours.
+
+
+
+672   26th USENIX Security Symposium                                                                 USENIX Association
+                                                                                                                      1.00
+                                                              SVM               RF     GP      NN                     0.95                        Type of error
+                                                                                                                      0.90
+                                                                                                                                     Maximum error with UCC metrics
+                 UCC (11 features)                            0.019          0.016   0.018   0.018                    0.85
+                                                                                                                      0.80           Maximum error with Pearson correlation metrics
+                 Pearson (15 features)                        0.017          0.013   0.015   0.015                    0.75
+                                                                                                                      0.70
+                                                                                                                                     Maximum error with variable importance metrics
+                                                                                                                                     Median error with UCC metrics
+                 Var. Importance (15 features)                0.019          0.013   0.015   0.015                    0.65
+
+
+
+                                                                                                     Relative error
+                                                                                                                      0.60           Median error with Pearson correlation metrics
+                                                                                                                      0.55           Median error with variable importance metrics
+                                                                                                                      0.50
+                                                                                                                      0.45
+Table 7: The NRMSE between model prediction and                                                                       0.40
+                                                                                                                      0.35
+ground truth (average over NRMSE of 10 models)                                                                        0.30
+                                                                                                                      0.25
+                                                                                                                      0.20
+                                                                                                                      0.15
+                                                                                                                      0.10
+                 1.00                                                                                                 0.05
+                 0.95                      Type of error                                                              0.00
+                 0.90
+                 0.85           Maximum error with 10% of outliers removed
+                                                                                                                             0   5   10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95
+                 0.80           Maximum error with 4% of outliers removed
+                                                                                                                                                      Percentage of programs
+                 0.75           Maximum error with 0% of outliers removed
+                 0.70           Median error with 10% of outliers removed
+                 0.65
+
+
+
+Relative error
+                 0.60           Median error with 4% of outliers removed
+                 0.55
+                 0.50
+                                Median error with 0% of outliers removed
+                                                                                                                       Figure 12: RF models with different feature sets.
+                 0.45
+                 0.40
+                 0.35                                                                                                 1.00
+                 0.30                                                                                                 0.95                      Type of error
+                 0.25                                                                                                 0.90
+                 0.20                                                                                                 0.85           Maximum error with 10% of outliers removed
+                 0.15                                                                                                 0.80           Maximum error with 4% of outliers removed
+                 0.10                                                                                                 0.75
+                 0.05                                                                                                                Maximum error with 0% of outliers removed
+                 0.00                                                                                                 0.70           Median error with 10% of outliers removed
+                                                                                                                      0.65
+
+
+
+                                                                                                     Relative error
+                                                                                                                      0.60           Median error with 4% of outliers removed
+                        0   5   10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95                                                Median error with 0% of outliers removed
+                                                                                                                      0.55
+                                                 Percentage of programs                                               0.50
+                                                                                                                      0.45
+                                                                                                                      0.40
+                                                                                                                      0.35
+                  Figure 11: Relative prediction error of RF model.                                                   0.30
+                                                                                                                      0.25
+                                                                                                                      0.20
+                                                                                                                      0.15
+                                                                                                                      0.10
+                                                                                                                      0.05
+                                                                                                                      0.00
+4.3.1                       Random Forests (RFs)                                                                             0   5   10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95
+                                                                                                                                                      Percentage of programs
+
+
+Random forests (RFs) were proposed by Breiman [9] as
+an extension of random feature extraction, by including                                                               Figure 13: Relative prediction error of SVM model.
+the idea of “bagging”, i.e. computing a mean of the pre-
+diction of all random decision trees. In our experiments
+                                                                                                     ative error is just below 35% for 90% of the programs,
+we constructed a RF containing 500 decision trees.
+                                                                                                     when we remove 10% of the outliers. However, the me-
+   Figure 11 shows the maximum and median relative er-                                               dian error is less than 7% in the same circumstances. The
+rors for 0%, 4% and 10% of outliers removed. As more                                                 reason why SVM performs worse than RF is due to the
+outliers are removed the relative error increases due to                                             bagging technique applied by RF, whereas SVM uses a
+a decrease in the range of deobfuscation times in the                                                single non-linear function.
+dataset. However, even when 10% of outliers are re-                                                     Again we chose to show the SVM model built us-
+moved, the maximum error is under 17% and the median                                                 ing the features selected via variable importance in Fig-
+error is less than 4% for 90% of the programs, which                                                 ure 13, because, as we can see from Figure 14, the
+seems acceptable for most use cases.                                                                 maximum and median error rates for this model are
+   Note that the model in Figure 11 was built using the                                              much lower than the SVM models built using only UCC
+15 features selected via variable importance, presented                                              metrics or the features selected via Pearson correlation.
+in Section 4.2.2. We chose to show the results from the                                              However, note that the maximum error of the model built
+model built using these features because, they are better                                            using variable importance surpasses that of the other two
+than those produced by models built using other subsets                                              models around the 90% mark on the horizontal axis. This
+of features. As we can see from Figure 12, the relative er-                                          means that for 10% of the programs the maximum error
+ror values when building models with UCC metrics only                                                of the model built using the features selected by variable
+and with the Pearson correlation approach, give worse re-                                            importance, is higher that the error of the other two mod-
+sults in terms of both maximum and median error rates.                                               els. However, note that the median error is around 10%
+                                                                                                     lower in the same circumstances.
+4.3.2                       Support Vector Machines (SVMs)
+                                                                                                     4.3.3                       Genetic Programming (GP)
+Support vector machines (SVMs) were proposed by
+Cortes and Vapnik [16] to classify datasets having a high                                            Given the set of all code features as a set of input vari-
+number of dimensions, which are not linearly separable.                                              ables, GP [24] searches for models that combine the in-
+   Figure 13 shows the relative errors for the SVM model                                             put variables using a given set of functions used to pro-
+built using the features selected via the second approach                                            cess and combine these variables, i.e. addition, multipli-
+(see Section 4.2.2). The accuracy of this model is lower                                             cation, subtraction, logarithm, sinus and tangent in our
+than the RF model from Figure 11, i.e. the maximum rel-                                              experiments. GP aims to optimize the models such that a
+
+
+
+USENIX Association                                                                                                                           26th USENIX Security Symposium             673
+                 1.00                                                                                            1.00
+                 0.95                         Type of error                                                      0.95                      Type of error
+                 0.90                                                                                            0.90
+                 0.85            Maximum error with UCC metrics                                                  0.85           Maximum error with 10% of outliers removed
+                 0.80            Maximum error with Pearson correlation metrics                                  0.80           Maximum error with 4% of outliers removed
+                 0.75            Maximum error with variable importance metrics                                  0.75           Maximum error with 0% of outliers removed
+                 0.70            Median error with UCC metrics                                                   0.70           Median error with 10% of outliers removed
+                 0.65                                                                                            0.65
+
+
+
+Relative error                                                                                  Relative error
+                 0.60            Median error with Pearson correlation metrics                                   0.60           Median error with 4% of outliers removed
+                 0.55            Median error with variable importance metrics                                   0.55           Median error with 0% of outliers removed
+                 0.50                                                                                            0.50
+                 0.45                                                                                            0.45
+                 0.40                                                                                            0.40
+                 0.35                                                                                            0.35
+                 0.30                                                                                            0.30
+                 0.25                                                                                            0.25
+                 0.20                                                                                            0.20
+                 0.15                                                                                            0.15
+                 0.10                                                                                            0.10
+                 0.05                                                                                            0.05
+                 0.00                                                                                            0.00
+                        0   5    10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95                                  0   5   10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95
+                                                  Percentage of programs                                                                         Percentage of programs
+
+
+
+                 Figure 14: SVM models with different feature sets.                                              Figure 16: Relative prediction error of NN model.
+
+                 1.00
+                 0.95                       Type of error
+                 0.90
+                 0.85            Maximum error with 10% of outliers removed                    4.3.4                        Neural Networks (NNs)
+                 0.80            Maximum error with 4% of outliers removed
+                 0.75            Maximum error with 0% of outliers removed
+                 0.70
+                 0.65
+                                 Median error with 10% of outliers removed
+                                                                                               Multi-layer neural networks (NNs) were introduced by
+Relative error
+                 0.60            Median error with 4% of outliers removed
+                 0.55
+                 0.50
+                                 Median error with 0% of outliers removed
+                                                                                               Werbos [47] in the 1970s. Recently, the interest in NNs
+                 0.45
+                 0.40
+                 0.35
+                                                                                               has been revived due to the increase in computational re-
+                 0.30
+                 0.25                                                                          sources available in the cloud and in graphical processing
+                 0.20
+                 0.15
+                 0.10
+                                                                                               units. A neural network has three characteristics. Firstly,
+                 0.05
+                 0.00                                                                          the architecture which describes the number of neuron
+                        0   5    10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95
+                                                  Percentage of programs                       layers, the size of each layer and connection between the
+                                                                                               neuron layers. In our experiments we used a NN with five
+                  Figure 15: Relative prediction error of GP model.                            hidden layers each containing 200 neurons. The input
+                                                                                               layer consists of the set of code features and the output
+                                                                                               of the NN is a single value that predicts the time needed
+given fitness function is minimized. For our experiments,                                      to run the deobfuscation attack on a program. Secondly,
+we used the root-mean-square error (RMSE) between                                              the activation function which is applied to the weighted
+the actual time needed for deobfuscation and the time                                          inputs of each neuron. This function can be as simple as
+predicted by the model, as a fitness function. The output                                      a binary function, however it can also be continuous such
+of GP is one of the generated models with the best fitness                                     as a Sigmoid function or a hyperbolic tangent. In our ex-
+value. In our case this member is a function of the code                                       periments we use a ramp function. Thirdly, the learning
+features, which has the smallest error in predicting the                                       rule which indicates how the weights of a neuron’s input
+time needed to execute the deobfuscation attack on every                                       connections are updated. In our experiment we used the
+program. For instance, the best GP model built using the                                       Nesterov Accelerated Gradient as a learning rule.
+features selected via variable importance is presented in                                         Figure 16 shows the maximum and median error of
+equation 1:                                                                                    the NN model built using all metrics. Note that in the
+                                                                                               case of NNs it is feasible to use all metrics without incur-
+                                                                                               ring large memory usage penalties such as is the case for
+                 time = (edgeratio + cos(ol coms)
+                                                                                               SVMs. The performance of this model is better than the
+                                + cos(cos(sdcom + num max inter) + L1.Loops))
+                                                                                               SVM and GP models, but not better than the RF model.
+                                ∗ (sdinter ∗ (sdedgeratio − sin(meanintra ∗ −1.27)))
+                                                                                         (1)
+                                ∗ (sdedgeratio − sin(meanintra ∗ −1.27))
+                                ∗ (1.03 − sin(0.04 ∗ sdinter))                                 4.4                      Summary of Results
+                                ∗ sdedgeratio + 10.2
+                                                                                               Based on the results presented above, we answer the re-
+Note that only seven distinct features were selected by                                        search questions elicited in the beginning of Section 4.
+the GP algorithm for this model, from the subset of 15                                         Firstly, in Figure 4 we have seen that given our large set
+features. Figure 15 shows the maximum and median                                               of 64 program features, using only 15 is enough to obtain
+error values for the GP model from equation 1. Note                                            regression models with RMSEs as low as the regression
+that the maximum and median error levels for the dataset                                       models where all the features are used. From Figures 5
+where 10% of outliers are removed, are 55%, respec-                                            and 6 we have seen that both approaches to feature selec-
+tively 19% for 90% of the programs. This error rate is                                         tion ranked SAT features above code metrics commonly
+much higher than both RFs and SVMs and is due to the                                           used to measure resilience, namely cyclomatic complex-
+fact that the GP model is a single equation.                                                   ity or the size of the program. This means that the most
+
+
+
+674                     26th USENIX Security Symposium                                                                                                                       USENIX Association
+USENIX Association   26th USENIX Security Symposium   675
+                                                                                                                Predicted
+periments we have found that the size of the program              Instance Name      Solver(s)   Predicted(s)    Solver
+is very weakly correlated with the time needed to run             MD5-27-4              25.37          71.56        2.82
+the deobfuscation attack based on symbolic execution.             mizh-md5-47-3        681.29         950.43        1.39
+We show that the prediction accuracy of our best RF               mizh-md5-47-4        235.53       1069.19         4.53
+model (from Figure 11) is high even when including a              mizh-md5-47-5       1832.96         437.98        0.23
+small non-artificial dataset of programs containing non-          mizh-md5-48-2        445.19         523.70        1.17
+cryptographic hash functions. Figure 19 shows the pre-            mizh-md5-48-5        227.05         644.38        2.83
+diction error of our best RF model (trained using 10-fold-        mizh-sha0-35-2       330.48         158.57        0.47
+cross-validation on both datasets), for the samples in the        mizh-sha0-35-3       139.93         213.03        1.52
+                                                                  mizh-sha0-35-4        97.62         214.61        2.19
+smaller dataset alone, has similar levels to the prediction
+                                                                  mizh-sha0-35-5       164.71         193.49        1.17
+error of the entire dataset.
+                                                                  mizh-sha0-36-2        85.44         222.07        2.59
+   We also performed a reality check, i.e. we verified that
+the SAT features we identified are also relevant for the re-   Table 8: Prediction results of realistic hash functions via
+alistic hash functions from the Mironov-Zhang [32] and         RF model trained with SAT features from Section 4.2.
+the Li-Ye [28] benchmark suites for SAT solvers. We            The solver and predicted time are given in seconds.
+selected the top 10 SAT metrics from Section 4.2 and
+trained a random forest (RF) model using the SAT in-
+stances corresponding to the C programs in our obfus-
+cated dataset of randomly generated programs and non-          it takes to deobfuscate a program using a symbolic exe-
+cryptographic hash functions. Afterwards, we applied           cution based attack, for programs in our dataset. More-
+this RF model to a set of more realistic hash functions        over, we have also obtained encouraging results with re-
+from the Mironov-Zhang [32] and the Li-Ye [28] bench-          alistic hash functions such as MD5 and SHA instances
+mark suites for SAT solvers, containing solvable versions      used in SAT competitions.
+of more realistic hash functions such as MD5 and SHA.             Note however, that our framework is not specific to
+Table 8 shows the results obtained from applying the RF        symbolic execution and can be used for other attacks,
+model to the hash functions, which were solvable by the        other programs and other obfuscators. Finally, we com-
+minisat solver used by STP (KLEE’s SMT solver), on             pared different regression algorithms both in terms of
+our machine. Note that the Li-Ye [28], suite contains          prediction error and memory consumption and conclude
+many other instances of MD5 with more rounds, how-             that the choice of regression algorithm is less important
+ever, those could not be solved within a 10 hour time          than the choice of features when it comes to predicting
+limit on our test machine. The last column of Table 8          the effort needed by the attack. However, we obtained
+gives the ratio between the predicted and the actual time      the lowest maximum error using a random forest model,
+needed to solve each instance. Except for the mizh-md5-        built with features selected using variable importance. In
+47-4 and mizh-md5-47-5 SAT instances, which are the            terms of memory usage genetic algorithms and neural
+most over- and respectively under-estimated, the rest of       networks have a lower memory footprint, however their
+the predictions are quite encouraging, given that we have      training times may be much higher.
+not trained the RF model with any such realistic SAT in-
+stances. Therefore, we obtained encouraging results with          In future work we plan to use datasets consisting
+a median prediction error of 52%, which is quite remark-       of real-world programs, additional obfuscation tools
+able given the fact that our model was not trained using       and deobfuscation attacks. We believe that obtain-
+these realistic instances.                                     ing representative datasets of programs would also be
+                                                               of paramount importance for benchmarking both new
+                                                               and existing obfuscation and deobfuscation techniques.
+5     Conclusions                                              Therefore, we believe this area of research needs much
+                                                               more work, since it could be a driving factor for the field
+This paper presents a general approach towards build-
+                                                               of software protection.
+ing prediction models that can estimate the effort needed
+by an automated deobfuscation attack. We evaluated our            Another avenue for future work is to employ other ma-
+approach using a dataset of programs produced by our C         chine learning techniques in order to derive better pre-
+code generator. For programs that our generated dataset        diction models for deobfuscation attacks. An interesting
+is representative, features such as the complexity of path     idea in this direction is deriving attack resilience features
+constraints (measured via SAT features), are more im-          using deep neural networks. However, such a task would
+portant than cyclomatic complexity, size of the program,       also require a set of representative un-obfuscated pro-
+number of conditional operations, etc. With a median er-       grams, which stresses the importance of future work in
+ror of 4% our best model can accurately predict the time       this direction.
+
+
+
+676    26th USENIX Security Symposium                                                                USENIX Association
+6    Acknowledgments                                                     [11] C ECCATO , M., C APILUPPI , A., FALCARIN , P., AND B OLDYR -
+                                                                              EFF , C. A large study on the effect of code obfuscation on
+
+The authors would like to thank the anonymous review-                         the quality of java code. Empirical Software Engineering 20, 6
+                                                                              (2015), 1486–1524.
+ers, Prof. Vijay Ganesh and Zack Newsham for the feed-
+                                                                         [12] C LARKE , E., K ROENING , D., AND L ERDA , F. A tool for check-
+back regarding the SATGraf tool and tips for converting
+                                                                              ing ANSI-C programs. In Tools and Algorithms for the Construc-
+SMT instances into SAT instances. This work was par-                          tion and Analysis of Systems (2004), vol. 2988 of LNCS, Springer,
+tially supported by NSF grants 1525820 and 1318955.                           pp. 168–176.
+                                                                         [13] C OLLBERG , C., M ARTIN , S., M YERS , J., AND NAGRA , J. Dis-
+                                                                              tributed application tamper detection via continuous software up-
+7    Availability                                                             dates. In Proc. of the 28th Annual Computer Security Applica-
+                                                                              tions Conference (New York, NY, USA, 2012), ACM, pp. 319–
+Our code generator is part of the Tigress C Diversi-                          328.
+fier/Obfuscator tool. Binaries are freely available at:                  [14] C OLLBERG , C., AND NAGRA , J. Surreptitious software. Upper
+                                                                              Saddle River, NJ: Addision-Wesley Professional (2010).
+          http://tigress.cs.arizona.edu/                                 [15] C OLLBERG , C., T HOMBORSON , C., AND L OW, D. A taxon-
+           transformPage/docs/randomFuns                                      omy of obfuscating transformations. Tech. rep., Department of
+                                                                              Computer Science, The University of Auckland, New Zealand,
+   Source code is available to researchers on request. Our                    1997.
+dataset of original (unobfuscated) programs, as well as                  [16] C ORTES , C., AND VAPNIK , V. Support-vector networks. Ma-
+                                                                              chine learning 20, 3 (1995), 273–297.
+all scripts and auxiliary software used to run our experi-
+ments, are available at:                                                 [17] DALLA P REDA , M. Code obfuscation and malware detection by
+                                                                              abstract interpretation. PhD thesis, University of Verona, 2007.
+            https://github.com/tum-i22/                                  [18] D E M OURA , L., AND B JØRNER , N. Z3: An efficient smt solver.
+              obfuscation-benchmarks/                                         In International conference on Tools and Algorithms for the Con-
+                                                                              struction and Analysis of Systems (2008), Springer, pp. 337–340.
+                                                                         [19] G ANESH , V., AND D ILL , D. L. A decision procedure for bit-
+References                                                                    vectors and arrays. In International Conference on Computer
+                                                                              Aided Verification (2007), Springer, pp. 519–531.
+ [1] A NAND , S., B URKE , E. K., C HEN , T. Y., C LARK , J., C OHEN ,
+     M. B., G RIESKAMP, W., H ARMAN , M., H ARROLD , M. J.,              [20] G ENT, I. P., M AC I NTYRE , E., P ROSSER , P., WALSH , T.,
+     M C M INN , P., ET AL . An orchestrated survey of methodologies          ET AL . The constrainedness of search. In AAAI/IAAI, Vol. 1
+     for automated software test case generation. Journal of Systems          (1996), pp. 246–252.
+     and Software 86, 8 (2013), 1978–2001.                               [21] G RANITTO , P. M., F URLANELLO , C., B IASIOLI , F., AND
+ [2] A NCKAERT, B., M ADOU , M., D E S UTTER , B., D E B US , B.,             G ASPERI , F. Recursive feature elimination with random forest
+     D E B OSSCHERE , K., AND P RENEEL , B. Program obfuscation:              for ptr-ms analysis of agroindustrial products. Chemometrics and
+     a quantitative approach. In Proc. of the ACM workshop on Quality         Intelligent Laboratory Systems 83, 2 (2006), 83–90.
+     of protection (2007), ACM, pp. 15–20.                               [22] H ALL , M. A. Correlation-based feature selection for machine
+ [3] A PON , D., H UANG , Y., K ATZ , J., AND M ALOZEMOFF , A. J.             learning. PhD thesis, The University of Waikato, 1999.
+     Implementing cryptographic program obfuscation. IACR Cryp-          [23] H EFFNER , K., AND C OLLBERG , C. The obfuscation execu-
+     tology ePrint Archive 2014 (2014), 779.                                  tive. In International Conference on Information Security (2004),
+ [4] BANESCU , S., C OLLBERG , C., G ANESH , V., N EWSHAM , Z.,               Springer, pp. 428–440.
+     AND P RETSCHNER , A. Code obfuscation against symbolic exe-         [24] H OLLAND , J. H. Adaptation in natural and artificial systems: an
+     cution attacks. In Proc. of 2016 Annual Computer Security Ap-            introductory analysis with applications to biology, control, and
+     plications Conference (2016), ACM.                                       artificial intelligence. U Michigan Press, 1975.
+ [5] BANESCU , S., O CHOA , M., AND P RETSCHNER , A. A frame-            [25] K ANZAKI , Y., M ONDEN , A., AND C OLLBERG , C. Code artifi-
+     work for measuring software obfuscation resilience against auto-         ciality: a metric for the code stealth based on an n-gram model.
+     mated attacks. In 1st International Workshop on Software Pro-            In Proc. of the 1st International Workshop on Software Protection
+     tection (2015), IEEE, pp. 45–51.                                         (2015), IEEE Press, pp. 31–37.
+ [6] BANESCU , S., O CHOA , M., P RETSCHNER , A., AND K UNZE ,           [26] K ARNICK , M., M AC B RIDE , J., M C G INNIS , S., TANG , Y., AND
+     N. Benchmarking indistinguishability obfuscation - a candidate           R AMACHANDRAN , R. A qualitative analysis of java obfuscation.
+     implementation. In Proc. of 7th International Symposium on ES-           In proceedings of 10th IASTED international conference on soft-
+     SoS (2015), no. 8978 in LNCS.                                            ware engineering and applications, Dallas TX, USA (2006).
+ [7] BARAK , B. Hopes, fears, and software obfuscation. Communi-         [27] L E , L. Payload already inside: datafire-use for rop exploits.
+     cations of the ACM 59, 3 (2016), 88–96.                                  Black Hat USA (2010).
+ [8] BARLAK , E. S. Feature selection using genetic algorithms.          [28] L I , C.-M., AND Y E , B. Sat-encoding of step-reduced md5. SAT
+ [9] B REIMAN , L. Random forests. Machine learning 45, 1 (2001),             COMPETITION 2014, 94–95.
+     5–32.
+                                                                         [29] L IN , S.-W., L EE , Z.-J., C HEN , S.-C., AND T SENG , T.-Y. Pa-
+[10] C ADAR , C., D UNBAR , D., AND E NGLER , D. R. Klee: Unas-               rameter determination of support vector machine and feature se-
+     sisted and automatic generation of high-coverage tests for com-          lection using simulated annealing approach. Applied soft comput-
+     plex systems programs. In OSDI (2008).                                   ing 8, 4 (2008), 1505–1512.
+
+
+
+
+USENIX Association                                                                          26th USENIX Security Symposium                677
+[30] M C C ABE , T. J. A complexity measure. IEEE Transactions on           [41] Q IU , J., YADEGARI , B., J OHANNESMEYER , B., D EBRAY, S.,
+     software Engineering, 4 (1976), 308–320.                                    AND S U , X. Identifying and understanding self-checksumming
+[31] M ERZ , F., FALKE , S., AND S INZ , C. Llbmc: Bounded model                 defenses in software. In Proc. of the 5th ACM Conference
+     checking of c and c++ programs using a compiler ir. In Interna-             on Data and Application Security and Privacy (2015), ACM,
+     tional Conference on Verified Software: Tools, Theories, Experi-            pp. 207–218.
+     ments (2012), Springer, pp. 146–161.                                   [42] S CHRITTWIESER , S., K ATZENBEISSER , S., K INDER , J.,
+[32] M IRONOV, I., AND Z HANG , L. Applications of sat solvers to                M ERZDOVNIK , G., AND W EIPPL , E. Protecting software
+     cryptanalysis of hash functions. In International Conference on             through obfuscation: Can it keep pace with progress in code anal-
+     Theory and Applications of Satisfiability Testing (2006), Springer,         ysis? ACM Computing Surveys (CSUR) 49, 1 (2016), 4.
+     pp. 102–115.
+                                                                            [43] S HARIF, M. I., L ANZI , A., G IFFIN , J. T., AND L EE , W. Im-
+[33] M OHSEN , R., AND P INTO , A. M. Evaluating obfuscation se-                 peding malware analysis using conditional code obfuscation. In
+     curity: A quantitative approach. In International Symposium on              NDSS (2008).
+     Foundations and Practice of Security (2015), Springer, pp. 174–
+     192.                                                                   [44] S HOSHITAISHVILI , Y., WANG , R., H AUSER , C., K RUEGEL ,
+[34] N ELDER , J. A., AND BAKER , R. J. Generalized linear models.               C., AND V IGNA , G. Firmalice - automatic detection of authenti-
+     Encyclopedia of statistical sciences (1972).                                cation bypass vulnerabilities in binary firmware.
+[35] N EWSHAM , Z., G ANESH , V., F ISCHMEISTER , S., AUDEMARD ,            [45] S UTHERLAND , I., K ALB , G. E., B LYTH , A., AND M ULLEY, G.
+     G., AND S IMON , L. Impact of community structure on sat                    An empirical examination of the reverse engineering process for
+     solver performance. In Theory and Applications of Satisfiabil-              binary files. Computers & Security 25, 3 (2006), 221–228.
+     ity Testing–SAT 2014. Springer, 2014, pp. 252–268.
+                                                                            [46] U DUPA , S., D EBRAY, S., AND M ADOU , M. Deobfuscation: re-
+[36] N EWSHAM , Z., L INDSAY, W., G ANESH , V., L IANG , J. H.,                  verse engineering obfuscated code. In 12th Working Conference
+     F ISCHMEISTER , S., AND C ZARNECKI , K. Satgraf: Visualizing                on Reverse Engineering (2005).
+     the evolution of sat formula structure in solvers. In Theory and
+     Applications of Satisfiability Testing–SAT 2015. Springer, 2015,       [47] W ERBOS , P. Beyond regression: New tools for prediction and
+     pp. 62–70.                                                                  analysis in the behavioral sciences. Ph.D. thesis, Harvard Uni-
+[37] N GUYEN , V. Improved size and effort estimation models for soft-           versity..
+     ware maintenance. PhD thesis, University of Southern Califor-          [48] W U , Y., FANG , H., WANG , S., AND Q I , Z. A framework for
+     nia, 2010.                                                                  measuring the security of obfuscated software. In Proc. of 2010
+[38] PAPPAS , V., P OLYCHRONAKIS , M., AND K EROMYTIS , A. D.                    International Conference on Test and Measurement (2010).
+     Smashing the gadgets: Hindering return-oriented programming            [49] YADEGARI , B., J OHANNESMEYER , B., W HITELY, B., AND
+     using in-place code randomization. In 2012 IEEE Symposium on                D EBRAY, S. A generic approach to automatic deobfuscation of
+     Security and Privacy (2012), IEEE, pp. 601–615.                             executable code. In Symposium on Security and Privacy (2015),
+[39] P EARSON , K. Note on regression and inheritance in the case                IEEE, pp. 674–691.
+     of two parents. Proc. of the Royal Society of London 58 (1895),
+                                                                            [50] Z HUANG , Y., AND F REILING , F. Approximating Optimal Soft-
+     240–242.
+                                                                                 ware Obfuscation for Android Applications. In Proc. 2nd Work-
+[40] P EARSON , K. Liii. on lines and planes of closest fit to systems of        shop on Security in Highly Connected IT Systems (2015), pp. 46–
+     points in space. The London, Edinburgh, and Dublin Philosophi-              50.
+     cal Magazine and Journal of Science 2, 11 (1901), 559–572.
+
+
+
+
+678     26th USENIX Security Symposium                                                                                  USENIX Association
+

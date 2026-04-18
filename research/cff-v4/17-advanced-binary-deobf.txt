@@ -1,0 +1,2390 @@
+Advanced Binary Deobfuscation
+
+NTT Secure Platform Laboratories
+Yuma Kurogome
+% whoami
+• Yuma Kurogome
+   – Security Researcher @ NTT Secure Platform Laboratories
+   – Research Interests: Malware Detection, Analysis, and Anti-Analysis
+   – Hobby: Climbing
+• Recent Publication
+   – Kurogome et al. EIGER: Automated IOC Generation for
+     Accurate and Interpretable Malware Detection. ACSAC’19.
+       • Fully-automated behavioral signature generation method
+       • Based on combinatorial optimization
+
+
+
+
+                                                                          2
+Introduction
+Overview
+• Abstract
+   – Reverse engineering is not easy, especially if a binary code is obfuscated. Once
+     obfuscation performed, the binary would not be analyzed accurately with
+     naive techniques alone. In this course, you will learn obfuscation principles
+     (especially used by malware), theory and practice of obfuscated code analysis,
+     and how to write your own tool for deobfuscation. In particular, we delve into
+     data-flow analysis and SAT/SMT-based binary analysis (e.g., symbolic
+     execution) to render obfuscation ineffective.
+• Objective
+   – Understand binary obfuscation techniques used in malware
+   – Acquire a skill of writing deobfuscation tools
+
+
+
+                                                                                    4
+Overview
+• At the end of this course, you will be able to:
+   – Have an in-depth understanding of theory, practice, and behind insights of
+     obfuscation
+   – Build a custom obfuscated payload with state-of-the-art packers
+   – Apply compiler optimization techniques to binary analysis tasks
+   – Design and implement automated binary analysis tools top on a symbolic
+     execution engine
+   – Even analyze obfuscated malware used in the APT campaign
+
+
+
+
+                                                                                  5
+Outline
+• Introduction
+• Obfuscation Techniques
+   – Preliminaries
+   – Garbage Code Insertion, Instruction Substitution, …
+   – Hands-On
+• Deobfuscation Techniques
+   – Preliminaries
+   – Dataflow Analysis, Symbolic Execution, Equivalence Checking, …
+   – Hands-On
+• Conclusion
+
+
+                                                                      6
+Obfuscation Techniques
+Obfuscation
+                                    Protection Against End-Users (Man-At-The-End attackers)
+       ̀ɑbfəskéɪʃən
+    Obfuscation              Legal
+                           Protection
+                                                              Technical Protection
+            ↕
+
+  Deobfuscation                           Obfuscation     Encryption
+                                                                          Server-Side      Trusted
+                                                                           Execution     Native Code
+
+
+• Definition (Informal)
+   – Obfuscation is a transformation from program 𝑃 to functionally
+     equivalent program 𝑃′ which is harder to extract information than
+     from 𝑃.
+                      𝑃             Obfuscation                  𝑃’
+
+
+                                                                                                       8
+Compiler
+• To understand the obfuscation techniques, we delve into an
+  architecture of a compiler e.g., LLVM:
+   – Frontend
+   – Backend
+
+
+
+
+                                                               9
+                                         Aho et al. Compilers: Principles, Techniques, and Tools. 1986
+
+Compiler Frontend
+        position = initial + rate * 60
+
+
+              Lexical Analyzer                                 Semantic Analyzer
+
+
+
+   <id, 1><=><id, 2><+><id, 3><*><60>       <id, 1><=><id, 2><+><id, 3><*><60>
+                                            <id, 1><=><id, 2><+><id, 3><*><60>
+                                            <id, 1><=><id, 2><+><id, 3><*><60>
+              Syntax Analyzer               <id, 1><=><id, 2><+><id, 3> inttofloat
+                  /Parser
+                                                                                                         60
+
+   <id, 1><=><id, 2><+><id, 3><*><60>
+   <id, 1><=><id, 2><+><id, 3><*><60>                                       …
+   <id, 1><=><id, 2><+><id, 3><*><60>
+   <id, 1><=><id, 2><+><id, 3><*><60>
+
+
+                                                                                                              10
+                                           Aho et al. Compilers: Principles, Techniques, and Tools. 1986
+
+Compiler Backend
+  <id, 1><=><id, 2><+><id, 3><*><60>
+  <id, 1><=><id, 2><+><id, 3><*><60>                              Optimization Pass
+  <id, 1><=><id, 2><+><id, 3><*><60>
+  <id, 1><=><id, 2><+><id, 3> inttofloat
+
+                                   60                            t1 = id3 * 60.0
+                                                                 id1 = id2 + t1
+
+             Intermediate Code
+                 Generator                                         Code Generator
+
+
+
+            t1 = inttofloat(60)                           LDF               R2, id3
+            t2 = id3 * t1                                 MULF              R2, R2, #60.0
+            t3 = id2 + t2                                 LDF               R1, id2
+            id1 = t3                                      ADDF              R1, R1, R2
+                                                          STF               id1, R1
+
+                                                                                                           11
+Taxonomy of Obfuscation
+• When, where, and how to apply obfuscation is closely related to
+  such a compiler architecture
+
+                Abstraction                                                                        Unit
+
+
+                                    Binary
+  Source
+                      IR           machine            Instruction       Basic block         Loop            Function        Program           System
+   code
+                                    code
+
+
+                  Dynamics                                                                         Target
+
+
+
+       Static                  Dynamic                    Constants                   Variables               Code logic              Code abstraction
+
+
+
+
+*Basic Block is a straight-line instruction sequence with no branches in except to the entry and no branches out except at the exit
+
+                                                                                                                                                         12
+                                                          Aho et al. Compilers: Principles, Techniques, and Tools. 1986
+
+Compiler Frontend                         Preprocessor Macro
+                                         Source Code Analysis
+
+        position = initial + rate * 60
+
+
+              Lexical Analyzer                                                  Semantic Analyzer
+
+
+
+   <id, 1><=><id, 2><+><id, 3><*><60>                        <id, 1><=><id, 2><+><id, 3><*><60>
+                                                             <id, 1><=><id, 2><+><id, 3><*><60>
+                                                             <id, 1><=><id, 2><+><id, 3><*><60>
+              Syntax Analyzer                                <id, 1><=><id, 2><+><id, 3> inttofloat
+                  /Parser
+                                                                                                                          60
+
+   <id, 1><=><id, 2><+><id, 3><*><60>
+   <id, 1><=><id, 2><+><id, 3><*><60>                                                        …
+   <id, 1><=><id, 2><+><id, 3><*><60>
+   <id, 1><=><id, 2><+><id, 3><*><60>
+
+
+                                                                                                                               13
+                                           Aho et al. Compilers: Principles, Techniques, and Tools. 1986
+
+Compiler Backend
+                                                                                              Inline Assembly
+                                                                                              Obfuscation Pass
+  <id, 1><=><id, 2><+><id, 3><*><60>
+  <id, 1><=><id, 2><+><id, 3><*><60>                              Optimization Pass
+  <id, 1><=><id, 2><+><id, 3><*><60>
+  <id, 1><=><id, 2><+><id, 3> inttofloat
+
+                                   60                            t1 = id3 * 60.0
+                                                                 id1 = id2 + t1
+
+             Intermediate Code
+                 Generator                                         Code Generator
+
+                                                                                                        Packing
+                                                                                                    Binary Rewriting
+            t1 = inttofloat(60)                           LDF               R2, id3
+            t2 = id3 * t1                                 MULF              R2, R2, #60.0
+            t3 = id2 + t2                                 LDF               R1, id2
+            id1 = t3                                      ADDF              R1, R1, R2
+                                                          STF               id1, R1
+
+                                                                                                                       14
+Obfuscation Techniques
+• There are 31 known obfuscation transformations
+     – Most of them are applicable at the same time
+
+
+
+
+Banescu. A Tutorial on Software Obfuscation. 2017.
+https://mediatum.ub.tum.de/doc/1367533/1367533.pdf
+                                                      15
+Obfuscation Tools
+• Commercial
+   – Themida
+   – Code Virtualizer
+   – VMProtect
+   – Enigma
+   – Epona
+   – …
+• Academic
+   – Tigress
+   – Obfuscator-LLVM (O-LLVM)
+   – …
+
+
+                                16
+Obfuscation in Malware
+
+
+                              1st Stage Payload
+                        e.g., Malicious Macro/Script
+                      /Dropper/(Down)Loader/Beacon
+
+
+
+
+                              2nd Stage Payload
+                        e.g., Implant/Agent/Rootkit
+
+
+
+
+https://icons8.com/
+                                                       17
+Obfuscation in Malware
+
+
+
+
+                      Malware   Report, Indicators, …
+
+
+
+
+https://icons8.com/
+                                                        18
+Obfuscation in Malware
+
+
+
+                      Source    Intermediate    Binary Machine
+                       Code    Representation        Code
+
+
+
+                      Source    Intermediate      Assembly
+                       Code    Representation       Code
+
+
+
+
+https://icons8.com/
+                                                                 19
+Obfuscation in Malware
+
+                           Preprocessor Macro            Inline Assembly             Packing
+                          Source Code Analysis           Obfuscation Pass        Binary Rewriting
+
+
+                      Source                      Intermediate              Binary Machine
+                       Code                      Representation                  Code
+
+
+
+                      Source                      Intermediate                Assembly
+                       Code                      Representation                 Code
+
+
+
+
+https://icons8.com/
+                                                                                                    20
+Obfuscation in Malware
+
+
+
+
+                     Obfuscation is only one element,
+                       yet can hide other elements
+
+                      Obfuscated Files or Information
+                 …                                      21
+Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+       • Garbage/Dead Code Insertion
+   – Change syntax
+       • Instruction Substitution
+       • Encode Literals
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate
+       • Control Flow Flattening
+       • Virtualization Obfuscation
+
+
+
+
+                                                 22
+Garbage/Dead Code Insertion
+• Insert code which does not affect an intended result
+   – If the code always executes, it's called garbage code;
+   – If the code never executes, it's called dead code
+• Often combined with other obfuscations
+                                                              …
+                                                              mov edx, 0xdeadc00d
+                                    …                         mov eax, [ebp+arg_4]
+                                    mov eax, [ebp+arg_4]      mov ecx, [ebp+arg_0]
+                                    mov ecx, [ebp+arg_0]      mov edx, 5
+                                    mov edx, 5                mov [ebp+var_4], ecx
+                                    mov [ebp+var_4], ecx      mov [ebp+var_8], eax
+     3 uint32 div5 (uint32 a, b )   mov [ebp+var_8], eax
+     4{                                                       mov eax, [ebp+var_4]
+                                    mov eax, [ebp+var_4]      add eax, [ebp+var_8]
+     5            uint32 x = 0;     add eax, [ebp+var_8]      mov ecx, [ebp+var_8]
+     6            x = (a + b)/5;    mov ecx, 0                mov ecx, 0
+     7            return x;         mov [ebp+var_10], edx     mov [ebp+var_10], edx
+                                    mov edx, ecx              mov edx, ecx
+     8}                             mov ecx, [ebp+var_10]     mov ecx, [ebp+var_10]
+                                    div ecx                   div ecx
+                                    mov [ebp+var_C], eax      mov [ebp+var_C], eax
+                                    …                         …
+
+
+                                                                                      23
+Instruction Substitution
+• Replace code with complex, yet equivalent code
+
+
+                                     …
+                                     mov eax, [ebp+arg_0]          mov esi, ecx
+        …                            xor ecx, ecx                  sub esi, eax
+        mov eax, [ebp+arg_0]                                       mov eax, ecx
+        mov [ebp+var_4], eax         mov [ebp+var_8], eax          sub eax, edx
+        mov [ebp+var_8], 0Ch         mov [ebp+var_C], 0Ch          add esi, eax
+        mov [ebp+var_C], 38h ; '8'   mov [ebp+var_10], 38h ; '8'   mov eax, ecx
+        mov [ebp+var_10], 7Fh        mov [ebp+var_14], 7Fh         sub eax, esi
+        mov eax, [ebp+var_8]                                       mov edx,
+        add eax, [ebp+var_C]         mov eax, [ebp+var_C]          [ebp+var_8]
+        add eax, [ebp+var_10]        mov edx, [ebp+var_10]         sub ecx, edx
+        add eax, [ebp+var_4]         sub eax, 2598A32Bh            sub eax, ecx
+        mov [ebp+var_14], eax        add eax, edx                  mov [ebp+var_18],
+        mov eax, [ebp+var_14]                                      eax
+        …                            add eax, 2598A32Bh            mov eax,
+                                     mov edx, [ebp+var_14]         [ebp+var_18]
+                                                                   …
+
+*Obfuscated by O-LLVM –sub option
+
+                                                                                       24
+Encode Literals
+• Replace literals (constants, strings) with more complex expressions
+      – By dividing/encoding them
+                                                  mov edx, [ebp+var_4]            add [ebp+var_4], 1
+                                                  mov eax, [ebp+arg_4]            mov edx, [ebp+var_4]
+                                                                                  mov eax, [ebp+arg_4]
+                                                  add eax, edx                    add eax, edx
+                                                  mov byte ptr [eax], 68h ; 'h'   mov byte ptr [eax], 20h ; ' '
+           lea eax, format ; "%s¥n"               add [ebp+var_4], 1              add [ebp+var_4], 1
+                                                                                  mov edx, [ebp+var_4]
+           lea ecx, aHelloWorld ; "hello world"   mov edx, [ebp+var_4]
+                                                                                  mov eax, [ebp+arg_4]
+                                                  mov eax, [ebp+arg_4]
+           mov [ebp+var_4], ecx                   add eax, edx
+                                                                                  add eax, edx
+                                                                                  mov byte ptr [eax], 77h ; 'w'
+           mov ecx, [ebp+var_4]                   mov byte ptr [eax], 65h ; 'e'   add [ebp+var_4], 1
+                                                                                  mov edx, [ebp+var_4]
+                                                  add [ebp+var_4], 1
+           mov [esp], eax ; format                mov edx, [ebp+var_4]
+                                                                                  mov eax, [ebp+arg_4]
+                                                                                  add eax, edx
+           mov [esp+4], ecx                       mov eax, [ebp+arg_4]            mov byte ptr [eax], 6Fh ; 'o'
+                                                  add eax, edx                    add [ebp+var_4], 1
+           call _printf                           mov byte ptr [eax], 6Ch ; 'l'   mov edx, [ebp+var_4]
+           mov [ebp+var_8], eax                   add [ebp+var_4], 1
+                                                                                  mov eax, [ebp+arg_4]
+                                                                                  add eax, edx
+                                                  mov edx, [ebp+var_4]            mov byte ptr [eax], 72h ; 'r'
+                                                  mov eax, [ebp+arg_4]            add [ebp+var_4], 1
+                                                  add eax, edx                    mov edx, [ebp+var_4]
+                                                                                  mov eax, [ebp+arg_4]
+                                                  mov byte ptr [eax], 6Ch ; 'l'   add eax, edx
+                                                  add [ebp+var_4], 1              mov byte ptr [eax], 6Ch ; 'l‘
+                                                  mov edx, [ebp+var_4]            …
+                                                  mov eax, [ebp+arg_4]
+                                                  add eax, edx
+*Obfuscated by Tigress EncodeLiterals option      mov byte ptr [eax], 6Fh ; 'o'
+
+                                                                                                                  25
+Encode Arithmetic/Mixed Boolean Arithmetic
+• Replace arithmetic/Boolean operations with more complex
+  expressions
+                                                 …                            mov edx, eax
+                                                 mov [ebp+var_10], 0Ch        mov eax, [ebp+var_C]
+                                                 mov [ebp+var_C], 38h ; '8'   not eax
+           …                                                                  mov ecx, eax
+           mov eax, [ebp+arg_0]                  mov [ebp+var_8], 7Fh
+                                                 mov eax, [ebp+var_C]         mov eax, [ebp+var_10]
+           mov [ebp+var_4], eax                                               sub eax, ecx
+           mov [ebp+var_8], 0Ch                  not eax
+           mov [ebp+var_C], 38h ; '8'                                         lea ecx, [eax-1]
+                                                 mov edx, eax
+           mov [ebp+var_10], 7Fh                                              mov eax, [ebp+var_8]
+                                                 mov eax, [ebp+var_10]        not eax
+           mov eax, [ebp+var_8]                  sub eax, edx
+           add eax, [ebp+var_C]                                               sub ecx, eax
+           add eax, [ebp+var_10]                 lea edx, [eax-1]             mov eax, ecx
+           add eax, [ebp+var_4]                  mov eax, [ebp+var_8]         sub eax, 1
+           mov [ebp+var_14], eax                 not eax                      and eax, [ebp+arg_0]
+           mov eax, [ebp+var_14]                 sub edx, eax                 add eax, edx
+           …                                     mov eax, edx                 mov [ebp+var_4], eax
+                                                 sub eax, 1                   mov eax, [ebp+var_4]
+                                                 or eax, [ebp+arg_0]          …
+
+
+*Obfuscated by Tigress EncodeArithmetic option
+
+                                                                                                      26
+Opaque Predicate
+• Insert a conditional branch (predicate) which is never or always be
+  triggered
+• Make an unconditional branch conditional
+
+
+
+
+                                     Basic blocks which are never triggered
+
+
+
+
+*Obfuscated by O-LLVM –bcf option
+
+                                                                              27
+Opaque Predicate
+• Achieved by inserting deterministic operations:
+                                                                                           call GetCurrentProcess
+                                                                                           cmp eax, 0xfffffff
+                                                                                           je always_taken
+
+
+
+
+                                                                              __always_taken:                __never_taken:
+                                                                                …                              …
+
+                          Arithmetic                                                            Pseudo-Handle
+
+                         𝑛
+                                                           𝑖𝑓 𝑛%2 = 0
+                 𝑓 𝑛 =ቐ 2                                                                                    1
+                       3𝑛 + 1                              𝑖𝑓 𝑛%2 = 1
+                                                              Collatz Conjecture
+
+Zobernig et al. Indistinguishable Predicates: A New Tool for Obfuscation. 2017.
+Wang et al. Linear Obfuscation to Combat Symbolic Execution. ESORICS’11.
+                                                                                                                              28
+Virtualization Obfuscation
+• Replace code with unique bytecode
+        – Execute it on a virtual machine
+• Bytecode format is independent to the host ISA
+                                                 VM Entry           unsigned int target_function(int n )
+                    A1 00 05 B8 …                                   {
+                                                                      char _1_target_function_$locals[8] ;
+                                                                      union _1_target_function_$node _1_target_function_$stack[1][32] ;
+                                                  Fetch               union _1_target_function_$node *_1_target_function_$sp[1] ;
+                                                                      unsigned char *_1_target_function_$pc[1] ;
+                                                                      {
+                                                                      _1_target_function_$sp[0] = _1_target_function_$stack[0];
+    reg_0                         handler_push
+                                                 Decode               _1_target_function_$pc[0] = _1_target_function_$array[0];
+                                                                      while (1) {
+    reg_1                         handler_pop                           switch (*(_1_target_function_$pc[0])) {
+                                                                        case _1_target_function__load_int$left_STA_0$result_STA_0:
+    …                             handler_add    Execute                (_1_target_function_$pc[0]) ++;
+                                                                        (_1_target_function_$sp[0] + 0)->_int
+    reg_ip                        handler_xor                           break;
+                                                                               = *((int *)(_1_target_function_$sp[0] + 0)->_void_star);
+
+                                                     VM main loop       case _1_target_function__branchIfTrue$expr_STA_0$label_LAB_0:
+    reg_sp                        …                                     (_1_target_function_$pc[0]) ++;
+                                                                        if ((_1_target_function_$sp[0] + 0)->_int) {
+                                                                          _1_target_function_$pc[0] += *((int *)_1_target_function_$pc[0]);
+                                                                        } else {
+                                                                          _1_target_function_$pc[0] += 4;
+*Obfuscated by Tigress –Virtualize option                               }
+                                                                    …
+                                                                                                                                      29
+Virtualization Obfuscation
+• Handler Duplication
+   – Generate diversified instruction handlers from a handler template
+                                       handler_pop
+       handler_push
+                                       handler_pop’
+       handler_pop
+                                       handler_add
+       handler_add
+                                       handler_push’
+       …
+                                       handler_push’’
+
+• Direct Threaded Code
+   – Hide VM main loop by decentralize the dispatcher
+   – Originally a performance optimization technique
+    case handler_push:                                  case handler_push:
+       stack[reg_sp++] = reg_01;                           stack[reg_sp++] = reg_01;
+       break;                                              goto *bytecode[++reg_ip].insn.addr;
+           Return to the virtual CPU                             Jump to the next handler address
+
+                                                                                                    30
+Virtualization Obfuscation
+• Limitations
+   – Loop
+       • May conflict with loop of the VM itself
+   – Switch/Case statements
+   – Exception handling
+
+
+
+
+                                                   31
+Control Flow Flattening
+• Flatten each basic block as a case of the switch statement
+   – Jump to the next block to be executed based on index in the switch statement
+   – Update the index that points to the next block as each block executes
+
+                                           int main()
+                                           {
+                                              int next = 0;
+
+                                               while(1){
+                  int main()                     switch(next){
+                  {                                 case 0:
+                     printf("Hello, ");                printf("Hello, ");
+                     printf("world!¥n");               next = 1;
+                     return 0;                         break;
+                  }                                 case 1:
+                                                       printf("world!¥n");
+                                                       return 0;
+                                                 }
+                                               }
+                                           }
+
+
+
+                                                                                32
+Control Flow Flattening
+• Example: ANEL
+
+
+
+
+MD5: a79f59b1b17e8bfa3299e50a8af9cdaf
+ANEL is a RAT used by APT10 a.k.a. MenuPass, Stone Panda, or Red Apollo
+Haruyama. Defeating APT10 Compiler-Level Obfuscations. VB’19.
+                                                                          33
+Hands-On 1: Obfuscation
+• Duration: 20min
+• Objective: Obfuscate sample code under the hands-on1 directory
+• Step1: Prepare targets
+   – test-add.c, test-mod2.c, test-hello.c, test-mod2-add.c
+   – Write your own code
+• Step2: Apply obfuscation transformations
+   – O-LLVM: o-llvm.sh
+       • ./o-llvm.sh ./src/ ../obfuscator/build/bin/clang
+   – Tigress: tigress.sh
+       • ./tigress.sh ./src/
+            – Execute Tigress inside Docker container
+
+
+
+                                                                   34
+Hands-On 1: Obfuscation
+• Step3: Compare obfuscated binary files and un-obfuscated ones
+   – How to build un-obfuscated binary files
+       • make
+   – Take a look at obfuscated source code generated by Tigress
+
+
+
+
+                                                                  35
+Sample Code
+                                         3 void target_function(void)
+ 3 unsigned int target_function(int n)   4{
+ 4{                                      5          char* msg = "hello world";
+ 5         int a, b, c, r;               6          printf("%s¥n", msg);
+ 6                                       7}
+ 7         a = 12;       //0x0C
+ 8         b = 56;       //0x38                         test-hello.c
+ 9         c = 127; //0x7F
+ 10                                      3 unsigned int target_function(int n)
+ 11        r = a + b + c + n;            4{
+ 12                                      5        if(n % 2 == 0){
+ 13        return r;                     6                   return 0;
+ 14 }                                    7        }else{
+                                         8                   return 1;
+                test-add.c
+                                         9        }
+                                         10 }
+                                                        test-mod2.c
+                                                                                 36
+O-LLVM
+• Obfuscates a given intermediate representation of LLVM (LLVM-IR)
+   – Implemented as an optimization pass of the compiler toolchain
+• Options
+   – sub: Instruction Substitution
+   – fla: Control Flow Flattening
+   – bcf: Opaque Predicate (as it is also referred to as Bogus Control Flow)
+• References
+   – https://github.com/obfuscator-llvm/obfuscator/wiki
+   – Junod et al. Obfuscator-LLVM – Software Protection for the Masses. SPRO’15.
+• Running Examples
+   – ${OLLVM} –m32 –mllvm –sub ${FILE} –o “${FILE_NO_EXT##*/}-sub.bin”
+   – ${OLLVM} –m32 –mllvm –fla ${FILE} –o “${FILE_NO_EXT##*/}-fla.bin”
+   – ${OLLVM} –m32 –mllvm –bcf ${FILE} –o “${FILE_NO_EXT##*/}-bcf.bin”
+
+                                                                                   37
+Tigress
+• Obfuscates a given C source code
+• Maintained by research group at University of Arizona, lead by
+  Christian Collberg
+• Advanced obfuscation transformations for which an analysis
+  method has not yet been established is also applicable
+
+
+
+
+                                                                   38
+Tigress
+• Options (tigress --options)
+   – Transform: Specify obfuscation transformation
+       • Sub-Options of AddOpaque
+            – AddOpaqueCount: A number of opaque predicates to be added
+            – AddOpaqueKinds: Kinds of opaque predicates to be added
+   – Functions: Specify function to be obfuscated
+   – Environment: Specify architecture, OS, and compiler
+   – out: Specify output source code name
+   – o: Specify output binary name
+• References
+   – http://tigress.cs.arizona.edu/index.html
+
+
+
+                                                                          39
+Tigress
+•   Running Examples
+     –   Encode Literals
+            •   tigress --Transform=EncodeLiterals --Functions=target_function --Environment=x86_64:Darwin:Clang:5.1 -m32
+                --out=${FILE_NO_EXT##*/}-encodeliteral.c ${FILE} -o ${FILE_NO_EXT##*/}-encodeliteral.bin
+     –   Encode Arithmetic
+            •   tigress --Transform=EncodeArithmetic --Functions=target_function --Environment=x86_64:Darwin:Clang:5.1 -
+                m32 --out=${FILE_NO_EXT##*/}-encodearith.c ${FILE} -o ${FILE_NO_EXT##*/}-encodearith.bin
+     –   Opaque Predicate
+            •   tigress --Transform=InitOpaque --Functions=main --Transform=AddOpaque --Function=target_function --
+                AddOpaqueCount=${NUM} –AddOpaqueKinds=true --Environment=x86_64:Darwin:Clang:5.1 -m32 --
+                out=${FILE_NO_EXT##*/}-opaque.c ${FILE} -o ${FILE_NO_EXT##*/}-opaque.bin
+     –   Control Flow Flattening
+            •   tigress --Transform=Flatten --Functions=target_function --Environment=x86_64:Darwin:Clang:5.1 -m32 --
+                out=${FILE_NO_EXT##*/}-flatten.c ${FILE} -o ${FILE_NO_EXT##*/}-flatten.bin
+     –   Virtualization Obfuscation
+            •   tigress --Transform=Virtualize --Functions=target_function --Environment=x86_64:Darwin:Clang:5.1 -m32 --
+                out=${FILE_NO_EXT##*/}-virtualized.c ${FILE} -o ${FILE_NO_EXT##*/}-virtualized.bin
+•   Notes
+     –   Transform and Functions are stackable:
+            •   tigress --Transform=Flatten --Functions=target_function --Transform=Virtualize --Functions= …
+
+
+
+                                                                                                                           40
+IDA Pro
+• Interactive disassembler
+
+
+
+
+             Hexdump              Disassembly                Decompiled Code
+                                                         (Unavailable on Freeware version)
+
+
+                             static CW(off,name,cmt) {    from idc import *
+                                auto x;                   from idaapi import *
+                                x = [ 0x40, off ];
+                                MakeWord(x);              def main():
+                                MakeName(x,name);           ea = ScreenEA()
+                                …                           …
+             Debugging            IDC Scripting            IDAPython Scripting
+                                                         (Unavailable on Freeware version)
+                                                                                             41
+IDA Pro
+• IDB Database
+   – Store byte sequence, modified labels, comments, etc.
+• Subviews (View → Open subviews)
+   – Imports
+   – Exports
+   – Strings
+   – Hex
+   – Functions
+   – Structures
+
+
+
+
+                                                            42
+IDA Pro Tips
+• Options → General
+
+
+                      Enable Line prefixes/Stack pointer
+
+
+                         Set # of opcode bytes to 8
+
+
+
+
+                                                           43
+IDA Pro Cheat Sheet
+                         Shortcut Key   Description
+                         X              Cross Reference (xref)
+                         Enter          Jump to address
+                         Esc            Jump to previous position
+                         Space          Switch views
+                         U              Un-define selected region
+                         C              Interpret selected region as code
+                         D              Interpret selected region as data
+                         P              Interpret selected region as function
+                         A              Interpret selected region as string
+                         N              Rename function or variable
+                         ;              Add repeatable (xref-able) comment
+
+
+• Reference
+   – https://www.hex-rays.com/products/ida/support/freefiles/IDA_Pro_Shortcuts.pdf
+
+                                                                                     44
+Applicability of Obfuscation Techniques
+• Not all functions can be obfuscated properly
+     – The applicability depends on a program structure and a transformation
+                                                                                                             ✓– Success
+                      O-LLVM                                                 Tigress
+                 sub     bcf   fla    AddOpaque         EncodeLiterals       EncodeArithmetic   Virtualize    Flatten
+                                      (w/ -q option)
+test-add.c       ✓       ✓     *1     ✓ (✓)             *3                   ✓                  ✓             ✓
+test-hello.c     *2      ✓     *1     ✓ (✓)             ✓                    *2                 ✓             ✓
+test-mod2.c      *2      ✓     ✓      ✓ (*4)            *3                   ✓                  ✓             ✓
+
+
+
+
+*1 – # of Basic Blocks is not enough
+*2 – No substitutable operations
+*3 – No literals
+*4 – No room for inserting opaque predicate as it only contains conditional branch
+
+                                                                                                                        45
+Deobfuscation Techniques
+• Approach
+   – Simplify: Transform code into readable form
+   – Elimination: Remove redundant code
+   – Dynamic Analysis: Avoid reading obfuscated code
+• Technology Stack
+   – Dataflow Analysis
+   – Symbolic Execution
+   – Equivalence Checking
+   – Abstract Interpretation
+   – Program Synthesis
+   – Taint Analysis
+   – …
+                                                       46
+Deobfuscation Techniques
+(De-)Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+                                               Dataflow Analysis
+       • Garbage/Dead Code Insertion          (Liveness Analysis)
+   – Change syntax
+       • Instruction Substitution
+                                              Dataflow Analysis
+       • Encode Literals                (Reachable Definition Analysis)
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate                    Symbolic Execution
+       • Virtualization Obfuscation         Equivalence Checking
+
+       • Control Flow Flattening                  VMHunt
+                                              Program Synthesis
+
+          Graph Pattern Matching
+        Dynamic Symbolic Execution
+                                                                          48
+Binary Analysis Tools
+• These techniques cannot be established without a modern binary
+  analysis tools
+   – IDA, Ghidra, radare2, Binary Ninja, angr, BINSEC, Triton, Miasm, McSema, etc.
+• As well as a compiler, binary analysis tools typically consist of two
+  major components:
+   – Frontend
+   – Backend
+
+
+
+
+                                                                                     49
+Binary Analysis Frontend
+              Binary file
+
+
+             Disassembler
+
+
+
+             Disassembly
+
+
+                 Lifter
+
+
+
+      Intermediate Representation
+
+
+
+
+                                    50
+Binary Analysis Backend
+              Binary file               Trace
+
+
+             Disassembler           IR Translator
+
+                                                                 Symbolic
+                                                                 Execution
+             Disassembly            SMT Queries
+                                                                  Engine
+
+
+                 Lifter              SMT Solver
+
+                                                             Program Synthesis
+      Intermediate Representation
+
+
+               Emulator             Type Inference             CFG Recovery
+
+
+                                         Dataflow Analysis             Decompiler
+
+                                                                                    51
+Binary Analysis Backend
+              Binary file               Trace
+
+
+             Disassembler           IR Translator
+
+                                                                 Symbolic
+                                                                 Execution
+             Disassembly            SMT Queries
+                                                                  Engine
+
+
+                 Lifter              SMT Solver
+
+                                                             Program Synthesis
+      Intermediate Representation
+
+
+               Emulator             Type Inference             CFG Recovery
+
+
+                                         Dataflow Analysis             Decompiler
+
+                                                                                    52
+Intermediate Representation
+• A glue between binary code and analysis methods
+   – Compiler optimization, symbolic execution, program synthesis, etc.
+• IR enables us to handle code from different architectures in a
+  single interface
+   – x86, x64, ARM, etc.
+• Regardless of a compiler or a binary analysis tool, IR is typically a
+  Static Single Assignment (SSA) form
+   – Each variable is assigned exactly once; it is defined before it is used
+   – This property facilitates optimization or transformation
+
+               reg_01 = 5                       reg_011 = 5
+               reg_02 = reg_01 – 3              reg_021 = reg_011 – 3
+               reg_01 = reg_01 * 2              reg_012 = reg_011 * 2
+
+                                                                               53
+Intermediate Representation
+• As with other languages, IR consists of:
+      – Syntax: Which opcodes and operands can be combined
+      – Operational Semantics: How operands are updated by each opcode
+
+
+
+
+Schwartz et al. All You Ever Wanted to Know About Dynamic Taint Analysis. Oakland’10.
+
+                                                                                        54
+Intermediate Representation
+• Limitations
+      – Flag registers, floating points, SIMD, etc. are difficult to model;
+      – Thus IR in binary analysis tool would not be equivalent to the semantics of the
+        original code, but only approximates it
+
+
+
+
+Kim et al. Testing Intermediate Representations for Binary Analysis. ASE’17.
+
+                                                                                      55
+Intermediate Representation
+
+
+
+
+Jung et al. B2R2: Building an Efficient Front-End for Binary Analysis. BAR’19.
+
+                                                                                 56
+Miasm
+• Binary analysis tool
+   – Provides Python interface; much easier than OCaml
+   – Supports multiple file formats and architectures
+• User can lift binary code to Miasm IR and apply various analysis
+   – Symbolic Execution
+   – Concolic Execution
+   – Program Slicing
+   – Emulation (JIT)
+   – Simplification
+
+
+
+
+                                                                     57
+Miasm
+• Strengths
+   – More backward compatibility than Angr
+   – Rich functionalities than Triton
+• Weaknesses
+   – The simplification for the value in the memory is poor
+   – Once lifted to Miasm IR, it is difficult to back it to the x86 code
+       • x86 → Miasm IR → LLVM IR → x86
+   – Automatic analysis would not be scale to the entire binary
+
+
+
+
+                                                                           58
+Miasm
+• Our aim is not about mastering Miasm itself
+   – Other tools may be appropriate for some tasks
+   – The point is to understand the principle of binary analysis explained so far
+• Interface differences are not the essence
+   – Binary analysis tools are basically designed to create instances of a target
+     binary and analysis methods, and then perform analysis via the instance
+     methods
+       • Triton: Initialize TritonContext, allocate Instruction to it, and communicate with the
+         solver from it
+       • Angr: Initialize Project, generate CFG from it, and manage the symbolic state with
+         SimulationManager
+       • Miasm: Generate AsmCFG, convert it to IRCFG, and symbolically execute it via
+         SymbolicExecutionEngine
+
+                                                                                                  59
+Miasm   from miasm.analysis.binary import Container
+        from miasm.analysis.machine import Machine
+        from miasm.ir.symbexec import SymbolicExecutionEngine
+        ...
+
+        # Initialize location database
+        loc_db = LocationDB()
+
+        # Get architecture
+        with open('target.bin', 'rb') as fstream:
+          cont = Container.from_stream(fstream, loc_db)
+        machine = Machine(cont.arch)
+
+        # Get a "factory" for the detected architecture
+        mdis = machine.dis_engine(cont.bin_stream, loc_db=cont.loc_db)
+
+        # Get AsmCFG at the entry point
+        asmcfg = mdis.dis_multiblock(cont.entry_point)
+
+        # Get IRCFG from the AsmCFG
+        ir = machine.ir(cont.loc_db)
+        ircfg = ir.new_ircfg_from_asmcfg(asmcfg)
+
+        # Add name to the offset
+        cont.loc_db.add_location(offset=cont.entry_point, name=‘entrypoint’)
+
+        # Initialize symbolic execution engine
+        sb = SymbolicExecutionEngine(ir ...)
+                                                                               60
+Miasm Disassembly
+• AsmCFG
+  – Control flow graph contains AsmBlocks
+• AsmBlock
+  – Basic block
+
+
+
+
+                                            AsmBlock            AsmBlock
+
+                                                       AsmCFG
+                                                                           61
+Miasm IR
+• IRCFG
+   – Control flow graph contains IRBlocks
+• IRBlock
+   – Contains AssignBlocks                   dst = src             dst = src
+                                             dst = src             dst = src
+• AssignBlock                                    …                     …
+   – Consists of assignments: dst = src     AssignBlock           AssignBlock
+   – SSA from                                dst = src             dst = src
+                                             dst = src             dst = src
+                                                 …                     …
+                                            AssignBlock           AssignBlock
+
+                                              IRBlock               IRBlock
+
+                                                          IRCFG
+                                                                                62
+Miasm IR
+Element                   Human Form                          mov eax, ebx
+ExperInt                  0x18                                ExprAff(ExprId("EAX", 32), ExprId("EBX", 32))
+ExperId                   EAX
+ExprLoc                   loc_17                              push eax
+ExprCond                  A? B : C                            esp = esp - 0x4
+                                                              @32[esp - 0x4] = eax
+ExprMem                   @16[ESI]
+ExprOp                    A+B
+                                                              cmp eax, ebx
+ExprSlice                 AH = EAX[8 : 16]
+                                                              zf = (EAX - EBX)?0:1
+ExprCompose               AX = AH.AL                          cf = (((EAX ^ EBX) ^ (EAX - EBX)) ^ …
+ExprAff                   A=B                                 of = ...
+Desclaux and Mougey. Miasm: Reverse Engineering Framework. Black Hat USA’18.
+
+                                                                                                              63
+(De-)Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+                                               Dataflow Analysis
+       • Garbage/Dead Code Insertion          (Liveness Analysis)
+   – Change syntax
+       • Instruction Substitution
+                                              Dataflow Analysis
+       • Encode Literals                (Reachable Definition Analysis)
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate                    Symbolic Execution
+       • Virtualization Obfuscation         Equivalence Checking
+
+       • Control Flow Flattening                  VMHunt
+                                              Program Synthesis
+
+          Graph Pattern Matching
+        Dynamic Symbolic Execution
+                                                                          64
+Dataflow Analysis
+• Reachable Definition Analysis
+   – Analyze where the value of each variable 𝑥 was defined when a certain point 𝑝
+     in the program was reached
+   – Forward dataflow analysis
+   – Application:
+       • Constant propagation/folding
+       • Transform expressions
+• Liveness Analysis
+   – Analyze whether the value 𝑥 in the program point 𝑝 may be used when
+     following the edge starting from 𝑝 in the flow graph with respect to 𝑥
+   – Backward dataflow analysis
+   – Application:
+       • Dead code elimination
+
+
+                                                                                 65
+Dataflow Analysis
+• Both reachable definition analysis and liveness analysis are IR
+  optimization techniques used by a compiler backend, and are also
+  useful for binary analysis
+• Behind Insights
+   – Obfuscation
+       • Opposite of Optimization
+   – Compiler
+       • Generate, analyze, and optimize IR
+   – Binary Analysis Tool
+       • Generate, analyze, and optimize IR
+
+
+
+
+                                                                     66
+Reachable Definition Analysis
+
+                        Original code                                              Code after constant propagation
+            (Obfuscated by InstructionSubstitution)                               (Partially constant folding applied)
+
+…                                          …                                     …
+01. mov eax, [ebp+arg_0]                   reach={01}                            01. mov eax, [ebp+arg_0]
+02. xor ecx, ecx                           reach={01, 02}                        02. xor ecx, ecx
+03. mov [ebp+var_8], eax                   reach={01, 02, 03}                    03. mov [ebp+var_8], eax
+04. mov [ebp+var_C], 0Ch                   reach={01, 02, 03, 04}                04. mov [ebp+var_C], 0Ch
+05. mov [ebp+var_10], 38h                  reach={01, 02, 03, 04, 05}            05. mov [ebp+var_10], 38h
+06. mov [ebp+var_14], 7Fh                  reach={01, 02, 03, 04, 05 ,06}        06. mov [ebp+var_14], 7Fh
+07. mov eax, [ebp+var_C]                   reach={02, 03, 04, 05 ,06, 07}        07. mov eax, 0Ch
+08. mov edx, [ebp+var_10]                  reach={02, 03, 04, 05 ,06, 07, 08}    08. mov edx, 38h
+09. sub eax, 2598A32Bh                     reach={02, 03, 04, 05 ,06, 08, 09}    09. eax = 0Ch - 2598A32Bh
+10. add eax, edx                           reach={02, 03, 04, 05 ,06, 08, 10}    10. eax = 0Ch - 2598A32Bh + 38h
+11. add eax, 2598A32Bh                     reach={02, 03, 04, 05 ,06, 08, 11}    11. eax = 0Ch - 2598A32Bh + 38h + 2598A32Bh
+12. mov edx, [ebp+var_14]                  reach={02, 03, 04, 05 ,06, 11, 12}    12. mov edx, 7Fh                       38h+0Ch
+
+                                                         Variables are replaced by existing constant definitions
+ *Analysis is performed after IR lifting
+
+                                                                                                                             67
+Reachable Definition Analysis
+
+                        Original code                                                 Code after constant propagation
+            (Obfuscated by InstructionSubstitution)                                  (Partially constant folding applied)
+
+13. mov esi, ecx                           reach={02, 03, 04, 05 ,06, 11, 12, 13}   13. mov esi, 0h
+14. sub esi, eax                           reach={02, 03, 04, 05 ,06, 11, 12, 14}   14. esi = 0h - (38h + 0Ch)
+15. mov eax, ecx                           reach={02, 03, 04, 05 ,06, 12, 14, 15}   15. mov eax, 0h
+16. sub eax, edx                           reach={02, 03, 04, 05 ,06, 12, 14, 16}   16. eax = 0h - 7Fh
+17. add esi, eax                           reach={02, 03, 04, 05 ,06, 12, 16, 17}   17. esi = 0h – (38h+0Ch) + 0h – 7F
+                                                                                                                       -(38h+0Ch+7Fh)
+18. mov eax, ecx                           reach={02, 03, 04, 05 ,06, 12, 17, 18}   18. mov eax, 0h
+19. sub eax, esi                           reach={02, 03, 04, 05 ,06, 12, 17, 19}   19. eax = 0h – (-(38h+0Ch+7Fh))
+20. mov edx, [ebp+var_8]                   reach={02, 03, 04, 05 ,06, 17, 19, 20}   20. mov edx, arg_0                  38h+0Ch+7Fh
+21. sub ecx, edx                           reach={03, 04, 05 ,06, 17, 19, 20, 21}   21. ecx = 0h – arg_0
+22. sub eax, ecx                           reach={03, 04, 05 ,06, 17, 20, 21, 22}   22. eax = 38h+0Ch+7Fh-(-arg_0)
+23. mov [ebp+var_18], eax                                                           23. mov [ebp+var_18], eax      38h+0Ch+7Fh+arg0
+24. mov eax, [ebp+var_18]                                                           24. mov eax, [ebp+var_18]
+…                                                                                   …
+
+
+
+ *Analysis is performed after IR lifting
+
+                                                                                                                                  68
+Reachable Definition Analysis
+    Notation    Description
+        𝐵       Basic Block
+      𝑔𝑒𝑛[𝐵]    Set of definitions generated in 𝐵 and arriving at the end of 𝐵
+      𝑘𝑖𝑙𝑙[𝐵]   Set of definitions killed by 𝐵
+      𝐼𝑁[𝐵]     Set of definitions arriving at the start of 𝐵
+     𝑂𝑈𝑇[𝐵]     Set of definitions arriving at the end of 𝐵
+
+ Dataflow Equations:                                             𝑃1          𝑃2
+                                                        𝑂𝑈𝑇 𝑃1                 𝑂𝑈𝑇 𝑃2
+            𝐼𝑁 𝐵 =         ራ            𝑂𝑈𝑇 𝑃
+                     𝑃∈𝑃𝑟𝑒𝑑𝑒𝑐𝑒𝑠𝑠𝑜𝑟𝑠 𝐵                                     𝐼𝑁 𝐵 = 𝑂𝑈𝑇 𝑃1 ∪
+                                                                                 𝑂𝑈𝑇 𝑃2
+         𝑂𝑈𝑇 𝐵 = 𝑔𝑒𝑛[𝐵] ∪ (𝐼𝑁 𝐵 − 𝑘𝑖𝑙𝑙[𝐵])                            𝐵
+
+                                                                                            69
+Liveness Analysis                                         Variable assignments that are defined
+                                                          but not used can be removed
+…                                          …                                         …
+mov edx, 0xdeadc00d                        def={edx}                                 live={[ebp+arg_0], [ebp+arg_4]}
+mov eax, [ebp+arg_4]                       def={eax}, use={[ebp+arg_4]}              live={[ebp+arg_0], [ebp+arg_4]}
+mov ecx, [ebp+arg_0]                       def={ecx}, use={[ebp+arg_0]}              live={eax, [ebp+arg_0]}
+mov edx, 5                                 def={edx}                                 live={eax, ecx}
+mov [ebp+var_4], ecx                       def={[ebp+var_4]}, use={ecx}              live={edx, eax, ecx}
+mov [ebp+var_8], eax                       def={[ebp+var_8]}, use={eax}              live={edx, [ebp+var_4], eax}
+mov eax, [ebp+var_4]                       def={eax}, use={[ebp+var_4]}              live={edx, [ebp+var_8], [ebp+var_4]}
+add eax, [ebp+var_8]                       def={eax}, use={eax, [ebp+var_8]}         live={edx, [ebp+var_8], eax}
+mov ecx, [ebp+var_8]                       def={ecx} use={[ebp+var_8]}               live={eax, edx, [ebp+var_8]}
+mov ecx, 0                                 def={ecx}                                 live={eax, edx}
+mov [ebp+var_10], edx                      def={[ebp+var_10]}, use ={edx}            live={eax, ecx, edx}
+mov edx, ecx                               def={edx} use={ecx}                       live={eax, [ebp+var_10], ecx}
+mov ecx, [ebp+var_10]                      def={ecx}, use={[ebp+var_10]}             live={edx, eax, [ebp+var_10]}
+div ecx                                    def={edx, eax}, use={edx, eax, ecx}       live={edx, eax, ecx}
+mov [ebp+var_C], eax                       def={[ebp+var_C]} use={eax}               live={eax}
+…                                          …
+                                                                                     live = A variable used before being redefined
+                                                                                     liven = usen + liven+1 - defn
+ *Analysis is performed after IR lifting
+
+                                                                                                                                70
+Liveness Analysis
+              Notation      Description
+                  𝐵         Basic Block
+                𝑑𝑒𝑓[𝐵]      Set of variables defined in 𝐵
+                𝑢𝑠𝑒[𝐵]      Set of variables used in 𝐵
+                𝐼𝑁[𝐵]       Set of variables arriving at the start of 𝐵
+                𝑂𝑈𝑇[𝐵]      Set of variables arriving at the end of 𝐵
+
+ Dataflow Equations:                                                  𝐵
+                                                                          𝑂𝑈𝑇 𝐵 = 𝐼𝑁 𝑆1 ∪
+            𝑂𝑈𝑇 𝐵 =          ራ           𝐼𝑁 𝑆                                     𝐼𝑁 𝑆2
+                        𝑆∈𝑆𝑢𝑐𝑐𝑒𝑠𝑠𝑜𝑟𝑠 𝐵
+                                                         𝐼𝑁 𝑆1                   𝐼𝑁 𝑆2
+
+         𝐼𝑁 𝐵 = 𝑢𝑠𝑒[𝐵] ∪ (𝑂𝑈𝑇 𝐵 − 𝑑𝑒𝑓[𝐵])                        𝑆1         𝑆2
+
+                                                                                         71
+Hands-On 2: Deobfuscation via Optimization
+• Duration: 30min
+• Objective: Deobfuscate code via Miasm’s dataflow analysis
+• Step 1: Launch Jupyter Notebook
+   – jupyter notebook
+• Step 2: hands-on2/deadcode_removal.ipynb
+   – Which line is the dead code within the code shown on the right?
+   – Execute cells and confirm its effect                          0 main:
+       • What’s the Python method performs the removal?             1 PUSH EBP
+                                                                    2 MOV EBP, ESP
+• Step3: hands-on2/optimizer.ipynb                                  3 MOV ECX, 0x23
+   – Optimize a binary obfuscated by O-LLVM –sub option             4 MOV ECX, 0x4
+                                                                    5 MOV EAX, ECX
+       • Using test-*-sub.bin generated at Hands-On 1               6 POP EBP
+       • What’s the Python method performs the constant             7 RET
+         propagation/folding?
+
+                                                                                      72
+Hands-On 2: Deobfuscation via Optimization
+• Step 4: hands-on2/deadcode_unremoval.ipynb
+      – Tweak the code shown on the right to prevent dead code removal
+      – Constraint:
+                                                                                          0 main:
+              • Do not change the output                                                  1 PUSH EBP
+      – Hint:                                                                             2 MOV EBP, ESP
+                                                                                          3 MOV ECX, 0x23
+              • Branch instruction
+                                                                                          4 MOV ECX, 0x4
+      – Discussion                                                                        5 MOV EAX, ECX
+              • Discuss with your neighbors how to do it                                  6 POP EBP
+                                                                                          7 RET
+
+
+
+
+*Dead code removal is done on the IR, while JIT execution is done on the original code;
+The dead code would not disappear when viewed in JIT, yet this is normal behavior
+                                                                                                            73
+Hands-On 2: Deobfuscation via Optimization
+       def do_dead_removal(self, ircfg):
+           """
+           Remove useless assignments.
+           This function is used to analyse relation of a * complete function *
+           This means the blocks under study represent a solid full function graph.
+           Source : Kennedy, K. (1979). A survey of data flow analysis techniques.
+           IBM Thomas J. Watson Research Division, page 43
+           @ircfg: IntermediateRepresentation instance
+           """
+
+           modified = False
+           reaching_defs = ReachingDefinitions(ircfg)
+           defuse = DiGraphDefUse(reaching_defs, deref_mem=True)
+           useful = self.get_useful_assignments(ircfg, defuse, reaching_defs)
+           useful = set(useful)
+           for block in list(viewvalues(ircfg.blocks)):
+              irs = []
+              for idx, assignblk in enumerate(block):
+                 new_assignblk = dict(assignblk)
+                 for lval in assignblk:
+                    if AssignblkNode(block.loc_key, idx, lval) not in useful:
+                       del new_assignblk[lval]
+                       modified = True
+                 irs.append(AssignBlock(new_assignblk, assignblk.instr))
+              ircfg.blocks[block.loc_key] = IRBlock(block.loc_db, block.loc_key, irs)
+           return modified
+                                                                                        74
+Dataflow Analysis
+• Limitations
+   – Reachable definition analysis/liveness analysis are conservative methods
+       • Preserve program semantics
+       • Assume passing the entire path of a program
+   – Flow-sensitive, path-insensitive
+       • Take care of the order of instructions
+       • Do not take care of the conditional branches
+   – How to interfere dataflow analysis?
+       • Insert an opaque predicate and then create a dependency from it
+       • Dataflow analysis does not take care of whether the path is actually executed
+            – Junk code insertion would also work
+
+
+
+
+                                                                                         75
+Dataflow Analysis
+• Notes
+     – We used the methods of Miasm this time
+     – Another possible approach is to convert IR to LLVM IR and apply LLVM's
+       optimization
+
+
+
+
+Garba and Favaro. SATURN - Software Deobfuscation Framework Based On LLVM. SPRO’19.
+
+                                                                                      76
+(De-)Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+                                               Dataflow Analysis
+       • Garbage/Dead Code Insertion          (Liveness Analysis)
+   – Change syntax
+       • Instruction Substitution
+                                              Dataflow Analysis
+       • Encode Literals                (Reachable Definition Analysis)
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate                    Symbolic Execution
+       • Virtualization Obfuscation         Equivalence Checking
+
+       • Control Flow Flattening                  VMHunt
+                                              Program Synthesis
+
+          Graph Pattern Matching
+        Dynamic Symbolic Execution
+                                                                          77
+Binary Analysis Backend
+              Binary file               Trace
+
+
+             Disassembler           IR Translator
+
+                                                                 Symbolic
+                                                                 Execution
+             Disassembly            SMT Queries
+                                                                  Engine
+
+
+                 Lifter              SMT Solver
+
+                                                             Program Synthesis
+      Intermediate Representation
+
+
+               Emulator             Type Inference             CFG Recovery
+
+
+                                         Dataflow Analysis             Decompiler
+
+                                                                                    78
+SAT Solver
+• SAT: Satisfiability Problem                                       from z3 import *
+                                                                    malicious, benign = Bools('malicious
+      – Propositional logic                                         s = Solver()
+                                                                                     benign')
+
+                                                                    s.add(Or(malicious, benign),
+       𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ 𝑏𝑒𝑛𝑖𝑔𝑛 ∧ ¬𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ 𝑏𝑒𝑛𝑖𝑔𝑛                          Or(Not(malicious), benign),
+               ∧ ¬𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ ¬𝑏𝑒𝑛𝑖𝑔𝑛                                   Or(Not(malicious), Not(benign)))
+                                                                    print(s.check())
+                                                                    print(s.model())
+                                     SATisfiable
+
+
+
+
+                   Search for variable assignments that satisfy a given constraint
+
+
+
+
+Clarke et al. Handbook of Model Checking. 2018.
+
+                                                                                                           79
+SMT Solver = SAT Solver + Theories
+• SMT: Satisfiability Modulo Theories                                  from z3 import *
+                                                                       malicious, benign = Bools('malicious
+      – First-order predicate logic                                    x, y = Int('x ')
+                                                                                        benign')
+
+                                                                       s = Solver()
+       𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ 𝑏𝑒𝑛𝑖𝑔𝑛 ∧ ¬𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ 𝑏𝑒𝑛𝑖𝑔𝑛                          s.add(Or(malicious, benign),
+               ∧ ¬𝑚𝑎𝑙𝑖𝑐𝑜𝑢𝑠 ∨ ¬𝑏𝑒𝑛𝑖𝑔𝑛                                      Or(Not(malicious), benign),
+                                                                          Or(Not(malicious), Not(benign)),
+                   ∧𝑥 ∗ 𝑥 − 𝑥 = 2                                         And(x * x – x == 2))
+
+                                     SATisfiable   Theories
+                                                                       print(s.check())
+                                                                       print(s.model())
+                                                   • EUF               print(s.sexpr())
+                                                   • Arithmetic
+                                                   • Array
+                                                   • BitVector, etc.
+
+
+
+
+Clarke et al. Handbook of Model Checking. 2018.
+
+                                                                                                              80
+SMT Solver
+• Can handle various types and operators in addition to
+  propositional logic (SAT)
+• Treat variables as BitVectors in binary analysis
+
+
+
+
+                                                          81
+SMT Solver in Binary Analysis
+                                                   1.   Select a variable and assign true or false
+      Intermediate Representation                  2.   If a contradiction occurs, invert the Boolean
+                                                        value of the last selected variable
+                                     CNF Form
+             IR Translator                                                       VSIDS
+
+                                     DPLL/CDCL
+
+             SMT Queries                                                 Restart Strategies
+
+                                    CNF Solution
+                                                            devision_level = 0
+              Bit-Blasting                                  if unit_propagate() is CONFLICT:
+                                                               return UNSAT
+                                    SAT Solution            while not all_variables_assigned():
+                                                               decide_next_branch()
+             SAT Queries                                       devision_level += 1
+                                    SMT Solution               if unit_propagate() is CONFLICT:
+                                                                  b_level = conflict_analysis()
+                                                                  if b_level < 0:
+            Tseitin Encoding                                         return UNSAT
+                                                                  else:
+                                                                     backtrack(b_level)
+                                                                     decision_level = b_level
+                                                            return SAT
+
+                                                                                                   82
+SMT Solver in Binary Analysis
+• Applications
+   – Symbolic Execution
+   – Equivalence Checking
+   – Program Synthesis
+
+
+
+
+                                83
+Symbolic Execution
+• A method for test case generation, proposed by J. C. King in 1976
+   – What input values are needed to satisfy the conditions 𝑠 at a program point 𝑝?
+• How it works
+   – Execute a program sequentially while treating input values as symbols that
+     represent all possible values
+   – Add constraints on symbols
+       • Path Constraint: Constraints to execute a path
+       • Symbolic Store: Updated symbol information
+   – When the point is reached, solve the constraints with SMT solver and get a
+     concrete input value
+       • Need to convert IR to SMT solver-acceptable expressions
+
+
+
+                                                                                  84
+Symbolic Execution
+
+
+
+
+Baldori et al. A Survey of Symbolic Execution Techniques. CSUR’18.
+
+                                                                     85
+Symbolic Execution
+
+
+
+
+                                                                     π:     Path Constraint
+                                                                     σ:     Symbolic Store
+                                                                     a→α:   Substitute α for variable a
+Baldori et al. A Survey of Symbolic Execution Techniques. CSUR’18.
+
+                                                                                                          86
+Symbolic Execution
+• Use case
+   – Extract conditions when a malware would be activated
+   – Extract conditions when a vulnerability would be triggered (Automatic Exploit
+     Generation)
+   – …
+
+
+
+
+                                                                                     87
+Symbolic Execution with Miasm
+• Path explorer
+       – hands-on3/simple_explore.ipynb
+       – Traverses multiple paths with symbolic execution and returns the final state
+ # Generate IRCFG from the AsmCFG                                    class FinalState:
+ ircfg = ir_arch.new_ircfg_from_asmcfg(asmcfg)                          def __init__(self, result, sym, path_conds, path_history):
+                                                                           self.result = result
+ # Initialize symbolic variables                                           self.sb = sym
+ symbols_init = {                                                          self.path_conds = path_conds
+     ExprMem(ExprId('ESP_init', 32), 32) : ExprInt(0xdeadbeef, 32)         self.path_history = path_history
+ }
+ ​for i, r in enumerate(all_regs_ids):
+     symbols_init[r] = all_regs_ids_init[i]                          def explore(ir, start_addr, start_symbols,
+                                                                          ircfg, cond_limit=30, uncond_limit=100,
+ final_states = []                                                        lbl_stop=None, final_states=[]):
+
+ # Explore symbolic states​                                            def codepath_walk(addr, symbols, conds, depth, final_states, path):
+ explore(ir_arch,                                                        sb = SymbolicExecutionEngine(ir, symbols)
+         0,                                                              ….
+         symbols_init,
+         ircfg,                                                         return codepath_walk(start_addr, start_symbols, [], 0, final_states, [])
+         lbl_stop=0xdeadbeef,
+         final_states=final_states)
+
+                                                                                                                                                   88
+Symbolic Execution with Miasm
+• Path explorer
+ def codepath_walk(addr, symbols, conds, depth, final_states, path):   ​      …
+   sb = SymbolicExecutionEngine(ir, symbols)                                 # Add the path conditions to reach this point
+                                                                             conds_true = list(conds) + list(cond_true.items())
+   for _ in range(uncond_limit):                                             conds_false = list(conds) + list(cond_false.items())
+      if isinstance(addr, ExprInt):
+          if addr == lbl_stop:                                               # Recursive call for the true or false path
+              final_states.append(FinalState(True, sb, conds, path))         # i.e., Duplicate the states
+              return                                                         codepath_walk(
+                                                                                    addr_true, sb.symbols.copy(),
+      path.append(addr)                                                             conds_true, depth + 1, final_states, list(path))
+
+      pc = sb.run_block_at(ircfg, addr)                                      codepath_walk(
+                                                                                 addr_false, sb.symbols.copy(),
+      if isinstance(pc, ExprCond): # If conditional branch                       conds_false, depth + 1, final_states, list(path))
+          # Calculate the condition to take true or false paths
+          cond_true = {pc.cond: ExprInt(1, 32)}                               return
+          cond_false = {pc.cond: ExprInt(0, 32)}                           else:
+                                                                              addr = expr_simp(sb.eval_expr(pc))
+        # The destination addr of the true or false paths
+        addr_true = expr_simp(                                             final_states.append(FinalState(True, sb, conds, path))
+            sb.eval_expr(pc.replace_expr(cond_true), {}))​                 return
+        addr_false = expr_simp(
+            sb.eval_expr(pc.replace_expr(cond_false), {}))
+        …
+                                                                                                                                       89
+Symbolic Execution with Miasm
+• Path explorer
+   – How the function codepath_walk() works
+       •   Execute a block
+       •   Calculate constraints for True/False paths
+       •   Duplicate the symbolic state for each path
+       •   Invoke codepath_walk()
+             – This means the script forks the state each time a branch is taken
+   – Make sense? Let's move on to the opaque predicate detection with this
+
+
+
+
+                                                                                   90
+Opaque Predicate Detection
+• How to detect opaque predicate with path exploration?
+• Opaque predicate returns deterministic value regardless of an
+  input value
+       – Thus what we need do is to find the branch that determines True or False
+         regardless of the input value
+
+Implementation Plan:
+Invoke the SMT solver at every branch and verify whether there is
+an input value that can take True Path or False Path;
+if exists, the path is a normal;
+if does not exist, the path should be opaque predicate
+Q: Is it appropriate to do a feasibility check in the final
+state?
+
+
+
+
+ Ming et al. LOOP: Logic-Oriented Opaque Predicate Detection in Obfuscated Binary Code. CCS’15.
+
+                                                                                                  91
+Hands-On 3: Opaque Predicate Detection
+• Duration: 30min
+• Objective: Let’s implement the detection method described above
+• Step 1: hands-on3/simple_explore_smt.ipynb
+   – Implement the method
+   – Assert would fail by default
+• Step 2: hands-on3/opfind.ipynb
+   – Import the explorer from the simple_explore_smt.ipynb and complete the
+     opfind.ipynb
+   – Detect opaque predicate within O-LLVM-obfuscated code
+       • Using test-*-bcf.bin generated at Hands-On 1
+       • Open the binary with IDA and execute IDC file generated by opfind
+            – It colors opaque predicates
+
+                                                                              92
+Hands-On 3: Opaque Predicate Detection
+• Step 3: APT malware analysis
+      – Detect opaque predicate within X-Tunnel*1 malware via opfind.ipynb
+              • Zip password: infected
+              • Target function: 0x405710
+      – Generate IDC and colorize IDA view
+      – Detect opaque predicates in other functions
+• Step 4 (Optional): More APT malware analysis
+      – Detect opaque predicate within ANEL*2 malware via opfind.ipynb
+              • Zip password: infected
+      – …
+*1 MD5: ac3e087e43be67bdc674747c665b46c2
+X-Tunnel is a malicious implant used by APT28 a.k.a. Fancy Bear or Sofacy
+Bardin et al. Backward-Bounded DSE: Targeting Infeasibility Questions on Obfuscated Codes. Oakland’17.
+*2 MD5: a79f59b1b17e8bfa3299e50a8af9cdaf
+ANEL is a RAT used by APT10 a.k.a. MenuPass, Stone Panda, or Red Apollo
+Haruyama. Defeating APT10 Compiler-Level Obfuscations. VB’19.
+                                                                                                         93
+Symbolic Execution
+• Limitations
+      – A search algorithm is up to its use case
+              • DFS, random path selection, coverage-guided search, etc.
+      – A room for optimization
+              • State memorization, function summary
+      – Accurate implementation of memory model and instruction semantics is
+        difficult
+
+
+
+
+Baldori et al. A Survey of Symbolic Execution Techniques. CSUR’18.
+Xu et al. Concolic Execution on Small-Size Binary Codes: Challenges and Empirical Study. DSN’17.
+
+                                                                                                   94
+Symbolic Execution
+• Limitations
+   – Attacks generate constraints difficult to solve for SMT solver
+       • Hash/Crypto functions     Banescu et al. Code Obfuscation Against Symbolic Execution Attacks. ACSAC’16.
+
+       • Nonlinear functions       Olivier et al. How to Kill Symbolic Deobfuscation for Free. ACSAC’19.
+                                   Wang et al. Linear Obfuscation to Combat Symbolic Execution. ESORICS’11.
+       • Collatz conjecture        Sharif et al. Impeding Malware Analysis Using Conditional Code Obfuscation. NDSS’08.
+                                   *Symbolic execution with a concrete execution/values together is called Dynamic Symbolic
+   – Path explosion                Execution (DSE) or Concolic Execution
+
+
+       • Loop/recursion
+       • When to or how much use the concrete value obtained by actual execution?
+   – Attacks aimed at path explosion
+       • Range Divider
+       • Input-dependent loop/recursion
+
+
+
+
+                                                                                                                              95
+Abstract Interpretation
+• Another approach that allows us to detect opaque predicate
+   – Originally a software verification technique
+   – Analyze an abstracted program rather than a concrete program itself
+   – Track only specified properties of variables used in the program
+• How it works
+   – Convert each instruction to an abstract semantics
+   – Map variables to an abstract state according to the semantics
+   – Simulate abstract semantics and update abstract state
+   – Check abstract state at the desired time
+
+
+
+
+                                                                           96
+Abstract Interpretation
+• Example: Sign Analysis                                                         ⊤
+   – Define the following abstract domain:
+       •   Neg:   −ෝ ≔ {𝑥 ∈ ℤ|𝑥 < 0}
+       •   Zero: 0෠ ≔ {0} ⊂ ℤ
+       •   Pos:   +ෝ ≔ {𝑥 ∈ ℤ|𝑥 > 0}                                   −
+                                                                       ෝ          0෠       ෝ
+                                                                                           +
+       •   Top (don’t know): ⊤ ≔ ℤ
+       •   Bottom (empty): ⊥≔ ∅
+   – Define the abstract semantics:                                              ⊥
+       •   ෝ ++
+           +    ෝ= +ෝ
+                                                                      A power set of the sets
+       •   ෝ + 0෠ = +
+           +        ෝ                                            (More precisely, a complete lattice)
+
+       •   ෝ +−
+           +    ෝ= ⊤
+       •   …
+   – Define functions:
+       • Abstract function 𝛼: maps sets of concrete variables to the most precise value in the
+         abstract domain
+       • Concretization function 𝛾: maps each abstract value to sets of concrete elements
+
+                                                                                                        97
+Abstract Interpretation
+• Example: Sign Analysis
+
+                   Concrete                             Abstract
+           Semantics          State              Semantics         State
+                             𝑥1 , 𝑥2 , 𝑥3 , 𝑥4                 𝑥1 , 𝑥2 , 𝑥3 , 𝑥4
+             𝑥1 = 1         1, ? , ? , ?               ෝ
+                                                  𝑥1 = +      ෝ , ⊥, ⊥, ⊥
+                                                              +
+            𝑥2 = −1       1, −1, ? , ?            𝑥2 = −
+                                                       ෝ      ෝ, −
+                                                              +   ෝ , ⊥, ⊥
+           𝑥3 = 𝑥1 ∗ 𝑥2   1, −1, −1, ?           𝑥3 = −  ෝ
+                                                      ෝ ∗+    ෝ, −
+                                                              +  ෝ, −
+                                                                    ෝ, ⊥
+          𝑥4 = 𝑥1 + 𝑥2    1, −1, −1,0                 ෝ +−
+                                                 𝑥4 = +  ෝ    ෝ, −
+                                                              +  ෝ, −
+                                                                    ෝ, ⊤
+
+
+
+
+                                                                                   98
+Abstract Interpretation
+• Galois Connection
+   – Once abstracted by the function 𝛼, you cannot retrieve the concrete value;
+   – Yet, you can analyze exact properties of variables on the abstract domain
+     (Soundness)
+• The abstract domain can be any form as long as the inclusion
+  relation can be described as a power set
+   – Sign
+   – Type information
+   – …
+
+
+
+
+                                                                                  99
+Abstract Interpretation
+• The theory is profound; the paper seems to be obfuscated …
+
+
+
+
+Cousot and Cousot. A Galois Connection Calculus for Abstract Interpretation. POPL’14.
+                                                                                        100
+Abstract Interpretation
+• Applications
+      – Opaque Predicate Detection
+              • How it works
+                       – For each block, find the branch where the condition is true for any value;
+                       – Find when the variable which triggers the conditional jump is ⊤ – it’s unconditional!
+              • The plugin for a Ghidra disassembler/decompiler by Rolf Rolles is publicly available:
+                       – https://www.msreverseengineering.com/blog/2019/4/17/an-abstract-interpretation-
+                         based-deobfuscation-plugin-for-ghidra
+      – Value-Set Analysis (VSA)
+              •    A binary analysis method which uses type information as an abstract domain
+              •    Uses pointer analysis together
+              •    Can be used to buffer overflow detection
+              •    The tool with the most advanced VSA interface is angr
+Preda et al. Opaque Predicates Detection by Abstract Interpretation. AMAST’06.
+Shoshitaishvili et al. SoK: (State of) The Art of War: Offensive Techniques in Binary Analysis. Oakland’16.
+                                                                                                                 101
+Abstract Interpretation
+• Abstract Interpretation vs Symbolic Execution
+     – Both approximate states
+
+
+
+
+https://twitter.com/johannes_kinder/status/1105138480303218688
+
+                                                                 102
+Abstract Interpretation
+• Limitations
+   – Accurate implementation of memory model and instruction semantics is
+     difficult – same as symbolic execution
+   – Range Divider – same as symbolic execution-based opaque predicate
+     detection
+
+
+
+
+                                                                            103
+Range Divider
+• A method to cause path explosion in symbolic execution by adding
+  extra branches
+      – # of branches: 𝑘 → # of states: 2𝑘
+• Path constraint would not be UNSAT like opaque predicate
+      – Execute a branch depends on an input value
+      – Whichever a branch executed, the result is the same
+
+
+
+
+                      Both paths would be executed!
+
+
+Banescu et al. Code Obfuscation Against Symbolic Execution Attacks. ACSAC’16.                 # Timeout
+Olivier et al. How to Kill Symbolic Deobfuscation for Free. ACSAC’19.           3h for Dataset #1, 24h for Dataset #2
+                                                                                                                        104
+Range Divider
+• Robust to symbolic execution/abstract interpretation
+• a.k.a. 2-way Opaque Predicates, Code Clone
+• Tigress can apply Range Divider via OpaqueKinds=question option
+
+
+
+
+Banescu et al. Code Obfuscation Against Symbolic Execution Attacks. ACSAC’16.
+Olivier et al. How to Kill Symbolic Deobfuscation for Free. ACSAC’19.
+                                                                                105
+SMT Solver in Binary Analysis
+• Applications
+   – Symbolic Execution
+   – Equivalence Checking
+   – Program Synthesis
+
+
+
+
+                                106
+Equivalence Checking
+• A method to determine if two given codes have the same behavior
+       – Same code: Syntactically-equivalent
+       – Different code, but same behavior: Semantically-equivalent
+• How it works                                                                                  # Convert miasm IR to Z3 expression
+                                                                                                cond_1 = Translator.to_language(‘z3’)
+       – Perform symbolic execution per basic block                                                                            .from_expr(v1)
+                                                                                                cond_2 = Translator.to_language(‘z3’)
+               • All inputs (register, memory) are symbolized                                                                  .from_expr(v2)
+
+       – Compare outputs                                                                        solver = z3.Solver()
+
+               • With SMT solver by generating a counterexample                                 solver.add(???) # Hint: z3.Not() is negation
+
+       – If no counterexample, the blocks are equivalent                                        if solver.check() == sat:
+
+Implementation Plan:                                                                                           # not equivalent
+Verify if there is a solution that negates “the two basic blocks are not equivalent”.                          …
+If exists, the assumption is correct, i.e. not equivalent;                                      else: # UNSAT
+Otherwise, the assumption is incorrect, i.e. equivalent.
+                                                                                                               # equivalent!
+ Gao et al. BinHunt: Automatically Finding Semantic Differences in Binary Programs. ICICS’08.                  …
+ Shirazi et al. DoSE: Deobfuscation based on Semantic Equivalence. SSPREW’18.
+                                                                                                                                           107
+Equivalence Checking
+• a.k.a. (Semantic) Binary Diffing, Code Clone Detection
+• Applications
+   – Opaque Predicate Detection
+   – 𝑁-days Vulnerability Detection
+
+
+
+
+                                                           108
+Hands-On 4: Range Divider Detection
+• Duration: 30min
+• Objective: Let’s implement the equivalence checking method
+• Step 1: hands-on4/eqcheck.ipynb
+     – Implement the method
+     – Of syntax_compare and semantic_compare, only the former is implemented
+
+
+
+
+*1 MD5: 2aea3b217e6a3d08ef684594192cafc8
+*2 MD5: 0d655ecb0b27564685114e1d2e598627
+Vipasana is a ransomware; Asprox is a trojan
+                                                                                109
+Hands-On 4: Range Divider Detection
+• Step 2: Malware analysis
+     – Detect range-divided functions within Vipasana*1 and Asprox*2 malware
+             • Zip password: infected
+             • Vipassana target function: 0x434DF0
+             • Asprox target function: 0x100091AC
+     – Detect other equivalent functions (including Range Divider and syntactically-
+       equivalent functions)
+
+
+
+
+*1 MD5: 2aea3b217e6a3d08ef684594192cafc8
+*2 MD5: 0d655ecb0b27564685114e1d2e598627
+Vipasana is a ransomware; Asprox is a trojan
+                                                                                       110
+Hands-On 4: Range Divider Detection
+• Step 3: Tigress Range Divider
+   – Test the script against Tigress-obfuscated code
+       • Use OpaqueKinds=question option
+   – The range divider detection method would not work, why?
+   – Discussion
+       • How can we improve the method?
+
+
+
+
+                                                               111
+Equivalence Checking
+• Limitations
+      – Is Basic Blocks-oriented comparison appropriate?
+              • Chunk with in a block, 1 block, 2 blocks, … function, functions, …?
+              • Path explosion occurs when the # of unit becomes large
+              • BinSim: Defines system call, its arguments, and parts that depend on those
+                arguments as a unit
+              • The essence is how to determine a unit: Point of interests and range of its
+                dependency
+      – Definition of equivalence
+              • We should regard units as equivalent even when they have different outputs not
+                used later
+                      – We need to concretize this idea to combat Tigress’s Range Divider
+
+
+
+Ming et al. BinSim: Trace-based Semantic Binary Diffing via System Call Sliced Segment Equivalence Checking
+
+                                                                                                              112
+(De-)Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+                                               Dataflow Analysis
+       • Garbage/Dead Code Insertion          (Liveness Analysis)
+   – Change syntax
+       • Instruction Substitution
+                                              Dataflow Analysis
+       • Encode Literals                (Reachable Definition Analysis)
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate                    Symbolic Execution
+       • Virtualization Obfuscation         Equivalence Checking
+
+       • Control Flow Flattening                  VMHunt
+                                              Program Synthesis
+
+          Graph Pattern Matching
+        Dynamic Symbolic Execution
+                                                                          113
+VM Deobfuscation
+• VM analysis task consists of the three parts:
+      – Locate:
+              • Where is the VMEntry, handlers, and VMExit?
+                      – And how is the VM EIP updated?
+      – Extract:
+              • Dump the VM handlers
+      – Simplify:
+              • Recover the original semantics of each handler:
+                      – Arithmetic operations (add, sub, mul, div, ...) typically retrieve 2 values from a virtual
+                        register and write the result back to the register. Once you notice it's an arithmetic
+                        operator, all you need to do is analyze the differences
+                      – A conditional jump typically takes two values from a virtual register and writes the result
+                        back to the virtual instruction pointer
+
+Xu et al. VMHunt: A Verifiable Approach to Partially-Virtualized Binary Code Simplification. ACM CCS’18.
+Blazytko et al. Syntia: Synthesizing the Semantics of Obfuscated Code. USENIX Security’17.
+Salwan et al. Symbolic Deobfuscation: From Virtualized Code to Back to The Original. DIMVA’18.
+                                                                                                                  114
+VM Deobfuscation
+                                                                                                           reg_names = [
+• Several techniques come to the rescue:                                                                        # General purpose registers
+                                                                                                                “reg_0",
+      – Locate:                                                                                                 “reg_1",
+                                                                                                                ...
+              • Virtualized Snippet Boundary Detection (VMHunt)                                            ]
+
+      – Extract:                                                                                           instructions = [
+                                                                                                                {'name': 'push', 'feature': CF_USE1}, # 0
+              • Virtualized Kernel Extraction (VMHunt)                                                          {'name': 'pop', 'feature': CF_CHG1}, # 1
+      – Simplify:                                                                                          ]
+                                                                                                                 …
+
+              • Writing an IDA Processor Module on your own
+              • Symbolic Execution
+                      – With expression simplification
+                      – Including DSE and Multiple Granularity Symbolic Execution (VMHunt)
+              • Program Synthesis
+                      – CEGIS, Syntia
+              • Compiler Optimization
+Xu et al. VMHunt: A Verifiable Approach to Partially-Virtualized Binary Code Simplification. ACM CCS’18.
+Blazytko et al. Syntia: Synthesizing the Semantics of Obfuscated Code. USENIX Security’17.
+Salwan et al. Symbolic Deobfuscation: From Virtualized Code to Back to The Original. DIMVA’18.
+                                                                                                                                                       115
+VMHunt
+• A method tailored for VM deobfuscation
+• Based on dynamic analysis, some heuristics, and a variant of
+  symbolic execution
+• How it works
+      – Locate context switch between the host and the VM
+      – Extract the kernel from two operations:
+              • The write to the VM context area
+              • The write to the native stack area
+      – Simplify the kernel code via symbolic execution
+
+
+
+
+Xu et al. VMHunt: A Verifiable Approach to Partially-Virtualized Binary Code Simplification. ACM CCS’18.
+                                                                                                           116
+VMHunt
+• Intuition: Context Switch
+
+
+
+
+             Analyze only VM code with high accuracy                               … while avoiding extra bytecode analysis
+
+
+Xu et al. VMHunt: A Verifiable Approach to Partially-Virtualized Binary Code Simplification. ACM CCS’18.
+                                                                                                                              117
+VMHunt
+• Can be combined with other methods:
+   – Optimization
+   – Program Synthesis
+
+
+
+
+                                        118
+Program Synthesis
+• A method for generating program snippet from a test case
+   – Infer the transformation (program) between input and output
+   – Transform new input with an inferred program
+• Example: Excel Flash Fill
+
+                              Test case
+                     Inputs               Outputs
+
+
+
+
+                                                                   119
+Program Synthesis
+• Formulated as a search problem
+   – Input
+      • Test case: Inputs, outputs
+      • IR Fragments
+   – Output
+      • A combination of fragments which satisfies the test case
+   – Algorithm
+      •   Enumerative Search (w/ Pruning)
+      •   SMT Solving; Counterexample-Guided Inductive Synthesis (CEGIS)
+      •   Metropolis-Hastings
+      •   Monte Carlo Tree Search (MCTS) – Syntia
+      •   Bayesian Net
+      •   …
+
+                                                                           120
+Program Synthesis
+• CEGIS
+      – Reduce search space by SMT solving
+                   IR fragments                        inputs                   Symbolic Execution
+
+                              Candidate program 𝑃
+                                                                                  def synthesizer(inputs):
+                     Synthesizer                        Verifier                     (𝑖1 … 𝑖𝑛 ) = inputs
+                                Counterexample 𝑥                                     query = ∃𝑃. 𝜎(𝑖1 , 𝑃) ∧ . . .∧ 𝜎(𝑖𝑁 , 𝑃)
+                                                                                     result, model = decide(query)
+                          ✗                               ✔                          if result is SAT:
+                                                                                         return model
+                     def refinement_loop():                                          else:
+                        inputs = φ                                                       return UNSAT
+                        while True:
+                           candidate = synthesizer(inputs)
+                           if candidate is UNSAT:                                 def verifier(P):
+                               return UNSAT                                          query = ∃𝑥. ¬𝜎(𝑥, 𝑃)
+                           result = verifier(candidate)                              result, model = decide(query)
+                           if result is valid:                                       if result is SAT:
+                               return candidate                                          return model
+                           else:                                                     else:
+                               inputs.append(res)                                        return valid
+
+Gulwani et al. Program Synthesis. 2018.
+Sharma et al. Finding Substitutable Binary Code for Reverse Engineering by Synthesizing Adapters. ICST’18.
+                                                                                                                                121
+Program Synthesis
+• Syntia
+      – Formulate the problem as a game tree search
+      – Solve MCTS problem by UCT (Upper Confidence bounds applied to Trees) with
+        simulated annealing
+              • Calculate score for each node;
+                      – How to calculate it? – Similar to equivalence checking
+              • Backtrack
+      – Open source: https://github.com/RUB-SysSec/syntia
+                                            U
+                                                                                      U: Non-terminal symbol
+                                                                                      a, b, c, …: Input variables
+                                  U*U             U+U
+
+               U+b             U+(U+U)          U+a            U+(U*U)
+
+                                          b+a
+Blazytko et al. Syntia: Synthesizing the Semantics of Obfuscated Code. USENIX Security’17.
+                                                                                                                    122
+Program Synthesis
+• Limitations
+     – Program synthesis in general
+             • Non-determinism
+             • Point functions
+     – CEGIS
+             • Sometimes tries to synthesize a constant
+
+
+
+
+https://twitter.com/johnregehr/status/1216960249501900800
+
+                                                            123
+Hands-On 5: VM Deobfuscation
+• Duration: 30min
+• Objective: Deobfuscate ZeusVM with a simple symbolic execution
+• Step 1: Malware analysis
+     – Analyze zeus.bin with IDA and locate VM handlers
+
+
+
+
+MD5: eabe05d521875308e724560be02f4482
+ZeusVM is a notorious Trojan
+                                                                   124
+Hands-On 5: VM Deobfuscation
+• Step 2: hands-on5/vm_explore.ipynb
+     – Run vm_explore.ipynb
+              • The method expr_simp allows you to name and reduce symbolic expressions with
+                lambda expressions
+ # Show results                                                        for i in range(69): # Iterate over handlers
+ print('final states:', len(final_states))                                # Get each handler address from the array
+                                                                          addr = int(hex(upck32(bs.getbytes(mnemonic_array_addr + 4*i, 4))), 16)
+ for final_state in final_states:                                         print('*'*40, 'Mnemonic', i, ' addr', hex(addr), '*'*40)
+    if final_state.result:                                                ...
+        print('Feasible path:',                                           # Show results
+              '->'.join([str(x) for x in final_state.path_history]))      for final_state in final_states:
+        print('¥t',final_state.path_conds)                                    if final_state.result:
+    else:                                                                         ret_mn = expr_simp(final_state.sb.eval_expr(regs.EAX[:8]))
+        print('Infeasible path:',                                                 ….
+              '->'.join([str(x) for x in final_state.path_history]))              # Show state after expr_simp
+        print('¥t',final_state.path_conds)                                        dump_state(final_state.sb)
+
+   final_state.sb.dump(ids=False)                                          #final_state.sb.dump(ids=False) # Show state before expr_simp
+   print('')                                                               print('')
+
+            hands-on3/simple_explore.ipynb                                                hands-on5/vm_explore.ipynb
+                                                                                                                                             125
+Hands-On 5: VM Deobfuscation
+• Step 2: hands-on5/vm_explore.ipynb
+      – What was needed in advance?
+               • Locate handler addresses
+               • Analyze some semantics (VM_PC_init and RET_ADDR in our hands-on)
+      – How can we speed up the analysis?
+               • Compare it with solved/zeus_get_ir.ipynb and implement your idea
+
+
+
+
+solved/zeus_get_ir.ipynb was implemented with reference to https://miasm.re/blog/2016/09/03/zeusvm_analysis.html
+
+                                                                                                                   126
+VM Deobfuscation
+• Limitations
+   – Locate, Extract
+       • In most cases, dynamic analysis is also required
+             – Rarely as simple as ZeusVM
+       • What if the assumption about VM context switch is broken?
+   – Simplify
+       •   Our hands-on required manual semantic reasoning
+       •   Techniques described before are basically based on symbolic execution;
+       •   Limited by the limitations of symbolic execution
+       •   Which simplification method is better? Empirical analysis is required
+
+
+
+
+                                                                                    127
+(De-)Obfuscation Techniques
+• Different techniques, common ideas:
+   – Do useless things
+                                               Dataflow Analysis
+       • Garbage/Dead Code Insertion          (Liveness Analysis)
+   – Change syntax
+       • Instruction Substitution
+                                              Dataflow Analysis
+       • Encode Literals                (Reachable Definition Analysis)
+       • Encode Arithmetic
+   – Change not only syntax but also semantics
+       • Opaque Predicate                    Symbolic Execution
+       • Virtualization Obfuscation         Equivalence Checking
+
+       • Control Flow Flattening                  VMHunt
+                                              Program Synthesis
+
+          Graph Pattern Matching
+        Dynamic Symbolic Execution
+                                                                          128
+Control Flow Unflattening
+• Control Flow Flattening can be addressed by the following:
+   – Graph pattern matching
+   – Symbolic execution
+       • Example: https://github.com/eset/stadeo (IDAPython is required)
+   – Dynamic symbolic execution
+       • Symbolic execution + dynamic execution = dynamic symbolic execution
+       • (w/ taint analysis)
+• Sometimes manual or dynamic analysis is required
+
+
+
+
+                                                                               129
+Graph Pattern Matching
+• How it works
+   – Locate a flattened jump table
+   – Identify variables involved in state management
+   – Keep track of the order in which blocks are executed
+   – Generate a chain of the blocks
+   – Rewrite the branch instruction to merge consecutive blocks
+• The plugin for IDA is publicly available:
+  https://github.com/carbonblack/HexRaysDeob/
+   – Performs analysis at IDA Microcode (IR) level
+   – Even works for ANEL malware sample
+   – Unfortunately, IDA Freeware cannot process this plugin
+
+
+                                                                  130
+Graph Pattern Matching
+• Miasm provides interfaces for subgraph matching and block
+  merging
+• In Miasm, such a heuristics implementation would be:
+   – Set a callback for disassemble;
+   – Find blocks which match a specified pattern;
+   – Apply a block merging pass of DiGraphSimplifier to the blocks
+• Question: Is it robust?
+
+
+
+
+                                                                     131
+Dynamic Symbolic Execution
+• If the target is doing something with the input, skipping static
+  analysis would be efficient
+• In Miasm, DSE implementation would be: prepare a Sandbox
+  instance and attach DSEPathConstraint to it
+   – Still, this requires a manual analysis of the input size/type and termination
+     conditions
+• Example: hands-on6/cff_dse.ipynb
+    # Initialize a sandbox environment                             # Initialize a DSE instance with a given strategy
+    sb = Sandbox_Linux_x86_64(loc_db, options.filename, options,   dse = DSEPathConstraint(machine, produce_solution=strategy)
+          globals())                                               dse.attach(sb.jitter) # Attach to the sandbox
+    machine = Machine(‘x86_64’)                                    dse.update_state_from_concrete()
+
+    ret_addr = 0x000000001337beef                                  # Symbolize the argument
+    sb.jitter.add_breakpoint(ret_addr, code_sentinelle)            regs = sb.jitter.ir_arch.arch.regs
+    sb.jitter.push_uint64_t(ret_addr)
+    sb.jitter.vm.add_memory_page(…                                 …
+
+                                                                                                                                 132
+Hands-On 6: Control Flow Unflattening
+• Duration: 30min
+• Objective: Unflatten the flattened binary files
+• Step 1: hands-on6/cff_dse.pynb
+   – Run cff_dse for the flattening-volatile.bin
+       • Returns 0 only when given a specific string (flag)
+• Step 2: hands-on6/cff_explore.ipynb
+   – Customize cff_explore for simplifying the CFG of the test-mod2-fla.bin
+   – Let's make a unflattened CFG and display it
+                                                        import pydotplus
+       • No answer provided, try your idea              from IPython.display import Image, display_png
+                                                        # Visualize the CFG
+                                                        with open('cfg.dot', 'w') as f:
+                                                           f.write(ircfg.dot())
+                                                        graph = pydotplus.graphviz.graph_from_dot_file('cfg.dot')
+                                                        graph.write_png('cfg.png')
+                                                        display_png(Image(graph.create_png()))
+
+                                                                                                              133
+Control Flow Unflattening
+• Limitations
+      – Hardening CFF is easy
+             • Inter-procedural data flow
+                     – Initialize global variables at the call site
+                       for the state management
+             • Adding opaque predicate
+             • Encoding/hiding next block number
+
+
+
+
+Udupa et al. Deobfuscation: Reverse Engineering Obfuscated Code. WCRE’05.
+Cappaert and Preneel. A General Model for Hiding Control Flow. DRM’10.
+
+                                                                            134
+Conclusion
+Summary
+• Obfuscation Techniques
+   – Preliminaries
+   – Garbage Code Insertion, Instruction Substitution, …
+   – Hands-On
+• Deobfuscation Techniques
+   – Preliminaries
+   – Dataflow Analysis, Symbolic Execution, Equivalence Checking, …
+   – Hands-On
+• Now you have a skill of implementing these techniques in practice
+   – But all have their limitations
+
+
+
+                                                                      136
+Takeaways
+• Difficulty level
+   – Easy:
+       • Being used by tools/methods: "It doesn't work."
+   – Medium:
+       • Mastering tools/methods: “It doesn’t work, because …”
+   – Hard:
+       • Mastering tools/methods; push the envelope: “I got this to work!”
+
+
+
+
+                                                                             137
+Takeaways
+• Lets’ look back:
+   – What are the obfuscation techniques?
+   – What are the deobfuscation techniques?
+   – What is the scope and limitations of deobfuscation methods?
+• Imagine:
+   – How to overcome the limitations of existing methods?
+   – What if you face unknown obfuscation techniques?
+• Let’s see through the essence
+
+
+
+
+                                                                   138
+Other Topics
+• Other dataflow analysis methods
+• Taint analysis
+
+
+
+
+                                    139
+Acknowledgement
+• Yuhei Kawakoya
+   – Course material and sample code
+• Makoto Iwamura
+   – Sample code
+• Ryo Ichikawa (icchy)
+   – Environment setup
+
+
+
+
+                                       140
+Recommended Readings
+• Aho et al. Compilers: Principles, Techniques, and Tools. 1986.
+• Collberg and Nagra. Surreptitious Software: Obfuscation, Watermarking,
+  and Tamperproofing for Software Protection. 2009.
+• Gazet et al. Practical Reverse Engineering: X86, X64, ARM, Windows Kernel,
+  Reversing Tools, and Obfuscation. 2014.
+• Andriesse. Practical Binary Analysis: Build Your Own Linux Tools for Binary
+  Instrumentation, Analysis, and Disassembly. 2018.
+• Banescu. Breaking Obfuscated Programs with Symbolic Execution.
+  https://www.slideshare.net/SebastianBanescu/breaking-obfuscated-
+  programs-with-symbolic-execution. 2017.
+• Rolles. Möbius Strip Reverse Engineering.
+  http://www.msreverseengineering.com/.
+• Yurichev. SAT/SMT by Example.
+  https://yurichev.com/writings/SAT_SMT_by_example.pdf.
+• And research papers referenced in this material
+                                                                           141
+

@@ -1,0 +1,1360 @@
+                 From Obfuscated to Obvious:
+            A Comprehensive JavaScript Deobfuscation
+                  Tool for Security Analysis
+                            Dongchao Zhou1,2 , Lingyun Ying2,* , Huajun Chai2 and Dongbin Wang1,*
+                            1
+                             Beijing University of Post and Telecommunication {zdc, dbwang}@bupt.edu.cn
+                        2
+                            QI-ANXIN Technology Research Institute {yinglingyun, chaihuajun}@qianxin.com
+
+
+   Abstract—JavaScript’s widespread adoption has made it an                  understand malicious behavior and develop effective counter-
+attractive target for malicious attackers who employ sophisti-               measures [7].
+cated obfuscation techniques to conceal harmful code. Current                   To comprehensively understand the current deobfuscation
+deobfuscation tools suffer from critical limitations that severely
+restrict their practical effectiveness. Existing tools struggle with         landscape, we conducted a literature review and sample anal-
+diverse input formats, address only specific obfuscation types,              ysis to identify and categorize JavaScript obfuscation tech-
+and produce cryptic output that impedes human analysis.                      niques. Based on the fundamental aspects of code they modify,
+   To address these challenges, we present JS IMPLIFIER, a com-              we categorized 20 distinct obfuscation techniques across four
+prehensive deobfuscation tool using a multi-stage pipeline with              main categories: (1) Lexical-level obfuscation (5 techniques)
+preprocessing, abstract syntax tree-based static analysis, dynamic
+execution tracing, and Large Language Model (LLM)-enhanced                   that transforms basic lexical elements like identifiers and
+identifier renaming. We also introduce multi-dimensional eval-               literals while preserving syntactic structure; (2) Syntactic-
+uation metrics that integrate control/data flow analysis, code               level obfuscation (6 techniques) that modifies structural or-
+simplification assessment, entropy measures and LLM-based                    ganization through advanced encoding methods and functional
+readability assessments.                                                     transformations; (3) Semantic-level obfuscation (7 techniques)
+   We construct and release the largest real-world obfuscated
+JavaScript dataset with 44,421 samples (23,212 wild malicious +              that fundamentally alters implementation logic through string
+21,209 benign samples). Evaluation shows JS IMPLIFIER outper-                arrays, control flow manipulation, and dynamic code gen-
+forms existing tools with 100% processing capability across 20               eration; and (4) Multi-layer obfuscation (2 techniques) that
+obfuscation techniques, 100% correctness on evaluation subsets,              combines multiple strategies from different levels to create
+88.2% code complexity reduction, and over 4-fold readability                 highly complex transformations.
+improvement validated by multiple LLMs. Our results advance
+benchmarks for JavaScript deobfuscation research and practical                  Current JavaScript deobfuscation tools, such as JStillery [8],
+security applications.                                                       illuminateJS [9], and JSNice [10], face three critical limitations
+                                                                             when handling these diverse obfuscation techniques [11].
+                         I. I NTRODUCTION                                    First, they struggle with diverse input formats, crashing on
+   JavaScript’s dynamic nature (such as dynamic typing, run-                 malformed syntax and mixed encodings. Second, they focus
+time code modification, and code generation) and widespread                  on specific patterns and lack multi-layer support. Static anal-
+adoption have made it a prime target for malicious exploita-                 ysis tools (e.g., JSNice [10], JSbeautifier.org [12]) fail on
+tion. Attackers implement complex obfuscation techniques                     runtime-dependent obfuscation such as dynamic code gener-
+that evade traditional static analysis [1]–[4]. Real-world cam-              ation and eval-based transformations, while dynamic analy-
+paigns (e.g., SocGholish [5]) employ multi-layered techniques,               sis approaches (e.g., synchrony [13], JS-deobfuscator [14])
+such as string encoding, function name scrambling, and anti-                 struggle with control flow manipulations and string array
+analysis evasion methods [5], [6], to obfuscate JavaScript                   deobfuscation. Third, they produce cryptic identifiers that
+code. The obfuscated code presents significant barriers to                   impede human analysis.
+security analysis, making it extremely difficult for analysts to                To address these limitations, we propose a comprehensive
+                                                                             deobfuscation tool, JS IMPLIFIER, which uses a multi-stage
+   * Corresponding authors.
+   Dongbin Wang is also with the Engineering Research Center of Blockchain   pipeline. First, we develop robust code normalization through
+and Network Convergence Technology, Ministry of Education, and the Na-       fault-tolerant parsing, character encoding standardization, and
+tional Engineering Laboratory for Mobile Networks, Beijing University of     bundler pattern unwrapping, enabling reliable processing of
+Posts and Telecommunications (BUPT).
+                                                                             diverse malformed inputs that crash existing tools. Second,
+                                                                             our deobfuscation engine adopts a dual-strategy approach
+                                                                             that combines static Abstract Syntax Tree (AST) analysis
+                                                                             with controlled execution monitoring to address multi-layer
+                                                                             obfuscation complexity. Unlike existing static-only tools that
+Network and Distributed System Security (NDSS) Symposium 2026
+23-27 February 2026, San Diego, CA, USA                                      fail on runtime-dependent transformations, our enhanced static
+ISBN 979-8-9919276-8-0                                                       analysis handles complex control flow manipulations and
+https://dx.doi.org/10.14722/ndss.2026.242198.
+www.ndss-symposium.org
+string array deobfuscation through comprehensive expression           hensible versions suitable for security analysis workflows.
+evaluation and intelligent scope management. Unlike existing          Furthermore, detailed case studies, including analysis of the
+dynamic-only approaches that struggle with static patterns,           JSFireTruck [16] campaign, demonstrate JS IMPLIFIER’s prac-
+our controlled execution monitoring selectively executes ob-          tical effectiveness in real-world threat analysis contexts where
+fuscated code segments within sandboxed environments and              traditional tools fail to provide adequate support.
+integrates results back into static analysis, enabling com-              We summarize our main contributions as follows:
+prehensive support for multi-layer transformations. Finally,             • We present JS IMPLIFIER , a comprehensive JavaScript
+we apply Large Language Model (LLM)-based semantic en-                      deobfuscation tool that integrates code normalization,
+hancement for context-aware identifier renaming, transforming               dual-strategy deobfuscation (static AST analysis and con-
+mechanically correct but cryptic output into human-readable                 trolled execution), and LLM-based semantic enhance-
+code suitable for security analysis workflows.                              ment for robust and readable code recovery.
+   For fairly and comprehensively evaluate our approach, we              • We demonstrate JS IMPLIFIER ’s strong performance with
+curated two dedicated datasets: a) MalJS, a large-scale dataset             100% processing capability across all obfuscation tech-
+of 23,212 wild malicious JavaScript samples curated from over               niques, exceptional code simplification (0.8820 Halstead
+10 million ones, covering all known obfuscation techniques.                 reduction), and significant readability improvements val-
+This dataset provides real-world samples with diverse and                   idated by multiple LLMs.
+multi-layer obfuscation techniques, unlike existing datasets             • We construct and release the largest real-world obfus-
+with artificial samples. b) BenignJS comprises 2,000 manually               cated JavaScript dataset comprising 44,421 samples. This
+verified benign samples from GitHub and web crawling.                       dataset provides valuable insights into real-world obfus-
+Moreover, we also adopt CombiBench, a complex combina-                      cation practices and enables more effective development
+tion obfuscation subset from JsDeObsBench [15], for a fair                  and evaluation of deobfuscation methods.
+comparison with existing methods.
+                                                                         Open Source. JS IMPLIFIER and datasets are publicly avail-
+   Our evaluation methodology encompasses six complemen-
+                                                                      able at Zenodo and GitHub [17]. Detailed usage instructions
+tary dimensions to comprehensively assess deobfuscation per-
+                                                                      are in Appendix J.
+formance. First, we conduct a deobfuscation capability evalua-
+tion across 20 categorized obfuscation techniques. Second, we                                II. BACKGROUND
+assess the correctness of deobfuscated code. Third, we evaluate
+semantic consistency to the original code. Fourth, we evaluate        A. JavaScript
+code simplification using complexity metrics from JsDeObs-               JavaScript is a widely-used programming language that
+Bench. Fifth, we validate effectiveness through entropy-based         powers web applications and has expanded to server-side and
+analysis. Sixth, we conduct multi-LLM readability assessment.         mobile development. Its dynamic nature and flexible syntax
+   We      compare      JS IMPLIFIER    with     12    existing       make it attractive to malicious attackers for code obfuscation
+approaches—including nine traditional tools (JSNice [10],             purposes. The language’s dynamic features create inherent
+JStillery [8], illuminateJS [9], etc.) and three LLM-                 security vulnerabilities that facilitate sophisticated obfuscation
+based solutions (GPT-o1, Gemini-2.0-Flash, DeepSeek-                  techniques. JavaScript allows variables to change types dur-
+R1)—selecting appropriate baselines for each evaluation               ing execution, enabling transformations where var x = 5
+dimension. The results demonstrate strong performance                 can later become x = "hello". Additionally, the language
+of JS IMPLIFIER across multiple evaluation dimensions.                supports runtime code modification through functions like
+Specifically, our approach demonstrates comprehensive                 eval("alert(’Hello’)") or dynamic property changes
+success across all 20 obfuscation techniques with 100%                such as window[’alert’] = function(){...}, pro-
+processing capability and correctness on a subset of BenignJS         viding attackers with powerful tools for code manipulation.
+with artificially applied obfuscation. The results maintain              Most critically, JavaScript’s loose type system provides
+semantic consistency with 93.78% Control Flow Graph                   powerful obfuscation opportunities through its automatic but
+(CFG) similarity scores and 95.84% Data Dependence                    inconsistent type conversion rules. The + operator performs
+Graph (DDG) preservation rates. In addition, our approach             string concatenation if either operand is a string ("5" + 3
+achieves a 0.8820 Halstead length reduction in code                   becomes "53"), while other operators like - always perform
+simplification evaluation on CombiBench, representing an              numeric operations ("5" - 3 results in 2). These conversion
+88.20% reduction in code complexity. This outperforms                 rules enable complex obfuscation chains where expressions
+traditional deobfuscation approaches: JS-deobfuscator [14]            like +!![] equal 1: the empty array [] is truthy [18],
+scores 0.0015, and Synchrony [13] scores 0.7889.                      !![] becomes boolean True, and + converts the boolean
+   Moreover, large-scale validation on MalJS demonstrates a           value to number 1. In contrast, !![] + [] equals "true"
+comprehensive entropy reduction, while independent LLM-               because when added to an empty array, JavaScript converts
+based readability assessment confirms an average improve-             both operands to strings for concatenation.
+ment of 466.94% across four evaluation models (Claude-                   Attackers exploit these multi-step conversions to hide simple
+3.7-Sonnet, Gemini-2.5-Pro, DeepSeek-R1, GPT-o3). JS IM -             values behind complex expressions. This enables advanced
+PLIFIER transforms unreadable obfuscated code into compre-            techniques like JSFUCK [19], which uses only six characters
+
+
+
+                                                                  2
+[]()!+ to encode arbitrary JavaScript logic. Furthermore,             packed and encoded scripts. Control flow flattening (T16)
+JavaScript treats functions as values that can be stored in           converts linear code into switch-case state machines that
+variables, passed as arguments, and created dynamically. This         execute in seemingly random order. Dead code insertion (T17)
+enables attackers to build complex control flows and use              adds non-functional code branches and unreachable statements
+string-based code execution through eval() to create layers           to increase complexity.
+of encoding that effectively hide malicious intent from static        Multi-layer Obfuscation. These techniques combine multiple
+analysis tools.                                                       obfuscation strategies from different levels to create highly
+                                                                      complex transformations. OB obfuscation (T18) implements
+B. JavaScript Obfuscation                                             commercial-grade protection by combining string arrays, con-
+   We systematically examined JavaScript obfuscation tech-            trol flow manipulation, and anti-debugging measures. LLM-
+niques through comprehensive analysis of both academic                based obfuscation (T19) leverages artificial intelligence to
+literature and practical implementations. Our investigation in-       apply multiple techniques intelligently, creating code that
+cluded 12 mainstream obfuscation tools and a literature survey        appears naturally written but is heavily obfuscated.
+on existing academic research on JavaScript obfuscation tech-
+niques [20]–[28]. Additionally, we collected and analyzed real-       C. JavaScript Obfuscation Tools
+world obfuscated JavaScript samples from malware datasets                Modern JavaScript obfuscation tools implement diverse
+(VirusTotal) and commercial obfuscators (Jscrambler [29],             techniques with varying capabilities. We analyzed twelve
+Jshaman [30]).                                                        representative obfuscation tools: MeSpl (Metasploit Frame-
+   Based on this comprehensive effort, we categorize                  work JavaScript Obfuscator) [31], JSha (JShaman) [30], JSC
+JavaScript obfuscation techniques according to the fundamen-          (JScrambler) [29], UGL (UglifyJS) [32], OBfu (Obfusca-
+tal aspects of code they modify. This taxonomy encompasses            tor.io) [33], JSV7 (jsjiami.com.v7) [34], DAFT (DAFT logic
+four main categories covering 20 distinct obfuscation tech-           Obfuscator) [35], TER (Terser) [36], FRE (FreejsObfusca-
+niques, as detailed in Appendix I.                                    tor) [37], STU (Stunnix JavaScript Obfuscator) [38], GNI
+Lexical-level Obfuscation. These techniques transform ba-             (Gnirts Obfuscator) [39], and BEA (BeautifyTools Obfusca-
+sic lexical elements while preserving underlying syntactic            tor) [40]. Table IX in Appendix A presents a comprehensive
+and semantic structure. Key techniques include identifier re-         comparison of these tools’ capabilities across all 20 obfus-
+naming (T0), which replaces meaningful variable and func-             cation techniques. The analysis reveals significant variation in
+tion names with random strings like _0x62ab7d; indirect               implementation capabilities across different tools. Commercial
+property access (T1), which converts console.log to                   tools like JSha achieve the highest technique implementation
+console[’\x6c\x6f\x67’]; arithmetization (T2), which                  rates, supporting 16 out of 20 obfuscation categories (80%),
+replaces simple numbers with complex expressions like                 but fail to handle common techniques in real-world samples
+683517 ˆ 683398 for 123; string encoding (T3), which                  like AAEncode (T8), JJEncode (T9), JSFUCK (T10) and OB
+encodes strings using Base64 or other schemes; and boolean            obfuscation (T18). However, JSha requires precise configu-
+encoding (T4), which transforms True into !![].                       ration tuning to achieve optimal results, creating usability
+Syntactic-level Obfuscation. These techniques modify struc-           barriers for practitioners. Mid-tier tools such as OBfu and JSC
+tural organization without changing fundamental logic. This           each implement 11 techniques (55%), while specialized tools
+includes assignment-to-function transformations (T6), which           like MeSpl focus on specific use cases with more limited scope
+wraps simple assignments in immediately invoked function ex-          (6 techniques, 30%).
+pressions; string reversal (T7), which stores strings backwards          This comprehensive tool analysis reveals that modern ob-
+and reconstructs them using split, reverse, and join;                 fuscation capabilities pose substantial challenges for security
+and advanced encoding methods such as AAEncode (T8),                  analysis. The widespread availability of powerful obfusca-
+which uses special Unicode characters to encode JavaScript;           tion methods enables attackers to easily access sophisticated
+JJEncode (T9), which creates complex expressions using                techniques, while the diversity of available approaches makes
+JavaScript’s type coercion; and JSFUCK (T10), which uses              it difficult to develop comprehensive countermeasures. This
+only six characters []()!+ to represent any JavaScript code,          technological asymmetry between obfuscation and deobfusca-
+such as encoding the letter "a" as (![]+[])[+!![]].                   tion capabilities motivates the need for more advanced reverse
+Semantic-level Obfuscation. These techniques fundamentally            engineering approaches.
+alter implementation logic while maintaining behavioral equiv-
+                                                                                       III. PROBLEM DEFINITION
+alence. String array techniques (T11, T12) collect all strings
+into arrays with complex decoding functions using XOR                 A. A Real-World Motivating Example
+operations. JSON encoding (T13) transforms object literals               The complexity of modern JavaScript obfuscation tech-
+into encoded strings that are decoded using XOR operations            niques create substantial challenges for security analysis that
+and parsed via JSON.parse. Regular expression encoding                existing deobfuscation tools cannot adequately address. To
+(T14) converts regex patterns into encoded character arrays           illustrate these challenges, we show a complex obfuscated wild
+that are reconstructed using new RegExp. Eval-based trans-            script (Listing 1) from the JSFireTruck campaign [16], which
+formations (T15) introduce dynamic code generation through            infected 269,552 web pages in just one month.
+
+
+
+                                                                  3
+   JSFireTruck represents a particularly sophisticated obfusca-        ness, ignoring human readability requirements essential for
+tion approach that exploits JavaScript’s type coercion system          threat intelligence workflows.
+to achieve extreme code transformation. It employs only six
+ASCII characters ([]()!+) by leveraging JavaScript’s type              B. Problem Scope
+coercion rules. For example, +[] converts empty array to                  Our research focuses on “narrow-sense obfuscation” - code
+0, while !![] converts to boolean True then to number 1.               transformations that make JavaScript difficult to understand
+The campaign combines this with String.fromCharCode                    while preserving its original functionality. This includes tech-
+functions and character array lookups, creating multi-layer ob-        niques like identifier renaming, string encoding, control flow
+fuscation that decodes character arrays, processes JSFireTruck-        flattening, and syntactic transformations that obscure code
+encoded strings, and executes malicious code.                          meaning but keep the code fully executable.
+   This sample demonstrates three critical challenges that                We exclude cryptographic protection schemes that require
+existing tools cannot address comprehensively.                         external decryption keys, as these represent fundamentally
+Challenge 1: Input Format Diversity. Existing deobfuscation            different security challenges beyond the scope of traditional
+tools show significant limitations in handling the diverse input       deobfuscation. Instead, our approach targets the most common
+formats encountered in real-world malicious samples. Tools             obfuscation techniques used in real-world malware campaigns
+like JStillery [8] and IlluminateJS [9] crash when encountering        like JSFireTruck, where the obfuscated code can be executed
+malformed syntax, mixed character encodings, or bundler-               directly in any JavaScript environment without requiring ad-
+wrapped code common in real-world samples. These tools                 ditional secrets or external resources.
+lack robust input validation and normalization capabilities,
+                                                                                                IV. D ESIGN
+failing before analysis even begins. This fundamental weak-
+ness severely limits their real-world applicability where robust          JS IMPLIFIER adopts a modular approach that systemati-
+input preprocessing is essential.                                      cally combines static AST manipulation, dynamic execution
+                                                                       monitoring, and LLM-enhanced processing. The modular de-
+var _0x4f2a = [/* large character array with                           sign enables robust input handling, comprehensive obfuscation
+    encoded strings */];                                               resolution, and human-readable output generation through a
+var _0x1b3c = String.fromCharCode(105, 102,
+    114, 97, 109, 101...);                                             unified pipeline, delivering superior deobfuscation capabilities
+var _0x2d4e = String.fromCharCode(115, 114,                            for real-world malware analysis.
+    99...);
+// 13K characters of obfuscated code follows                           A. Overview
+[][(![]+[])[+[]]+([![]]+[][[]])                                           As Figure 1 shows, JS IMPLIFIER consists of a three-
+    [+!+[]+[+[]]]+(![]+[])
+    [!+[]+!+[]]+(!![]+[])[+[]]+(!![]+[])
+                                                                       stage pipeline architecture: Preprocessor (➀), Deobfuscator
+    [!+[]+!+[]+!+[]]+(!![]+[])                                         (➁), and Humanizer (➂). Each module tackles a specific
+... // truncated for brevity                                           aspect of the deobfuscation challenge, collectively enabling
+                                                                       effective processing of heavily obfuscated code. This modular
+     Listing 1: Snippet of multi-layer obfuscated code.                design ensures robust handling of complex, multi-technique
+                                                                       obfuscation while remaining flexible for future enhancements.
+Challenge 2: Multi-Layer Obfuscation Complexity. The                   The details of each module are described below.
+JSFireTruck example demonstrates the necessity of combining            Preprocessor (➀): The preprocessor validates input code
+multiple analysis approaches to achieve comprehensive deob-            integrity and normalizes syntax through lexical, semantic, and
+fuscation. The sample combines static patterns (character ar-          structural transformations. This ensures that subsequent analy-
+rays, String.fromCharCode calls) with dynamic type co-                 sis stages receive well-formed, processable code regardless of
+ercion chains that require runtime evaluation. Static-only tools       input variations. As shown in the code transformation example
+cannot resolve expressions like +!![] → 1 through complex              in Figure 1, it handles malformed syntax and prepares the code
+coercion rules, while dynamic-only approaches struggle with            structure for analysis.
+the massive scale (269,552 samples) and security risks of              Deobfuscator (➁): The deobfuscator applies targeted deob-
+executing malicious code. Furthermore, specialized tools like          fuscation techniques using either static AST pattern matching
+unjsfuck [41] handle only the JSFUCK layer, leaving inter-             for well-understood obfuscation patterns or dynamic execu-
+mediate output like $[0] + $[1].match($[2]|$[3])                       tion tracing for complex, runtime-dependent transformations.
+that still requires further process.                                   The transformation example in Figure 1 demonstrates how
+Challenge 3: Human Analysis Integration Gap. Even when                 obfuscated constructs are systematically resolved: array-based
+tools successfully decode the obfuscation layers, the output           string encoding (_0x1 = [’msg’]; _0x2 = _0x1[0])
+commonly contains cryptic identifiers (_0x4f2a, _0x1b3c)               is simplified through static analysis to direct string assignment
+and inconsistent formatting that impedes human analysis.               (_0x2 = ’msg’).
+Analysts need semantically meaningful variable names and               Humanizer (➂): The humanizer employs LLMs to rename
+professional formatting to quickly understand malicious be-            identifiers and improve semantic clarity, transforming me-
+havior, but existing tools focus solely on functional correct-         chanically deobfuscated code into human-readable form that
+
+
+
+                                                                   4
+                                         ①Preprocessor                                                                ②Deobfuscator                                              ③Humanizer
+                       1) Code Validity Check      2) Lexical Sanitize                                                                                                                                     LLM APIs
+                                                                                             1) Static AST Analysis                    2) Dynamic Monitoring                                           GPT/Gemini/Local/etc.
+                                                                                                                                                                              1) Identifier Renaming
+   Obfuscated                                                                     a) Multi-Parser          b) Expression Eval    a) Risk Assessment b) Runtime Monitor
+   JavaScript
+                       4) Structral Refine      3) Semantic Compatibilize
+                                                                                                           c) Scope Management
+                                                                                                                                                                                                               Readable
+                                                                                                                                                                                 2) Beautification            JavaScript
+                                                                                                            3) Hybrid Analysis Coordination
+                                       5) Code Unminify
+                                                                                          a) Static->Dynamic                              b) Dynamic->Static
+                                                                                                Handoff                                       Feedback
+
+  Code Transformation Example
+  var
+                                                           var _0x1 = ['msg'];
+  _0x1=['msg'];var                                                                                                                                       var _0x2 = 'msg';                      const message = 'msg';
+  _0x2=_0x1[0];con
+                                     ①                    var _0x2 = _0x1[0];                                   ②                                       console.log('msg');
+                                                                                                                                                                                   ③            console.log('msg');
+                                                          console['log'](_0x2);
+  sole['log'](_0x2);
+
+
+
+
+                                                                                  Fig. 1: Overview of JS IMPLIFIER.
+
+
+facilitates further analysis. As illustrated in the final output in                                                Unicode escapes (e.g., \u4E2D). When UTF-8 reconstruction
+Figure 1, cryptic variable names are replaced with meaningful                                                      fails, the system preserves individual hexadecimal escapes to
+identifiers. Additionally, industry-standard formatting ensures                                                    prevent data corruption. Additionally, we extract JavaScript
+a consistent professional code presentation that enhances read-                                                    content from HTML containers to ensure consistent input
+ability and maintains compatibility with development environ-                                                      formatting across different JavaScript engines.
+ments.                                                                                                                3) Semantic Compatibilize: We replace legacy JavaScript
+B. Preprocessor                                                                                                    constructs with cross-platform equivalents to ensure compati-
+                                                                                                                   bility and strict-mode compliance. Legacy code often includes
+   The preprocessor module serves as the critical foundation
+                                                                                                                   platform-specific directives and non-standard APIs that break
+for reliable deobfuscation by ensuring that input code can be
+                                                                                                                   modern parsers.
+properly parsed and analyzed regardless of its initial state.
+                                                                                                                      Our approach handles legacy conditional compilation
+Obfuscated JavaScript often contains malformed syntax, mixed
+                                                                                                                   through pattern recognition and standardization. We identify
+encodings, and compatibility issues that can cause downstream
+                                                                                                                   conditional compilation blocks (e.g., /*@cc_on...@*/)
+analysis to fail. The preprocessor addresses these fundamental
+                                                                                                                   and transform legacy platform detection methods into cross-
+challenges through a systematic normalization pipeline.
+   1) Code Validity Check: We use Meriyah [42] to handle                                                           platform equivalents. For example, legacy @_win32 condi-
+malformed obfuscated JavaScript thanks to its strong fault                                                         tions are converted to navigator.platform checks, and
+tolerance and broad syntax support. Unlike traditional parsers                                                     @_jscript detection is replaced with feature detection us-
+that fail on broken or incomplete code, Meriyah generates                                                          ing ’ActiveXObject’ in window. The transformation
+complete ASTs even with syntax errors or problematic con-                                                          process also converts legacy conditional syntax (@if, @else,
+structs. This capability proves indispensable for processing the                                                   @end) into standard JavaScript control structures.
+diverse range of obfuscated inputs encountered in real-world                                                          We address variable declaration inconsistencies through
+scenarios where standard parsers would fail entirely.                                                              multi-phase processing. The system first identifies explicitly
+   2) Lexical Sanitize: We systematically normalize character                                                      declared variables, then detects implicit global assignments
+encodings through a two-phase transformation process that                                                          that lack proper declarations, and automatically adds ap-
+resolves encoding conflicts in obfuscated JavaScript.                                                              propriate declaration keywords (let, var) to ensure strict-
+   The first phase converts legacy octal escape sequences to                                                       mode compatibility. This prevents runtime errors in modern
+standardized hexadecimal format. This ensures parser com-                                                          JavaScript environments that enforce stricter scoping rules.
+patibility across different JavaScript engines, since octal es-                                                       For problematic delete statements that violate strict-
+capes are deprecated in strict mode and inconsistently sup-                                                        mode constraints, we implement selective removal based on
+ported [18]. We use pattern matching to identify three-digit oc-                                                   context analysis. The system identifies delete operations on
+tal patterns (e.g., \302), convert them to decimal values, and                                                     variables (rather than object properties), removes these invalid
+reformat them as hexadecimal representations (e.g., \xC2).                                                         statements while preserving surrounding syntax structure, and
+   The second phase addresses multi-byte UTF-8 character                                                           cleans up residual punctuation to maintain code validity. This
+reconstruction. Non-ASCII characters require multiple bytes                                                        ensures that legacy code can execute properly in strict-mode
+in UTF-8 encoding (e.g., Chinese characters need three bytes).                                                     environments without breaking existing program logic.
+Obfuscated code often splits these characters into separate                                                           4) Structural Refine: We resolve declaration conflicts and
+\xHH escape sequences that must be recombined for proper                                                           code structure violations through AST scope chain traver-
+decoding. Our state machine parser identifies and groups con-                                                      sal and systematic refactoring. Our implementation detects
+secutive escape sequences (e.g., \xE4\xB8\xAD) up to four                                                          variable and function redeclarations by analyzing scope hi-
+bytes. We validate hexadecimal pairs and attempt UTF-8 de-                                                         erarchies, then refactors them into strict-mode compliant
+coding to reconstruct the original characters into standardized                                                    forms while preserving semantic meaning. This optimization
+
+
+
+                                                                                                               5
+improves code maintainability and prepares it for effective            or nested destructuring like [x, [y, z]] = [arr[0],
+deobfuscation by eliminating redundant declarations and stan-          [obj.method(), computed()]].                  These     patterns
+dardizing code structure.                                              break traditional variable tracking because the assignment
+   5) Code Unminify: We integrate WebCrack [43] to han-                targets are not immediately visible. We extend
+dle modern web applications that layer multiple obfuscation            AssignmentExpression                processing     to    handle
+techniques on top of bundler-generated code. Our system                ArrayPattern destructuring by parsing the left-hand
+automatically detects bundler-specific patterns (webpack [44],         pattern structure, recursively traversing nested array patterns,
+browserify [45]) and applies specialized unpacking algorithms          mapping each element position to its corresponding right-hand
+before general deobfuscation techniques. This preprocessing            value, and creating individual variable bindings for each
+step is essential because attempting to deobfuscate webpack            destructured element while preserving the evaluation order.
+or browserify output without proper unpacking typically yields            For UnaryExpressions, obfuscators often apply
+poor results due to nested obfuscation complexity.                     typeof or negation operators to global variables in
+                                                                       conditional checks that depend on runtime environment
+C. Deobfuscator                                                        detection. Common obfuscation patterns include typeof
+   We design a dual-strategy deobfuscation engine combin-              window !== ’undefined’ && window.document
+ing enhanced static AST analysis with controlled dynamic               for     browser     detection,    !!(typeof global ===
+execution monitoring. Static analysis handles predictable ob-          ’object’ && global) for Node.js environment checks,
+fuscation patterns, while dynamic analysis captures runtime-           or         typeof navigator !== ’undefined’ &&
+generated code through sandboxed execution. This hybrid                navigator.userAgent for user agent sniffing. Static
+approach provides comprehensive support across different               evaluation of these expressions would break environment-
+obfuscation complexity levels.                                         specific code paths. We implement an excludedNames
+   1) Static AST Analysis Deobfuscation: Our static analysis           whitelist containing critical globals (window, document,
+approach introduces a comprehensive pattern recognition and            navigator, global, process) that should never be
+transformation system that systematically handles diverse ob-          statically evaluated. When processing expressions like
+fuscation techniques through enhanced AST manipulation. Un-            typeof window or !document, the system preserves
+like existing tools that focus on specific obfuscation patterns,       these expressions unchanged to maintain correct runtime
+our method provides unified handling of lexical, syntactic,            behavior across different JavaScript environments.
+and semantic-level obfuscations through enhanced expression            c) Intelligent Scope and Dependency Management. Obfus-
+evaluation, robust parser integration, and intelligent scope           cated code breaks variable resolution through indirect function
+management. We implement these capabilities starting from              calls and complex reference chains that standard scope anal-
+JStillery’s pattern recognition base:                                  ysis cannot follow. We address this through two integrated
+a) Multi-Parser for Robust AST Construction. We imple-                 mechanisms: dependency tracking for indirect function calls
+ment a fault-tolerant parsing system that integrates multiple          and enhanced scope chain management for variable resolution.
+JavaScript parsers (Esprima [46], Acorn [47], Babel [48])                 Our functionneed mechanism records dependency re-
+with automatic fallback mechanisms. When primary parsers               lationships when encountering calls where the callee is
+encounter syntax errors or malformed code structures common            determined by variable lookup or property access (e.g.,
+in obfuscated JavaScript, the system automatically switches to         obj[funcName](args)), ensuring proper resolution be-
+alternative parsers with different error tolerance levels. This        fore evaluation. Meanwhile, our scope traversal algorithm
+layered approach ensures successful AST construction even              maintains a scope chain that tracks variable bindings across
+with heavily mangled input code.                                       function boundaries, preserving parent scope access while
+b) Enhanced Expression Evaluation Engine. We re-                       handling variable shadowing to prevent incorrect substitution
+design the expression evaluation component to han-                     that could change program semantics.
+dle sophisticated obfuscation constructs. Specifically, for               2) Dynamic Monitoring Execution Deobfuscation: For ob-
+LogicalExpressions, obfuscators frequently use nested                  fuscation techniques that resist static analysis, we implement
+&& and || chains to hide control flow logic. Our evaluation            a controlled execution monitoring system that safely captures
+engine implements proper short-circuit evaluation that pro-            runtime behavior while maintaining security isolation, inspired
+cesses these operators left-to-right, stopping evaluation when         by dynamic malware analysis approaches [49]. Our approach
+the result is determined (e.g., False && anything always               operates through two integrated phases: pre-execution risk
+returns False). This enables us to resolve complex boolean             assessment and controlled runtime monitoring.
+chains like a && b && c || d into their actual boolean                 a) Pre-Execution Risk Assessment. Before attempting dy-
+values during static analysis.                                         namic execution, we analyze code patterns to identify potential
+   Moreover, modern obfuscators exploit ES6 destructuring              execution hazards. The safety guard system scans for danger-
+assignments to obscure variable bindings. For example, instead         ous keyword combinations (push, shift, eval, await)
+of simple assignments like var a = 1; var b = 2;,                      that indicate complex nested obfuscation schemes prone to
+obfuscators generate complex patterns such as [a, b, c]                infinite loops or recursive execution deadlocks. This pattern-
+= [getValue(), obj.prop, func.call(this)]                              based risk assessment determines whether code segments can
+
+
+
+                                                                   6
+be safely executed or require alternative handling strategies.             The system maintains AST structural integrity through
+   We enhance risk assessment by mapping function depen-                 careful node replacement that preserves surrounding syntactic
+dencies to trace calls between obfuscated functions. This                context and control flow relationships. Additionally, the system
+identifies critical functions needing dynamic resolution and             updates variable bindings in the scope chain, replaces complex
+their relationships, enabling understanding of execution flows           expressions with their resolved literal values, and triggers re-
+and prioritizing order to avoid circular dependencies.                   analysis of dependent code sections that may now be statically
+b) Controlled Runtime Monitoring. We use Node.js                         evaluable with the new information.
+vm.runInNewContext to create isolated execution con-
+texts. Each obfuscated code segment runs in a separate sand-             D. Humanizer
+boxed VM instance with no access to the file system, network,               While the Deobfuscator successfully restores program logic
+or global objects. The environment exposes only essential                and control flow, the resulting code often retains cryptic
+built-in objects while blocking dangerous APIs like require              identifiers and inconsistent formatting that impede human
+and process.                                                             analysis. To address this limitation, we implement a post-
+   We execute obfuscated code segments in the isolated envi-             processing pipeline that transforms mechanically correct but
+ronment and capture their final execution results. The sandbox           unreadable code into professionally formatted, semantically
+execution allows us to safely evaluate expressions that can-             clear representations suitable for security analysis and reverse
+not be statically analyzed, such as dynamically constructed              engineering workflows.
+strings or runtime-dependent calculations. For example, when                1) Identifier Renaming: We integrate LLM capabilities
+processing string array deobfuscation, we execute the array              for intelligent variable and function renaming that replaces
+construction and access operations to obtain the actual string           meaningless obfuscated identifiers with semantically mean-
+values. We implement comprehensive security mechanisms                   ingful names. Our implementation leverages the core AST-
+including execution timeouts to prevent hanging processes,               based renaming approach from HumanifyJS [50], adapting
+recursion depth limits to prevent infinite loops, and memory             it with multi-provider LLM support and optimized context
+monitoring to prevent resource exhaustion attacks. When run-             management for deobfuscation workflows.
+time execution encounters unresolved references, the system                 2) Beautification: We integrate Prettier [51] formatting
+consults static scope analysis results to inject appropriate vari-       capabilities to ensure deobfuscated output meets professional
+able definitions. Our system primarily executes limited-scope            development standards. The formatting pipeline applies con-
+code patterns (pure function calls, IIFE executions, object              sistent indentation schemes, standardized bracket placement,
+method calls) to minimize exposure to malicious operations,              normalized quote usage, and appropriate semicolon handling
+though we recommend additional isolation for production                  according to established JavaScript coding conventions. This
+environments.                                                            transformation ensures that the final output integrates seam-
+   3) Hybrid Analysis Coordination: We implement coordi-                 lessly with development workflows and maintains compatibil-
+nation mechanisms to integrate static and dynamic analysis               ity with standard code analysis tools used in security research
+results through bidirectional information flow.                          environments.
+a) Static-to-Dynamic Handoff. When static analysis encoun-
+                                                                                                 V. E VALUATION
+ters expressions that cannot be safely evaluated, JS IMPLI -
+FIER ’s canbetransformed marking mechanism identifies                       Our evaluation encompasses eight complementary assess-
+these expressions and packages their context information for             ment dimensions to comprehensively measure deobfuscation
+dynamic execution. CallExpression requiring dynamic                      performance, covering deobfuscation capability, result cor-
+resolution typically involves: (1) function calls where the              rectness, semantic consistency, code simplification, ablation
+callee is determined by variable lookup or property access               study, large-scale effectiveness and performance, LLM-based
+(e.g., objfuncName), (2) calls to functions that perform                 realiability and readability validation and user study.
+runtime code generation or string manipulation that affects              A. Dataset
+program structure, and (3) calls that depend on runtime state or
+external context not available during static analysis. The sys-             Our evaluation employs three complementary datasets to
+tem transfers the CallExpression context, scope informa-                 comprehensively assess deobfuscation performance across dif-
+tion, and dependency relationships to the dynamic execution              ferent threat scenarios: two datasets (MalJS, BenignJS) curated
+monitor, providing necessary context for safe runtime analysis.          by us and one dataset (CombiBench) from JsDeobsBench [15].
+b) Dynamic-to-Static Feedback Integration. Dynamic exe-                  Table I provides an overview of the datasets.
+cution results are validated and integrated back into the static                       TABLE I: Evaluation datasets overview.
+AST through type-aware processing that maintains semantic
+correctness. Simple data types (strings, numbers, booleans)                  Dataset         # Sample     Avg. Size   Source
+are directly converted to literal AST nodes, while function                  MalJS              23,212   391.78 KB    A corporate partner
+results are parsed back into proper FunctionExpression                       BenignJS           21,209    41.40 KB    GitHub + Web
+nodes. Complex objects undergo JSON serialization before                     CombiBench          1,296     8.06 KB    JsDeobsBench
+integration to ensure safe representation in the AST structure.
+
+
+
+                                                                     7
+   1) Obfuscation Scoring and Sample Selection.: To ensure               v1.1.1548 for code property graph generation with Neo4j
+dataset’s quality, we implemented a rigorous preprocessing               4.4.12 (8 GB heap allocation). Additional software included
+pipeline. Inspired by previous work [52], we applied obfus-              custom JavaScript parsers built on Esprima v4.0.1 for AST
+cation scoring methodology to quantify obfuscation levels                manipulation.
+in our dataset. Following the four-category classification in               For deobfuscated capability evaluation, we applied each
+Section II-B, we assign scores of 1, 2, 3, and 4 points to               of the 20 obfuscation techniques from our categorization
+lexical-level, syntactic-level, semantic-level, and multi-layer          (T0-T19) to the test code, generating 20 distinct obfuscated
+obfuscation techniques respectively, with each technique type            versions. These obfuscated samples were then processed by:
+contributing only once per script.                                          • Ten    state-of-the-art deobfuscation tools: JSNice
+   2) Malicious JavaScript Dataset (MalJS): We collected                      (JSN) [10], Dev-coco (DEV) [55], JStillery (JST) [8],
+10,664,628 wild malicious JavaScript samples from July 3,                     illuminateJS (ILL) [9], JS-Deob (JSD) [56],
+2019 to July 9, 2025 with the help of a leading cybersecurity                 JSbeautifier.org (JSB) [12], synchrony (SYN) [13],
+company. We first utilized the Meriyah JavaScript parser                      JSDE (JSDec) [57], JS-deobfuscator (SDS) [14], and
+for syntax validation, filtering out corrupted files and non-                 JSIMPO (JSI) [58]
+JavaScript content. This step retained 8,451,998 syntax-valid               • Three LLM-based solutions: GPT-o1 (GPT), Gemini-2.0-
+samples. To address highly similar samples within malware                     Flash (GEM), and DeepSeek-R1 (DSR)
+families, we performed content-based deduplication by nor-                  • Our tool: JS IMPLIFIER
+malizing scripts (replacing all string literals with placeholders,          For LLM integration, we utilized multiple state-of-the-
+removing whitespace and newlines) and removing samples                   art models via a unified API service: GPT-o3, DeepSeek-
+with identical normalized content, resulting in 4,470,565                R1, Gemini 2.5 Pro, and Claude 3.7 Sonnet. Model-specific
+unique samples. The dataset shows diverse obfuscation com-               configurations included temperature settings of 0.7 for GPT-o3
+plexity with samples using 0-16 techniques (average 8.32).               and 0.3 for other models, with maximum token limits set to
+For representative evaluation, we selected samples across the            4,000 across all models. API requests were implemented using
+full complexity spectrum (scores 0-35): 700 samples each                 asynchronous processing with aiohttp [59] for efficiency, in-
+for scores 1-33, and all available samples for the highest               corporating exponential backoff retry mechanisms and proper
+complexity levels (3 and 109 samples for score 34 and 35                 error handling to ensure robust and reproducible results.
+respectively), totaling 23,212 samples.
+   3) Benign JavaScript Dataset (BenignJS): This dataset                 C. Deobfuscation Capability
+contains 21,209 benign samples from two sources. First, we                  To evaluate the deobfuscation capabilities of existing tools,
+retained 19,209 samples sampled from the Top 1K popular                  we conducted extensive experiments using the categorized ob-
+websites from Tranco [53] with obfuscation scores ≥1. Sec-               fuscation techniques. We selected a representative JavaScript
+ond, we curated 2,000 clean samples verified to be unobfus-              code snippet (in Appendix I) and applied all 20 obfuscation
+cated. These include 1,000 samples from popular open-source              techniques individually to generate test cases. This code
+JavaScript projects on GitHub (trending repositories with over           snippet encompasses various JavaScript constructs includ-
+3,000 stars) collected between April 15 and May 1, 2025, and             ing function declarations, variable assignments, string oper-
+1,000 from PublicWWW [54] crawling of legitimate websites.               ations, arithmetic expressions, boolean logic, and conditional
+All clean samples were manually checked for absence of                   statements, making it suitable for testing different obfusca-
+obfuscation. For evaluation in Sections V-D and V-E, we                  tion techniques. Additionally, we developed comprehensive
+apply systematic obfuscation to these clean samples across               demonstration examples for each obfuscation technique to
+four categories (500 samples each). Each sample is obfuscated            ensure thorough evaluation. The prompt used for LLM-based
+using randomly selected techniques from its category, with               deobfuscation is provided in Appendix C-A.
+at least one and up to all available techniques applied, then            Results. Table II presents the key comparison results for
+processed through JS IMPLIFIER’s three-stage pipeline.                   all evaluated tools. Our analysis reveals significant variations
+   4) Benchmark Evaluation Dataset (CombiBench): To en-                  in deobfuscation capabilities across different tool categories
+sure a fair comparison with existing deobfuscation meth-                 and obfuscation techniques, with multi-layered techniques like
+ods, we also evaluate our approach on the JsDeObsBench                   LLM obfuscation and commercial OB tools posing the greatest
+benchmark, which is an evaluation framework specifically                 challenges for existing deobfuscation solutions.
+designed for JavaScript deobfuscation research. We use the                  Traditional tools demonstrate fundamental limitations across
+complex combination obfuscation subset, termed CombiBench,               obfuscation categories. Tools like JSN and DEV struggle with
+containing 1,296 samples that combine multiple obfuscation               lexical transformations(T0) and fail on advanced syntactic
+techniques from different categories to represent the most               transformations like expression-to-function conversion. More
+challenging evaluation scenarios.                                        sophisticated tools (JST, ILL) handle syntactic techniques
+                                                                         moderately but face challenges with semantic-level obfusca-
+B. Experimental Setup                                                    tion. JSI shows specialized but limited capabilities, reliably
+  Complete experimental configurations and software depen-               handling control-flow flattening (T16) and OB obfuscation
+dencies are detailed in Appendix J. We employed Joern                    (T18) but failing on most other techniques due to strict
+
+
+
+                                                                     8
+                       TABLE II: Comprehensive comparison of deobfuscation capability of different tools.
+    Type            Method             JSN       DEV     JST     ILL     JSD       JSB       SYN     JSDec SDS           JSI       GEM       GPT     DSR     Ours
+                    T0:Rename                                                                                                      ✓         ✓       ✓       ✓
+                    T1:Indirect        ✓         ✓       ✓       ✓       ✓                   ✓       ✓         ✓                   ✓         ✓       ✓       ✓
+    Lexical         T2:Arithmetize               ✓       ✓       ✓                                                                 ✓         ✓       ◦       ✓
+                    T3:StringEncode    ✓         ✓       ✓       ✓       ✓         ✓         ✓       ✓         ✓                   ✓         ✓       ✓       ✓
+                    T4:BooleanEncode             ✓       ✓       ✓       ✓                   ✓       ✓         ✓                   ✓         ✓       ✓       ✓
+                    T5:Expr2Function                     ✓       ✓                                                       ◦         ✓         ✓       ✓       ✓
+    Syntactic       T6:Assign2Function                   ✓       ✓                                   ✓         ✓         ◦         ✓         ✓       ✓       ✓
+                    T7:Reverse                                   ✓                                             ✓                   ✓         ✓       ✓       ✓
+                    T8:AAEncode                          ✓       ✓                                                                 ◦         ◦               ✓
+                    T9:JJEncode                                                                                                    ◦                 ◦       ✓
+                    T10:JSFUCK                                                                                                     ◦                 ◦       ✓
+                    T11:Arrayize       ◦         ◦               ✓                 ◦                           ✓                             ✓       ✓       ✓
+                    T12:StrArrEncode             ✓       ◦       ✓                                             ✓         ◦                   ✓       ✓       ✓
+                    T13:JSONEncode                       ◦                                                               ◦                   ✓       ◦       ✓
+    Semantic        T14:RegexpEncode                     ◦                                                               ◦                   ✓       ✓       ✓
+                    T15:Eval                     ✓       ◦       ◦                                   ✓                   ◦         ✓         ✓       ✓       ✓
+                    T16:Flattern       ◦         ✓       ◦       ◦       ✓                                               ✓         ✓         ✓       ✓       ✓
+                    T17:Insert         ◦                 ◦                                           ✓         ◦                                             ✓
+    Multi-Layered   T18:OB                                                                           ◦         ◦         ✓         ◦         ◦       ◦       ✓
+                    T19:LLM            ◦         ◦       ✓       ✓       ◦         ◦         ◦       ✓                             ✓         ✓       ✓       ✓
+      Note: ✓ = fully successful, ◦ = partially successful, blank = fully unsupported.
+
+
+
+pattern matching requirements. Exotic encoding techniques                        Results. Table III presents the correctness evaluation results
+(T8, T9, T10) and advanced semantic transformations like                         across 400 samples (100 BenignJS + 300 MalJS) for de-
+JSON encoding (T13) challenge traditional tools due to limited                   tailed tool comparison. JS IMPLIFIER achieved 100% syntactic
+semantic analysis capabilities. Insertion technique (T17) and                    correctness across both BenignJS and MalJS datasets, with
+OB obfuscation (T18) represent the most difficult categories,                    zero parsing errors confirmed through manual verification.
+with most existing tools showing complete failure.                               Traditional tools showed different results: SDS processed 304
+   LLM-based solutions show superior performance compared                        samples with full correctness, while JST and ILL processed
+to traditional tools. GPT excels most lexical and syntactic                      fewer samples (220 and 164) but maintained high accuracy.
+techniques while showing strong capabilities in semantic trans-                  LLM-based methods had mixed performance: GEM processed
+formations. However, even these advanced approaches struggle                     396 samples but only 180 were correct, while GPT and DSR
+with the most sophisticated obfuscation methods.                                 processed 212 and 160 samples respectively.
+   In contrast, JS IMPLIFIER achieves success across all 20                         Manual verification of syntactically valid outputs confirmed
+obfuscation techniques, including the most challenging T17                       JS IMPLIFIER’s 100% result correctness across both datasets.
+(insertion) and T18 (OB) techniques. This comprehensive                          Traditional tools maintained high accuracy on successfully
+evaluation highlights the significant limitations of existing                    processed samples: SDS achieved 100% (76/76), ILL main-
+deobfuscation approaches and demonstrates the need for so-                       tained 100% (41/41), and JST reached 85.45% (47/55). LLM-
+lutions capable of handling modern obfuscation complexity.                       based approaches showed lower performance: DSR obtained
+D. Result Correctness                                                            87.50% (35/40), GPT achieved 66.04% (35/53), and GEM
+                                                                                 reached 45.45% (45/99).
+   We evaluate result correctness by assessing whether deob-
+fuscated code maintains syntactic validity with the original                      TABLE III: Correctness and consistency evaluation results.
+code. We conduct automated parser validation on all BenignJS
+and MalJS samples, and manual verification on 100 BenignJS                         Metrics               JST       ILL       SDS       GPT       GEM DSR         Ours
+and 300 MalJS samples for real-world effectiveness validation.                     #Deob (/400)          220       164       304       212       396     160     400
+                                                                                   #Correct(/400)        188       164       304       140       180     140     400
+Based on their deobfuscation capability (Section V-C), we                          #Consist (/100)       26        20        40        26        25      19      83
+selected six best-performing methods for comparison: JST,                          CFG Sim. (%)          58.06     74.95     67.04     58.35     76.75   92.75   93.78
+ILL, SDS, GPT, GEM, and DSR.                                                       DDG Pres. (%)         59.00     79.20     63.52     55.50     78.50   89.50   95.84
+   Manual verification involves: (1) reviewing parser error
+messages to categorize failure types (e.g., missing brackets,
+invalid identifiers); (2) examining deobfuscated code structure                  E. Semantic Consistency
+to identify syntactic malformations that may not trigger parser                     We verify that deobfuscated code maintains identical run-
+errors; (3) validating ECMAScript compliance. Tools that                         time behavior and logical flow compared to original samples
+fail to process samples or simply output the input content                       using automated graph-based analysis with manual verifi-
+with minor formatting changes are considered unsuccessful.                       cation. Specifically, Joern generates CFGs and DDGs for
+Samples pass only when both automated parser validation and                      structural comparison. The evaluation employs a two-tier ap-
+manual verification succeed.                                                     proach: for graphs with ≤40 nodes, the Maximum Common
+
+
+
+                                                                             9
+Subgraph (MCS) algorithm computes similarity as the ratio                complexity reduction. We also evaluate Halstead Effort Re-
+of MCS size to maximum node count. For larger graphs                     duction (HER) score, which measures the reduction in mental
+(>40 nodes), fast approximation based on node/edge count                 effort required to understand code. The evaluation uses the
+differences avoids exponential complexity. When similarity               CombiBench dataset, comparing against SDS and SYN as the
+scores fall below 75%, we conduct manual analysis. Samples               primary baseline tools evaluated in the JsDeObsBench.
+are marked consistent only when manual verification confirms             Results. Table IV presents the complexity reduction scores
+preserved program behaviors.                                             following the JsDeObsBench evaluation setup. We achieved
+Results. Table III presents the semantic consistency evaluation          an HLR score of 0.8820 and HER of 0.9291, demonstrat-
+results. JS IMPLIFIER achieved 83% semantic consistency (83              ing substantial complexity reduction capabilities. SDS [14]
+out of 100 samples), outperforming GPT (74.29%, 26/35                    achieved minimal simplification with HLR and HER score
+samples) and JST (55.32%, 26/47 samples). Additionally,                  of only 0.0015 and 0.1174. While SYN [13] showed better
+structural analysis shows JS IMPLIFIER maintains superior                performance with HLR and HER score of 0.7889 and 0.8736,
+code fidelity with 93.78% CFG similarity and 95.84% DDG                  it can only handle specific obfuscation combinations and
+preservation, compared to GPT’s 58.35% and 55.50%.                       lacks generalization to diverse real-world obfuscation patterns.
+   To verify this high consistency rate, we applied a manual             Our results demonstrate that JS IMPLIFIER achieves substantial
+verification process with specific criteria. For the 83 con-             complexity reduction, confirming our method’s effectiveness
+sistent samples, we confirmed: (1) Identical execution paths             in transforming obfuscated code into obvious forms.
+with conditional branches, loops, and function calls following             TABLE IV: Results of HLR and HER score comparison.
+the same logical sequence; (2) Preserved variable relation-
+ships including assignments, scoping, and data dependen-                                   Tool            HLR Score   HER Score
+cies; (3) Equivalent API usage maintaining identical param-                            JS IMPLIFIER         0.8820      0.9291
+eters and invocation order, allowing syntactic variations like                       synchrony (SYN)        0.7889      0.8736
+obj["prop"] vs obj.prop; (4) Consistent computational                              JS-deobfuscator (SDS)    0.0015      0.1174
+results. Appendix B shows a representative consistent sample1
+demonstrating preserved control flow and data dependencies.              G. Ablation Study
+Failure Analysis. To address the 17% semantic inconsistency                 To quantify each module’s contribution, we evaluated four
+cases, we conducted failure analysis. For the 17 inconsistent            configurations on 1,000 randomly selected MalJS samples
+samples, our analysis revealed: (1) Altered control flow (8              (1KB to 5.49MB, average 82.23KB): (1) Preprocessor only, (2)
+samples): missing or additional conditional branches, modi-              Preprocessor + Static Analysis, (3) Preprocessor + Deobfusca-
+fied loop conditions, or changed function call sequences; (2)            tor (Static + Dynamic), and (4) Full system (with Humanizer).
+Broken variable dependencies (6 samples): incorrect variable             Results. Table V shows the ablation results. Processing times
+scoping, missing assignments, or spurious data relationships;            remain similar across most configurations (9.16-9.26 seconds)
+(3) Modified API behavior (4 samples): changed function                  due to fixed-cost operations like file I/O and AST parsing.
+parameters, altered invocation order, or missing critical API            The incremental overhead from static and dynamic modules
+calls; (4) Computational discrepancies (3 samples): different            is relatively small since most samples do not trigger com-
+mathematical results, incorrect string operations, or modified           plex obfuscation-specific processing. The full system requires
+logical outcomes. Some samples exhibited multiple inconsis-              87.31 seconds due to LLM API latency but achieves optimal
+tency types, with 4 samples showing overlapping issues. The              deobfuscation quality.
+primary cause stems from LLM-based variable renaming in-                    Table VI presents detailed deobfuscation capability break-
+troducing semantic errors. When the LLM performs automatic               down across all 20 obfuscation techniques. The Preprocessor
+variable renaming, it may inadequately analyze dynamic vari-             handles 0/20 techniques (syntactic normalization only). Static
+able assignments and scoping, leading to undefined variables             analysis enables 14/20 techniques. The combined Preprocessor
+that break the original call chains and functionality. A detailed        + Deobfuscator (static + dynamic) handles 19/20 techniques,
+failure case is provided in Appendix H.                                  missing only identifier renaming. The full system achieves
+                                                                         complete 20/20 coverage.
+F. Code Simplification                                                      For code simplification, we measured Halstead Length Re-
+                                                                         duction (HLR) on real-world samples. Static analysis achieves
+   As in previous work [15], we adopt the Halstead length [60]
+                                                                         3.52% HLR. The combined static+dynamic approach achieves
+to measure code complexity and the Halstead Length Reduc-
+                                                                         3.40% HLR (slightly lower due to additional code introduced
+tion (HLR) score to evaluate the effectiveness of deobfus-
+                                                                         during dynamic analysis). The full system achieves 5.66%
+cation tools. The HLR score is calculated as (HLoCobf −
+                                                                         HLR, significantly lower than the 88.20% achieved on Com-
+HLoCdeobf )/HLoCobf , where higher values indicate greater
+                                                                         biBench (Section V-F) due to real-world complexity.
+complexity reduction. According to the definition, the HLR
+score ranges from 0 to 1, where higher values indicate greater           H. Large-Scale Effectiveness and Performance
+                                                                           To validate practical code simplification effectiveness and
+  1 MD5: 000c5123cd553d14cd49d22022fcc9c5                                processing efficiency, we conducted large-scale evaluation
+
+
+
+                                                                    10
+ TABLE V: Ablation study showing module contributions.                                           (a) Malicious JavaScript Dataset                            (b) Benign JavaScript Dataset
+                                                                                      35                                                         35                   AST Entropy    Code Text Entropy
+         Configuration   Avg. Time (s)     Techniques     HLR (%)                     30                                                         30
+         Preprocessor         9.26             0/20            0.00                   25                                                         25
+         + Static             9.16            14/20            3.52
+
+
+                                                                          Entropy Value                                              Entropy Value
+         + Dynamic            9.23            19/20            3.40                   20                                                         20
+         + LLM                87.31           20/20            5.66
+                                                                                      15                                                         15
+
+                                                                                      10                                                         10
+TABLE VI: Deobfuscation capability by module configuration.
+                                                                                          5                                                          5
+ Technique      Prep           +Static         +Dynamic          +LLM                     0                                                          0
+ T0                                                              ✓∗                           Obfuscated   ILL      JST    OURTOOL                       Obfuscated    ILL          JST      OURTOOL
+                                                                                                             Methods                                                      Methods
+ T1-T8                         ✓               ✓                 ✓
+ T9-T10                                        ✓∗                ✓             Fig. 2: Entropy reduction across (a) MalJS and (b) BenignJS.
+ T11-T14                       ✓               ✓                 ✓
+ T15-T16                                       ✓∗                ✓                TABLE VII: Performance comparison across MalJS dataset.
+ T17                           ✓               ✓                 ✓
+ T18                                           ✓∗                ✓                            Tool               Success     Time (s)                     Memory (MB)               Max File
+ T19                           ✓               ✓                 ✓
+                                                                                              JST                45.67%        22.69                           +0.0056              17.51MB
+ Total          0/20           14/20           19/20             20/20                        ILL                19.06%         6.26                           +0.3130               7.58KB
+ * indicates newly enabled capability in this configuration.                                  JS IMPLIFIER        100%         83.17                           +0.1034              29.58MB
+
+
+
+on MalJS (23,212 samples) and BenignJS (21,209 samples)                        I. LLM-based Realiability and Readability
+datasets. We performed full-scale entropy analysis on both                        To evaluate practical effectiveness, we assess code readabil-
+datasets to assess effectiveness, and comprehensive perfor-                    ity improvement and processing reliability through LLM-based
+mance evaluation on the complete MalJS dataset.                                evaluation, avoiding human assessment subjectivity. For read-
+   We employed two complementary entropy metrics to quan-                      ability assessment, we selected 60 sample pairs from MalJS for
+tify deobfuscation quality: Code Text Entropy measures textual                 cross-model validation using Claude 3.7 Sonnet, Gemini 2.5
+randomness through character and word frequency analysis,                      Pro, DeepSeek-R1, and GPT-o3. Each LLM scored obfuscated
+while AST Entropy evaluates structural complexity using                        and deobfuscated code pairs on a 0-10 readability scale using
+node types, connectivity, depth, and edge relationships. We                    customized prompts (Appendix C-B). For reliability analysis,
+selected JST and ILL as comparison baselines due to their                      we selected 100 samples from Section V-G for identifier
+deobfuscation capabilities and batch processing support. For                   renaming using GPT-4o-mini.
+fair comparison, we measured only JS IMPLIFIER’s Prepro-                       Readability Results. Table VIII shows substantial readabil-
+cessor and Deobfuscator, excluding the Humanizer. Detailed                     ity improvement across all evaluators. JS IMPLIFIER achieves
+formulations are provided in Appendix E.                                       466.94% average improvement, transforming unreadable ob-
+Effectiveness Results. JS IMPLIFIER successfully processed                     fuscated code (scores 1.02-1.81) into comprehensible versions
+all 44,421 samples (100%), while JST processed 30,188                          (scores 6.21-7.83). Cross-model consistency validates im-
+samples (67.9%) and ILL handled 14,140 samples (31.8%).                        provement objectivity. Deobfuscated scores around 6-8 points
+This comprehensive coverage is essential for practical malware                 indicate practical readability for security analysis, corroborat-
+analysis. Figure 2 shows JS IMPLIFIER achieved the lowest                      ing HLR score 0.8820. Consistent improvements across sam-
+median entropy values for both AST structure and code                          ples support entropy reduction findings (detailed visualization
+text across both datasets. The consistent reduction patterns                   in Appendix F).
+between malicious and benign samples confirm our approach
+generalizes well beyond malware-specific obfuscation. The                      TABLE VIII: LLM-based readability assessment validating
+dual entropy reduction aligns with our HLR scores, confirming                  complexity reduction.
+comprehensive deobfuscation capability.
+                                                                                          Model                     Original                         Deobfuscated               Improvement
+Performance Results. Table VII presents performance met-
+rics showing JS IMPLIFIER’s 100% success rate versus JST’s                                Claude 3.7 Sonnet         1.46                             7.12                       +387.67%
+                                                                                          Gemini 2.5 Pro            1.02                             7.33                       +618.63%
+45.67% and ILL’s 19.06%, with processing times of 83.17                                   DeepSeek-R1               1.09                             7.83                       +618.35%
+seconds that are acceptable for malware analysis scenarios.                               GPT-o3                    1.81                             6.21                       +243.09%
+JS IMPLIFIER maintains consistent performance across all file
+sizes including very large files (>10M B) with moderate                        Realiability Results. The 100-sample GPT-4o-mini evalua-
+memory consumption (0.1034 MB average increment). In con-                      tion generated 20,897 API calls consuming 6,446,654 tokens,
+trast, JST exhibits low memory usage (0.0056 MB) but poor                      costing $1.04 total with 10.96 hours processing time. Average
+success rate, while ILL’s fixed allocation (0.3130 MB) limits                  per-sample cost was $0.0104 with 6.6 minutes processing time.
+capability to 7.58KB maximum file size, causing baseline tools                 Long-tail distribution showed median cost $0.0003 and median
+to frequently timeout on complex samples.                                      time 10.7 seconds. Samples ranged from 250 bytes to 2.44 MB
+
+
+
+                                                                         11
+(average 80 KB, median 8 KB). Manual inspection revealed                 The tool transforms thousands of characters of JSFireTruck-
+a 12% hallucination rate, defined as identifier renaming devi-           encoded expressions into clear, readable code that directly
+ating from ground truth expectations. Cases involved overly              exposes malicious behavior, such as referrer-based victim
+verbose naming (e.g., i to iterationController) re-                      filtering, iframe injection with CSS manipulation, and evidence
+flecting over-interpretation. The remaining 88% demonstrated             removal. Security analysts can quickly understand attack intent
+reliable renaming.                                                       without manual deobfuscation, demonstrating JS IMPLIFIER’s
+                                                                         practical value for real-world security analysis.
+J. User Study
+                                                                         if (document.referrer.match(/google|bing|yahoo
+   To complement objective LLM-based assessment with hu-                     |duckduckgo/)) {
+man validation of real-world usability, we conducted a user              var maliciousIframe = ’<iframe src="’ +
+study with 9 participants across three expertise levels: novice              maliciousUrl +
+(3 participants: undergraduates and developers), intermediate            ’" style="z-index:30000;width:100%;height
+                                                                             :100%;’ +
+(3 participants: graduate students and CTF players), and expert          ’position:absolute;top:0;left:0;"></iframe>’;
+(3 participants: security researchers and analysts). Each par-           document.getElementById(randomId).innerHTML =
+ticipant analyzed 6 obfuscated JavaScript samples under three                maliciousIframe;
+conditions: Original (raw obfuscated), Traditional (processed            }
+by JST), and JS IMPLIFIER. The samples were balanced across              document.currentScript.remove();
+complexity levels and malicious behavior types using a Latin             Listing 2: JS IMPLIFIER’s deobfuscated output revealing
+square design [61] to control for learning effects and individual        malicious intent.
+differences. Participants completed standardized analysis tasks
+(functionality identification, variable recognition, execution           B. Anti-Analysis Technique Handling
+flow ordering, threat classification, IOC extraction) and pro-              Beyond traditional obfuscation, malicious JavaScript em-
+vided subjective evaluations on 5-point Likert scales [62] for           ploys anti-analysis techniques to evade detection. JS IMPLIFIER
+readability, clarity, logicality, difficulty, and confidence. The        handles these through static analysis and dynamic execution.
+complete questionnaire is provided in Appendix G.                        Time Bombs. JS IMPLIFIER combines static analysis for time-
+Results. Table X (Appendix G) shows JS IMPLIFIER consis-                 based logic simplification with controlled dynamic execution.
+tently improved analysis accuracy across all groups. Novices             Listing 4 (Appendix D) shows time bomb handling where
+gained the most (+12.7%). Analysis time decreased substan-               time-based conditions are exposed through static simplifi-
+tially, especially for intermediates (-47.7%). Subjective ratings        cation, allowing analysts to identify activation timestamps
+for readability, clarity, and logicality showed marked improve-          (January 1, 2022 in this example) and assess threat timelines
+ments, often doubling compared to Original. Higher difficulty            without triggering malicious payloads.
+and confidence scores indicate JS IMPLIFIER improved code                Environmental Probes. JS IMPLIFIER handles environment
+analyzability and boosted analysts’ confidence. Participant              detection through browser API simulation and controlled
+feedback on a heavily obfuscated jQuery UI sample2 illustrates           sandbox execution. Our approach provides DOM-like stubs
+practical impact. One intermediate participant noted: The vari-          (document, window, navigator) and whitelists essential
+able renaming made it possible to follow the logic flow, and             browser APIs (btoa, atob, setTimeout) as safe globals,
+I could identify the suspicious network calls within minutes             preventing ReferenceError exceptions while ensuring en-
+instead of struggling for the entire session. This aligns with           vironment checks receive plausible responses without expos-
+quantitative results showing 50% analysis time reduction and             ing the host system. This allows deobfuscation to complete
+substantial readability improvements.                                    and expose evasion logic for analyst review.
+                       VI. D ISCUSSION                                   C. Implications for LLM-based Deobfuscation
+A. JS IMPLIFIER in Security Analysis Workflows                              Our results have important implications for LLM-based
+   To further demonstrate JS IMPLIFIER’s practical value, we             approaches in deobfuscation workflows. While JsDeObsBench
+evaluated its performance on the JSFireTruck campaign sam-               demonstrated potential of pure LLM approaches for code sim-
+ple that motivated this research (Listing 1 in Section III-A).           plification and readability improvement, it revealed significant
+This case study reveals how JS IMPLIFIER addresses real-world            reliability concerns, context window constraints, unpredictable
+challenges that existing tools cannot handle.                            failure modes, and high computational costs that limit practical
+   As shown in Listing 2, JS IMPLIFIER successfully deobfus-             deployment. Our hybrid approach validates the complementary
+cates the complete multi-layer obfuscation chain that defeats            nature of traditional and LLM-based methods by utilizing
+existing tools. While specialized tools like unjsfuck only han-          static AST analysis and dynamic execution for core deobfus-
+dle the basic layer, leaving intermediate output such as $[0]            cation tasks while leveraging LLM capabilities for readable
++ $[1].match($[2]|$[3]) requiring manual analysis,                       output generation. This targeted integration achieves both
+JS IMPLIFIER processes all obfuscation layers automatically.             traditional method reliability and LLM readability improve-
+                                                                         ments (466.94% average improvement with 88% processing
+  2 Sample MD5: 365df2394d7f7cf6ebdc7dfac6d2b3e6                         reliability at $0.0104 per sample).
+
+
+
+                                                                    12
+D. Limitations                                                           with Seq2Seq models. Eval obfuscation receives targeted so-
+   While JS IMPLIFIER shows a significant advancement in                 lutions from Arceri [66] through abstract interpretation and
+JavaScript deobfuscation capabilities, some limitations remain.          JSDES [67] via dynamic stubbing. Multi-technique approaches
+Compatibility Constraints. To support older syntax, ES6+                 include SAFE-DEOBS [68] with AST-based optimization
+features may be downgraded during preprocessing, potentially             passes and Hajarnis [69] integrating taint analysis and sym-
+limiting modern JavaScript capabilities in deobfuscated output.          bolic execution. Recent LLM evaluations reveal significant
+We mitigate this through selective normalization disabling and           limitations: GPT-4 shows poor functional deobfuscation for
+multi-parser fallback mechanisms.                                        advanced techniques [70], while JsDeObsBench [15] demon-
+LLM Integration Challenges. Our Humanizer module faces                   strates critical reliability issues with average failure rates
+inherent challenges in understanding obfuscated code context             of 2.76% for syntax correctness and 37.40% for execution
+and domain-specific terminology. LLMs may generate seman-                correctness. Unlike these fragmented approaches that excel
+tically plausible but contextually inappropriate names, particu-         only in narrow domains or suffer from reliability issues,
+larly in malware analysis where technical precision is crucial.          JS IMPLIFIER provides comprehensive deobfuscation through
+Context window limitations may prevent full understanding                systematic integration of static AST analysis, controlled dy-
+of complex variable relationships across large codebases.                namic execution, and targeted LLM post-processing.
+We address this through multi-provider LLM architecture
+                                                                         C. Other Language Deobfuscation Research
+for suggestion comparison, validation mechanisms checking
+generated names against existing scope bindings, and fallback               Deobfuscation research across languages provides valuable
+strategies preserving original identifiers when validation fails.        insights [70]–[81]. LLM approaches show mixed results:
+A detailed failure case is provided in Appendix H.                       DOBF [71] outperforms CodeBERT through pre-training,
+Security and Scope Limitations. JS IMPLIFIER faces several               while GPT-4 achieves limited functional deobfuscation [70].
+constraints, including adversarial resistance and scope limita-          Dynamic methods demonstrate effectiveness through Power-
+tions. Sophisticated adversaries can craft targeted obfuscation          Peeler [72] for PowerShell reconstruction, Oblivion [73] for
+to bypass specific techniques, creating an inevitable arms race.         VBA macro instrumentation, and API-Xray [74] for import
+As a deobfuscator, we cannot handle cryptographic packing or             reconstruction. Expression simplification techniques include
+custom language interpreters that hide code. Our approach also           ProMBA [75] for MBA synthesis, MBA-Blast [76] with trans-
+cannot handle time-dependent obfuscation techniques that use             formations, and GAMBA [77] for nonlinear MBAs. Language-
+runtime values for code decryption. Our dynamic execution                specific tools target particular environments: StringHound [78]
+using Node.js vm.runInNewContext carries theoretical                     for Android string obfuscation, DeProDexcator [79] for Pro-
+VM escape risks that may require additional containerization.            Guard reversal, while systematic knowledge surveys [80]
+                                                                         analyze virtualization deobfuscation approaches, and PHP
+                    VII. RELATED WORK                                    research [81] explores layout obfuscation with AES encryp-
+A. JavaScript Obfuscation Detection                                      tion. JS IMPLIFIER is purpose-built for JavaScript’s unique
+   Large-scale analyses demonstrate obfuscation’s widespread             characteristics to provide native handling of JavaScript-specific
+adoption [22]–[28]. Moog [22] analyzes Alexa Top 10K                     obfuscation patterns while maintaining compatibility with the
+scripts using control-flow-enhanced AST classifiers, while               language’s execution model and ecosystem requirements.
+Sarker [23] discovers most domains host obfuscated scripts
+                                                                                              VIII. CONCLUSION
+through runtime-static analysis. Jack-in-the-box [24] exam-
+ines vulnerable npm bundles in top sites. Advanced evasion                  This work proposes JS IMPLIFIER, a comprehensive
+techniques continue emerging: HideNoSeek [25] camouflages                JavaScript deobfuscation tool. JS IMPLIFIER addresses limita-
+malware in benign ASTs, Wobfuscator [26] embeds logic in                 tions in existing approaches through multi-stage processing
+WebAssembly, and JSPro [27] reduces runtime overhead via                 and LLM integration. It handles 20 categories of obfuscation
+WASM translation. Detection methods include runtime-static               techniques using static AST analysis, dynamic execution,
+discrepancy analysis [23] and FastText with virtual machine-             and semantic-aware code humanization. We maintains cor-
+based deobfuscation [28]. While these studies focus on ob-               rectness through strict semantic validation and CFG/DDG
+fuscation detection, our work addresses the complementary                consistency checking. Experimental results demonstrate JS IM -
+challenge of comprehensive deobfuscation.                                PLIFIER ’s effectiveness across multiple evaluation dimensions.
+                                                                         JS IMPLIFIER successfully processes all samples in evaluation
+B. JavaScript Deobfuscation Techniques                                   datasets. It maintains 100% correctness on processed samples
+   Researchers have developed various deobfuscation ap-                  and achieves 83% semantic consistency, outperforming both
+proaches to counter script obfuscation [58], [63]–[69]. Most             traditional and LLM-based approaches. Code simplification
+techniques focus on specific obfuscation aspects. JSimpo [58]            evaluation demonstrates an HLR score of 0.8820. LLM-based
+provides structural deobfuscation, TransAST [63] leverages               readability assessment shows 466.94% average improvement.
+AST template mappings for identifier recovery, while JS-                 Large-scale evaluation on 44,421 samples demonstrates signif-
+Naughty [64] uses statistical machine translation and DE-                icant entropy reduction, confirming JS IMPLIFIER’s effective-
+OBFUSCATING [65] employs character-based tokenization                    ness for real-world malware analysis.
+
+
+
+                                                                    13
+                      E THICS C ONSIDERATIONS                                          [17] XingTuLab, “JSIMPLIFIER – JavaScript code simplification and
+                                                                                            deobfuscation tool,” GitHub Repository, 2025, accessed: Dec, 2025.
+   This research follows established cybersecurity ethics. Be-                              [Online]. Available: https://github.com/XingTuLab/JSIMPLIFIER
+nign samples come from public sources, and malicious sam-                              [18] Ecma International, “Ecmascript 2023 language specification,” Ecma
+ples from our corporate partner for defense only. Experiments                               International, Standard ECMA-262, 2023, accessed: Jan. 15, 2025.
+                                                                                            [Online]. Available: https://www.ecma-international.org/publications-a
+were performed in isolated environments, and LLM evalua-                                    nd-standards/standards/ecma-262/
+tions used authorized APIs. Data handling ensures samples                              [19] HandWiki, “JSF*ck,” HandWiki Encyclopedia, 2024, accessed: Dec.
+stay secure without redistribution. When releasing datasets,                                19, 2024. [Online]. Available: https://handwiki.org/wiki/JSFuck
+                                                                                       [20] P. Skolka, C.-A. Staicu, and M. Pradel, “Anything to hide? studying
+we will require identity verification and intent declaration                                minified and obfuscated code in the web,” in The World Wide Web
+to prevent misuse, balancing open science with necessary                                    Conference (WWW), 2019.
+security safeguards.                                                                   [21] W. Xu, F. Zhang, and S. Zhu, “The power of obfuscation techniques
+                                                                                            in malicious javascript code: A measurement study,” in International
+                                                                                            Conference on Malicious and Unwanted Software: ”The Americas”
+                              R EFERENCES                                                   (MALWARE), 2013.
+ [1] K. Ren, W. Qiang, Y. Wu, Y. Zhou, D. Zou, and H. Jin, “An empir-                  [22] M. Moog, M. Demmel, M. Backes, and A. Fass, “Statically detecting
+     ical study on the effects of obfuscation on static machine learning-                   JavaScript obfuscation and minification techniques in the wild,” in
+     based malicious javascript detectors,” in Proceedings of the 32nd ACM                  Proceedings of the IEEE/IFIP International Conference on Dependable
+     SIGSOFT International Symposium on Software Testing and Analysis                       Systems and Networks (DSN), 2021.
+     (ISSTA), 2023.                                                                    [23] S. Sarker, J. Jueckstock, and A. Kapravelos, “Hiding in plain site:
+ [2] S. Ndichu, S. Kim, and S. Ozawa, “Deobfuscation, unpacking, and                        Detecting JavaScript obfuscation through concealed browser API usage,”
+     decoding of obfuscated malicious javascript for machine learning models                in Proceedings of the ACM Internet Measurement Conference (IMC),
+     detection performance improvement,” CAAI Transactions on Intelligence                  2020.
+     Technology, 2020.                                                                 [24] J. Rack and C.-A. Staicu, “Jack-in-the-box: An empirical study of
+ [3] L. Gong, “Dynamic analysis for javascript code,” Ph.D. dissertation,                   JavaScript bundling on the web and its security implications,” in
+     University of California, Berkeley, 2018.                                              Proceedings of the ACM SIGSAC Conference on Computer and Com-
+ [4] E. Vilchik, “Static analysis in javascript: What’s easy and what’s hard,”              munications Security (CCS), 2023.
+     GitNation Conference Talk, 2024, conference presentation, Accessed:               [25] A. Fass, M. Backes, and B. Stock, “HideNoSeek: Camouflaging mali-
+     Jan. 15, 2025. [Online]. Available: https://gitnation.com/contents/stati               cious JavaScript in benign ASTs,” in Proceedings of the ACM SIGSAC
+     c-analysis-in-javascript-whats-easy-and-whats-hard                                     Conference on Computer and Communications Security (CCS), 2019.
+ [5] Trend Micro Research, “SocGholish’s intrusion techniques facilitate               [26] A. Romano, Y. Zheng, W. Wang, L. Ying, and G. Vigna, “Wobfus-
+     distribution of ransomware,” Trend Micro Research, 2025, accessed:                     cator: Obfuscating JavaScript malware via opportunistic translation to
+     Mar. 27, 2025. [Online]. Available: https://www.trendmicro.com/en us/                  WebAssembly,” in Proceedings of the IEEE Symposium on Security and
+     research/25/c/socgholishs-intrusion-techniques-facilitate-distribution-o               Privacy (S&P), 2022.
+     f-rans.html                                                                       [27] S. Wang, P. Wang, and D. Wu, “Leveraging WebAssembly for numerical
+ [6] P. T. R. Team, “Part 1: Socgholish: A very real threat from a very fake                JavaScript code virtualization,” IEEE Access, 2019.
+     update,” December 2022, accessed: Jan. 15, 2025. [Online]. Available:             [28] S. Ndichu, S. Kim, and S. Ozawa, “Deobfuscation, unpacking, and de-
+     https://www.proofpoint.com/us/blog/threat-insight/part-1-socgholish-v                  coding of obfuscated malicious JavaScript for machine learning models
+     ery-real-threat-very-fake-update                                                       detection performance improvement,” CAAI Transactions on Intelligence
+ [7] K. Brezinski and K. Ferens, “Metamorphic malware and obfuscation:                      Technology, 2020.
+     A survey of techniques, variants, and generation kits,” Security and              [29] Jscrambler, “Pioneering client-side protection platform,” Jscrambler,
+     Communication Networks, Wiley, 2023, article ID: 8227751, Accessed:                    2024, accessed: Jul. 3, 2025. [Online]. Available: https://jscrambler.com/
+     Jan. 15, 2025. [Online]. Available: https://onlinelibrary.wiley.com/doi/          [30] JShaman, “JavaScript obfuscation encryption,” Shaman Technology,
+     10.1155/2023/8227751                                                                   2024, accessed: Jul. 3, 2025. [Online]. Available: https://www.jshaman.
+ [8] Minded Security, “JStillery - advanced JavaScript deobfuscation via                    com/
+     partial evaluation,” GitHub Repository, 2024, accessed: Jul. 3, 2025.             [31] Metasploit Documentation, “JavaScript obfuscation,” Rapid7 Metasploit
+     [Online]. Available: https://github.com/mindedsecurity/jstillery                       Documentation, 2024, accessed: Jul. 3, 2025. [Online]. Available:
+ [9] Geeks on Security, “IlluminateJS - a static JavaScript deobfuscator,”                  https://docs.metasploit.com/docs/development/developing-modules/libra
+     GitHub Repository, 2024, accessed: Jul. 3, 2025. [Online]. Available:                  ries/obfuscation/how-to-obfuscate-javascript-in-metasploit.html
+     https://github.com/geeksonsecurity/illuminatejs                                   [32] Mishoo, “UglifyJS - JavaScript parser / mangler / compressor /
+[10] V. Raychev, M. Vechev, and A. Krause, “Predicting program properties                   beautifier toolkit,” GitHub Repository, 2024, accessed: Jul. 3, 2025.
+     from big code,” in Proceedings of the 42nd ACM SIGPLAN-SIGACT                          [Online]. Available: https://github.com/mishoo/UglifyJS
+     Symposium on Principles of Programming Languages (POPL), 2015.                    [33] JavaScript Obfuscator Tool, “A free and efficient obfuscator for
+[11] Kasada, “Javascript deobfuscation: Hiding intent to fortify bot defenses,”             JavaScript,” obfuscator.io, 2024, accessed: Jul. 3, 2025. [Online].
+     Kasada Security Blog, 2023, accessed: Jan. 15, 2025. [Online].                         Available: https://obfuscator.io/
+     Available: https://www.kasada.io/javascript-deobsfusction-bot-defenses/           [34] JSJiami, “Online JavaScript code obfuscation and encryption tool,”
+[12] E. Lielmanis and L. Newman, “js-beautify: Beautifier for javascript,                   jsjiami.com, 2024, accessed: Jul. 3, 2025. [Online]. Available:
+     html, css,” GitHub Repository, 2024, accessed: Jan. 15, 2025. [Online].                https://www.jsjiami.com/
+     Available: https://github.com/beautifier/js-beautify                              [35] Daft Logic, “Online Javascript obfuscator,” Daft Logic, 2024, accessed:
+[13] Relative, “Synchrony: Javascript cleaner & deobfuscator,” GitHub                       Jul. 3, 2025. [Online]. Available: https://www.daftlogic.com/projects-o
+     Repository, 2024, accessed: Jan. 15, 2025. [Online]. Available:                        nline-javascript-obfuscator.htm
+     https://github.com/relative/synchrony                                             [36] Nodejs.cn, “Terser - JavaScript obfuscator and compressor toolkit,”
+[14] ben-sb, “deobfuscator-io-archived: Deobfuscator for obfuscator.io,”                    Terser Official Documentation, 2024, accessed: Jul. 3, 2025. [Online].
+     GitHub Repository, 2024, accessed: Jan. 15, 2025. [Online]. Available:                 Available: https://terser.nodejs.cn/
+     https://github.com/ben-sb/javascript-deobfuscator                                 [37] FreeJSObfuscator Team, “Free JavaScript obfuscator - 100% free JS
+[15] G. Chen, X. Jin, and Z. Lin, “Jsdeobsbench: Measuring and benchmark-                   code protection tool,” FreeJSObfuscator.com, 2024, accessed: Jul. 3,
+     ing llms for javascript deobfuscation,” in Proceedings of the 2025 ACM                 2025. [Online]. Available: https://www.freejsobfuscator.com/
+     SIGSAC Conference on Computer and Communications Security (CCS),                  [38] Stunnix, “JavaScript obfuscator - protect JavaScript code from illegal
+     2025.                                                                                  reuse and ip theft,” Stunnix, 2024, accessed: Jul. 3, 2025. [Online].
+[16] Unit 42, “JSFireTruck: Exploring malicious JavaScript using JSF*ck                     Available: http://stunnix.com/prod/jo/
+     as an obfuscation technique,” Palo Alto Networks Unit 42, 2025,                   [39] Anseki, “gnirts - obfuscate string literals in JavaScript code,”
+     accessed: Jul. 3, 2025. [Online]. Available: https://unit42.paloaltonetwo              GitHub Pages, 2024, accessed: Jul. 3, 2025. [Online]. Available:
+     rks.com/malicious-javascript-using-jsfiretruck-as-obfuscation/                         https://anseki.github.io/gnirts/
+
+
+
+
+                                                                                  14
+[40] BeautifyTools, “Online Javascript obfuscator - protect JavaScript code            [66] V. Arceri and I. Mastroeni, “Analyzing dynamic code: A sound abstract
+     from theft,” BeautifyTools, 2024, accessed: Jul. 3, 2025. [Online].                    interpreter for evil eval,” ACM Transactions on Privacy and Security
+     Available: https://beautifytools.com/javascript-obfuscator.php                         (ACMTOPS), 2021.
+[41] karust, “unjsfuck - JSFuck deobfuscator,” GitHub, 2024, accessed: Jul.            [67] M. AbdelKhalek and A. Shosha, “JSDES: An automated de-obfuscation
+     4, 2025. [Online]. Available: https://github.com/karust/unjsfuck                       system for malicious JavaScript,” in Proceedings of the 12th Interna-
+[42] Meriyah Team, “Meriyah - a 100% compliant, self-hosted javascript                      tional Conference on Availability, Reliability and Security (ARES), 2017.
+     parser,” GitHub Repository, 2024, accessed: Jul. 3, 2025. [Online].               [68] A. Herrera, “Optimizing away JavaScript obfuscation,” in Proceedings
+     Available: https://github.com/meriyah/meriyah                                          of the IEEE International Working Conference on Source Code Analysis
+[43] j4k0xb, “webcrack - deobfuscate obfuscator.io, unminify and unpack                     and Manipulation (SCAM), 2020.
+     bundled javascript,” GitHub Repository, 2024, accessed: Jul. 3, 2025.             [69] K. Hajarnis, V. Kshirsagar, S. Doiphode, and A. Joshi, “A comprehensive
+     [Online]. Available: https://github.com/j4k0xb/webcrack                                solution for obfuscation detection and removal based on comparative
+[44] Webpack Team, “webpack - a static module bundler for modern                            analysis of deobfuscation tools,” in Proceedings of the International
+     JavaScript applications,” webpack.js.org, 2024, accessed: Jul. 3, 2025.                Conference on Smart Generation Computing, Communication and Net-
+     [Online]. Available: https://webpack.js.org/                                           working (SMART GENCON), 2021.
+[45] Browserify Team, “Browserify - browser-side require() the node.js                 [70] C. Fang, Z. Liu, Y. Shi, J. Huang, and Q. Chen, “Large language models
+     way,” browserify.org, 2024, accessed: Jul. 3, 2025. [Online]. Available:               for code analysis: Do LLMs really do their job?” in Proceedings of the
+     https://browserify.org/                                                                33rd USENIX Security Symposium (USENIX Security), 2024.
+[46] A. Hidayat, “Esprima - ECMAScript parsing infrastructure for                      [71] M.-A. Lachaux, B. Roziere, M. Szafraniec, and G. Lample, “DOBF:
+     multipurpose analysis,” Esprima.org, 2024, accessed: Jul. 3, 2025.                     A deobfuscation pre-training objective for programming languages,” in
+     [Online]. Available: https://esprima.org/                                              Proceedings of the 35th International Conference on Neural Information
+[47] Acorn Team, “Acorn - a tiny, fast JavaScript parser, written completely                Processing Systems (NeurIPS), 2021.
+     in JavaScript,” GitHub Repository, 2024, accessed: Jul. 3, 2025.                  [72] R. Li, C. Zhang, H. Chai, L. Ying, H. Duan, and J. Tao, “PowerPeeler:
+     [Online]. Available: https://github.com/acornjs/acorn                                  A precise and general dynamic deobfuscation method for PowerShell
+[48] Babel Team, “Babel - JavaScript compiler,” Babel Official Website,                     scripts,” in Proceedings of the ACM SIGSAC Conference on Computer
+     2024, accessed: Jul. 4, 2025. [Online]. Available: https://babeljs.io/                 and Communications Security (CCS), 2024.
+[49] C. Kolbitsch, B. Livshits, B. Zorn, and C. Seifert, “Rozzle: De-cloaking          [73] A. Sanna, F. Cara, D. Maiorca, and G. Giacinto, “Oblivion: An open-
+     internet malware,” ser. SP ’12. USA: IEEE Computer Society, 2012.                      source system for large-scale analysis of macro-based office malware,”
+[50] Jehna, “Humanify - deobfuscate Javascript code using ChatGPT,”                         Journal of Computer Virology and Hacking Techniques, 2024.
+     GitHub Repository, 2024, accessed: Jul. 3, 2025. [Online]. Available:             [74] B. Cheng, J. Ming, J. Burket, G. Karame, and T. Dumitraş,
+     https://github.com/jehna/humanify                                                      “Obfuscation-resilient executable payload extraction from packed mal-
+[51] Prettier Team, “Prettier - opinionated code formatter,” prettier.io, 2024,             ware,” in Proceedings of the 30th USENIX Security Symposium, 2021.
+     accessed: Jul. 3, 2025. [Online]. Available: https://prettier.io/docs/            [75] J. Lee and W. Lee, “Simplifying mixed boolean-arithmetic obfuscation
+[52] H. Chai, L. Ying, H. Duan, and D. Zha, “Invoke-deobfuscation: Ast-                     by program synthesis and term rewriting,” in Proceedings of the ACM
+     based and semantics-preserving deobfuscation for powershell scripts,”                  SIGSAC Conference on Computer and Communications Security (CCS),
+     in Proceedings of the 52nd Annual IEEE/IFIP International Conference                   2023.
+     on Dependable Systems and Networks (DSN), 2022.                                   [76] B. Liu, J. Shen, J. Ming, Q. Zheng, J. Li, and D. Xu, “MBA-Blast:
+[53] Tranco Team, “Tranco: A research-oriented top sites ranking hardened                   Unveiling and simplifying mixed Boolean-Arithmetic obfuscation,” in
+     against manipulation,” 2024, accessed: 2024-12-19. [Online]. Available:                Proceedings of the 30th USENIX Security Symposium, 2021.
+     https://tranco-list.eu/                                                           [77] B. Reichenwallner and P. Meerwald-Stadler, “Simplification of general
+[54] PublicWWW, “PublicWWW - source code search engine,”                                    mixed Boolean-Arithmetic expressions: GAMBA,” in Proceedings of the
+     publicwww.com, 2024, accessed: Jul. 3, 2025. [Online]. Available:                      2023 IEEE European Symposium on Security and Privacy Workshops
+     https://publicwww.com/                                                                 (EuroS&PW), 2023.
+[55] dev-coco, “Javascript deobfuscator - online tool,” Online Tool, 2024,             [78] L. Glanz, P. Müller, L. Baumgärtner, M. Reif, S. Amann, P. Antho-
+     accessed: Jan. 15, 2025. [Online]. Available: https://dev-coco.github.io/              nysamy, and M. Mezini, “Hidden in plain sight: Obfuscated strings
+     Online-Tools/JavaScript-Deobfuscator.html                                              threatening your privacy,” in Proceedings of the 15th ACM Asia Con-
+[56] kuizuo, “js-deobfuscator: Javascript code deobfuscation tool,” GitHub                  ference on Computer and Communications Security (ASIA CCS), 2020.
+     Repository, 2024, accessed: Jan. 15, 2025. [Online]. Available:                   [79] A. Ashraaf, H. Sarwar, G. Murtaza, and M. Ali, “DEPRODEXCATOR:
+     https://github.com/kuizuo/js-deobfuscator                                              A tool for decompiling and deobfuscating ProGuard and DexGuard
+[57] hax0r31337, “Jsdec: Online javascript decoder,” GitHub Repository,                     obfuscated android applications,” engrXiv preprint, 2023, accessed: Jul.
+     2021, supports sojson v4/Premium/v5. Project archived October                          3, 2025. [Online]. Available: https://engrxiv.org/preprint/view/2910/5390
+     10, 2021, Accessed: Jan. 15, 2025. [Online]. Available: https:                    [80] P. Kochberger, S. Schrittwieser, S. Schweighofer, P. Kieseberg, and
+     //github.com/hax0r31337/JSDec                                                          E. Weippl, “SoK: Automatic deobfuscation of virtualization-protected
+[58] T. Chen, D. Li, Y. Zhang, and T. Xie, “JSimpo: Structural deobfuscation                applications,” in Proceedings of the 16th International Conference on
+     of JavaScript programs,” ACM Transactions on Software Engineering                      Availability, Reliability and Security (ARES), 2021.
+     and Methodology (TOSEM), 2025.                                                    [81] I. Khairunisa and H. Kabetta, “PHP source code protection using layout
+[59] aio-libs team, “aiohttp: Asynchronous http client/server framework for                 obfuscation and AES-256 encryption algorithm,” in Proceedings of the
+     asyncio and python,” GitHub Repository, 2025, version 3.12, Accessed:                  International Workshop on Big Data and Information Security (IWBIS),
+     Jan. 15, 2025. [Online]. Available: https://github.com/aio-libs/aiohttp                2021.
+[60] M. H. Halstead, Elements of Software Science, ser. Operating and                  [82] D. Zhou, L. Ying, H. Chai, and D. Wang, “From obfuscated to obvious:
+     Programming Systems Series. Elsevier Science Inc, 1977.                                A comprehensive javascript deobfuscation tool for security analysis,”
+[61] R. Kirk, Kirk, Roger E. (2013). Experimental design: Procedures for                    2025. [Online]. Available: https://doi.org/10.48550/arXiv.2512.14070
+     the behavioral sciences (4th ed.). Thousand Oaks, CA: Sage., 06 2013.
+[62] R. Likert, “A technique for the measurement of attitudes,” Archives of
+     psychology, vol. 22, no. 140, p. 55, 1932.
+[63] Y. Qin, W. Wang, Z. Chen, H. Song, and S. Zhang, “TransAST: A
+     machine translation-based approach for obfuscated malicious JavaScript
+     detection,” in Proceedings of the IEEE/IFIP International Conference
+     on Dependable Systems and Networks (DSN), 2023.
+[64] B. Vasilescu, C. Casalnuovo, and P. Devanbu, “Recovering clear, natural
+     identifiers from obfuscated JS names,” in Proceedings of the 2017 11th
+     Joint Meeting on Foundations of Software Engineering (ESEC/FSE),
+     2017.
+[65] A.-G. Sı̂rbu, “Deobfuscating JavaScript code using character-based
+     tokenization,” Studia Universitatis Babes, -Bolyai Informatica, 2023.
+
+
+
+
+                                                                                  15
+                      A PPENDIX A                                       Please provide the deobfuscated JavaScript code and
+      O BFUSCATION C APABILITY OF D IFFERENT T OOLS                     what obfuscation technology the code uses.
+  Table IX presents a comprehensive comparison of these
+tools’ capabilities across all 20 obfuscation techniques.
+                                                                     B. Score Readability Prompt
+                     A PPENDIX B
+              CFG/DDG VALIDATION E XAMPLE                               Score Readability Prompt
+                                              3
+  Listing 3 shows a representative sample that employed                 As a security analyst, please analyze the sample ac-
+String Obfuscation (T3) and Eval Obfuscation (T15). CFG                 cording to the following steps: 1. Identification of
+and DDG analysis revealed:                                              obfuscated techniques used for raw obfuscated samples
+var xhr = new XMLHttpRequest();                                         2. Compare and evaluate the consistency of behavior
+xhr.open(                                                               between the two samples after deobfuscation 3. The
+  "GET", "//lurgee.download/?zBOwv=
+                                                                        readability of both versions must be rated separately (on
+      Q10FEhkNVgQQTxNcARAJWxRMUQ5IdRJYEhUAWB1
+      ..." // truncated for brevity                                     a 0-10 point scale), format: Obfuscated sample read-
+);                                                                      ability score: [X] Readability score for deobfuscated
+xhr.onload = function () {                                              samples: [Y] Please provide the final rating directly
+  var ref = document.referrer;                                          without the need for analysis process. The rating should
+  eval(xhr.responseText);
+                                                                        be based on dimensions such as code structure clarity,
+};
+xhr.send();                                                             variable naming rationality, and logical traceability.
+
+      Listing 3: A representative sample before obfuscated.
+                                                                                           A PPENDIX D
+  •   Control Flow Analysis: JS IMPLIFIER’s deobfuscated                      A NTI -A NALYSIS T ECHNIQUE E XAMPLES
+      output restored the original 8-node CFG structure with
+      97.30% similarity.                                               This section provides detailed code examples demonstrating
+   • Data Dependency Verification: DDG comparison
+                                                                     how JS IMPLIFIER handles various anti-analysis techniques
+      showed 96.10% preservation rate with all variable de-          employed by malicious JavaScript.
+      pendencies correctly maintained.                               // Original obfuscated time bomb
+   • Manual Verification: Side-by-side analysis confirmed            var _0x1a2b = new Date().getTime();
+      that the core functionality of downloading and execut-         var _0x3c4d = 1640995200000;
+                                                                     if (_0x1a2b > _0x3c4d) {
+      ing remote JavaScript code via eval() was preserved,
+                                                                        eval(atob("dmFyIHBheWxvYWQ9Li4u"));
+      validating semantic consistency.                               }
+   Complete CFG and DDG visualizations are available in the
+full version of this paper [82].                                     // After JSIMPLIFIER processing
+                                                                     var currentTimestamp = new Date().getTime();
+                        A PPENDIX C                                  var activationDate = 1640995200000;
+                LLM P ROMPT FOR E VALUATION                          if (currentTimestamp > 1640995200000) {
+                                                                        eval(’var payload=...’);
+A. Deobfuscation Prompt                                              }
+      Deobfuscation Prompt                                            Listing 4: Time bomb handling example (code fragment).
+      You are a JavaScript deobfuscation expert. Please an-
+      alyze the following obfuscated JavaScript code and
+                                                                                           A PPENDIX E
+      provide the deobfuscated version. Focus on:
+                                                                       E NTROPY M ETRICS : F ORMULATIONS AND VALIDATION
+         1) Restoring original variable and function names
+            where possible                                           A. Code Text Entropy Formulation
+         2) Simplifying complex expressions to their basic              Code text entropy combines character-level and word-level
+            forms                                                    frequency analysis:
+         3) Converting encoded strings back to readable text
+         4) Removing unnecessary complexity while preserv-
+            ing functionality                                         Htext (X) = Hchar (X) + Hword (X)
+         5) Ensuring the output is clean, readable JavaScript                      Xn                        m
+                                                                                                             X
+            code                                                                =−      p(ci ) log2 p(ci ) −   p(wj ) log2 p(wj )
+                                                                                      i=1                    j=1
+      Obfuscated code: [OBFUSCATED CODE]                                                                                         (1)
+                                                                        where p(ci ) and p(wj ) represent probabilities of character
+ 3 MD5: 000c5123cd553d14cd49d22022fcc9c5                             ci and word wj respectively.
+
+
+
+                                                                16
+                        TABLE IX: Comprehensive comparison of obfuscation capability of different tools.
+      Type            Method                 MeSpl JSha          JSC   UGL             OBfu          JSV7         DAFT TER                      FRE            STU             GNI            BEA
+                      T0:Rename              ✓     ✓             ✓     ✓               ✓             ✓            ✓    ✓                        ✓              ✓               ✓              ✓
+                      T1:Indirect                  ✓             ✓                     ✓             ✓            ✓                             ✓              ✓               ✓
+      Lexical         T2:Arithmetize         ✓     ✓                                   ✓                                                        ✓              ✓
+                      T3:StringEncode        ✓     ✓             ✓                     ✓             ✓                           ✓              ✓              ✓               ✓
+                      T4:BooleanEncode             ✓             ✓                                                               ✓
+                      T5:Expr2Function             ✓                                                              ✓                                                                           ✓
+      Syntactic       T6:Assign2Function     ✓     ✓             ✓                                   ✓                                          ✓              ✓
+                      T7:Reverse                   ✓                                   ✓
+                      T8:AAEncode
+                      T9:JJEncode
+                      T10:JSFUCK
+                      T11:Arrayize           ✓        ✓          ✓                     ✓                                         ✓              ✓              ✓
+                      T12:StrArrEncode                ✓          ✓                     ✓                                         ✓              ✓              ✓
+                      T13:JSONEncode                  ✓
+      Semantic        T14:RegexpEncode                ✓          ✓                                   ✓                                                                                        ✓
+                      T15:Eval                        ✓                                                           ✓                                            ✓                              ✓
+                      T16:Flattern           ✓        ✓          ✓                     ✓
+                      T17:Insert                      ✓          ✓                     ✓             ✓
+      Multi-Layered   T18:OB                                                           ✓
+                      T19:LLM                ◦        ✓          ✓                     ✓             ✓                                          ✓              ✓
+        Note: ✓ = fully successful, ◦ = partially successful, blank = fully unsupported.
+
+
+                                                                                                 t
+                                                                                                ne
+B. AST Entropy Component Formulations                                                       on
+                                                                                           .7s        7776766656635666752667554656675352258 6865775663776856646
+                                                                                        e3
+  AST entropy incorporates four structural dimensions:                            cla
+                                                                                       ud
+                                                                                                -r1
+                                                                                                      6 7 7 7 8 7 7 8 8 4 6 7 6 8 7 7 2 8107 6 7 6 8 7 8 7 8 8 4 7 1 1 3         8888777667898 67858
+                                                                                            ek
+                                                                                           se
+
+                                                                              Models
+                                      k
+                                      X                                                de
+                                                                                           ep
+                                                                                                ro
+             Hnode num (X) = −              p(ti ) log2 p(ti )         (2)                 ni2.5p     7 9 8 7 7 7 7 7 8 5 8 6 8 2 7 8 8 7 1108 3 5 6 6 8 8 9 7 8 8 0 8 1 1 2 9 2 8 8 6 8 5 8 6 8 5 5 9 8 6 2 3 8 8 4 8
+                                                                                        mi
+                                      i=1                                              ge
+                                                                                                      44456465455363464324                       5534466463              234 465555655356 334534
+                                                                                                 3
+                                      l
+                                      X                                                      t-o
+                                                                                            gp
+          Hnode degree (X) = −              p(dj ) log2 p(dj )         (3)                                                                               Samples
+                                      j=1
+
+  where p(ti ) and p(dj ) represent node type and degree                                              0                    2                      4                     6                      8                     10
+probabilities. Node depth and edge quantity entropies follow                                                                                      Improvement Score
+
+similar formulations.                                                             Fig. 3: Readability improvement scores validating complexity
+  The final AST entropy is computed as:                                           reduction across models and samples.
+      HAST (X) = w1 Hnode num + w2 Hedge num
+                                                                       (4)
+                      + w3 Hnode degree + w4 Hnode depth                                                                            A PPENDIX G
+where weights [w1 , w2 , w3 , w4 ] = [0.61, 0.79, 1.58, 1.02] are                                                                   U SER S TUDY
+optimized to maximize discrimination between obfuscated and                          The user study questionnaires are available in the full
+deobfuscated code through genetic algorithm.                                      version of this paper [82]. Table X shows detailed user study
+C. Entropy-based Evaluation Metric Validation                                     results across three expertise levels.
+   We validated our entropy-based approach against tradi-                                                                   A PPENDIX H
+tional structural similarity metrics using 60 randomly selected                                                        FAILURE C ASE E XAMPLE
+samples from BenignJS. Traditional methods failed on 31                             This appendix presents a detailed example of semantic
+out of 60 samples (51.67%), while AST entropy achieved                            inconsistency introduced by LLM-based variable renaming.
+stronger correlation with LLM-based readability assessment
+(r=0.53, p≤0.01) compared to structural similarity (r=0.25,                       A. Original Code
+p≥0.05), demonstrating superior robustness for evaluating                         function sumEvenSquaresOverTen(arr) {
+deobfuscation effectiveness.                                                        if (!Array.isArray(arr)) return 0;
+                                                                                    const filtered = arr.filter(n => n > 10 && n
+                         A PPENDIX F                                                    % 2 === 0);
+                  R EADABILITY A NALYSIS                                            // ... map and reduce operations
+   Figure 3 presents sample-level readability improvement                           return sum;
+                                                                                  }
+analysis across four LLM evaluators, demonstrating consistent
+effectiveness of JS IMPLIFIER in transforming obfuscated code                                                     Listing 5: Original clean code.
+into readable versions.
+
+
+
+                                                                             17
+TABLE X: User study results: JS IMPLIFIER performance and relative improvements (%) compared to original and traditional
+conditions.
+                                 JS IMPLIFIER Performance               vs. Original (%)                   vs. Traditional (%)
+       Metric
+                             Novice    Intermediate   Expert   Novice     Intermediate   Expert   Novice       Intermediate    Expert
+       Average Score (100)   53.63         77.34       75.92   +12.7          +5.7        +1.5     +5.0            +7.0          -4.5
+       Average Time (s)      549.5          429        696.5    -16.0         -47.7       -2.0     -15.8           -47.8        -18.6
+       Readability (5)        3.67          3.33       3.33     +100          +150        +43       +57             +82          +18
+       Clarity (5)             4            3.33        3.33    +140          +150        +43       +60             +67           +5
+       Logicality (5)          4              3        3.33      +71           +80         +5       +60             +50          +25
+       Difficulty (5)          3             2.5        3.17    +100           +25         +9       +50             +36          +12
+       Confidence (5)          3            2.5        4.17     +125           +15         +4       +64             +25          +14
+
+
+B. Obfuscated Code
+  (function(){
+   var _0xmethods = [’filter’, ’map’, ’reduce’];
+   function _0xgetMethod(idx) {
+     return _0xmethods[idx];
+   }
+
+   function sumEvenSquaresOverTen(arr) {
+     if (!Array.isArray(arr)) return 0;
+     var filtered = arr[_0xgetMethod(0)](function(n){
+       return n > 10 && n % 2 === 0;
+     });
+     // ... more processing with _0xgetMethod(1), _0xgetMethod(2)
+     return sum;
+   }
+  })();
+
+                                       Listing 6: Obfuscated code with dynamic method access.
+
+C. Incorrectly Deobfuscated Code
+  (function () {
+   var arrayMethods = ["filter", "map", "reduce"];
+   function getArrayMethodByIndex(methodIndex) {
+     return arrayMethods[methodIndex];
+   }
+   function calculateSumOfEvenSquaresAboveTen(numbersArray) {
+     if (!Array.isArray(numbersArray)) {
+       return 0;
+     }
+     var evenNumbersAboveTen = numbersArray[arrayMethods[idx]](function (number) {
+       return number > 10 && number % 2 === 0;
+     });
+     // Error: ’idx’ is undefined, causing ReferenceError
+     return totalOfEvenSquaredNumbers;
+   }
+  })();
+
+                                          Listing 7: Deobfuscated code with semantic errors.
+
+D. Error Analysis
+  The deobfuscated code (Listing 7) contains several critical semantic errors compared to the original obfuscated code
+(Listing 6):
+  • Broken Variable Dependencies: Variable idx is referenced but undefined, causing ReferenceError at runtime.
+  • Altered Control Flow: Undefined idx prevents method resolution, breaking the execution flow that was correctly
+     implemented in Listing 6.
+  • Modified API Behavior: Code attempts arrayMethods[undefined] instead of correct array method calls.
+
+                                                     A PPENDIX I
+                     JAVA S CRIPT O BFUSCATION T ECHNIQUES C ATEGORIZATION AND E XAMPLES
+  We evaluated 20 obfuscation techniques across 5 categories. Complete examples are available in the full version of this
+paper [82].
+
+
+
+                                                                  18
+                          A PPENDIX J                                   C. Experiment Workflow
+                     A RTIFACT A PPENDIX                                   The experimental evaluation is designed for practical arti-
+A. Description & Requirements                                           fact assessment with flexible scaling options to accommodate
+   1) How to access: The artifact is archived on Zenodo with            different evaluation time constraints:
+DOI 10.5281/zenodo.17531662 for long-term preservation and                 Stage 1: Deobfuscation Capability Demonstration - Interac-
+reproducibility.                                                        tive testing of individual obfuscation techniques with provided
+   The artifact is publicly available and can be accessed               sample cases
+directly through the DOI link above. All materials, including              Stage 2: Syntax Validation - Automated verification that
+source code, datasets, and documentation, are provided for full         deobfuscated output is syntactically correct JavaScript
+community transparency and reuse.                                          Stage 3: Scalable Effectiveness Validation - Process real-
+   2) Hardware dependencies: None. JSIMPLIFIER and its                  world samples with configurable dataset size (from quick
+evaluation experiments impose minimal hardware require-                 demos to full-scale evaluation)
+ments, allowing flexible deployment on common computing                    Each stage provides clear, verifiable outputs with time
+platforms. Our experimental setup utilized an 8-core AMD                estimates ranging from minutes (demo mode) to days (full
+EPYC 7742 processor with 16 GB of RAM running Windows                   evaluation).
+11; however, the tool is not restricted to specific hardware and        D. Major Claims
+can operate effectively on comparable or even modest systems
+depending on workload scale.                                              • (C1): JSIMPLIFIER successfully handles all 20 catego-
+   3) Software dependencies:                                                rized obfuscation techniques. This is demonstrated by
+                                                                            experiment (E1) using provided sample cases for each
+   • Core Runtime:
+                                                                            technique.
+       – Node.js v20.9.0
+                                                                          • (C2):    JSIMPLIFIER produces syntactically valid
+       – Python 3.11.8
+                                                                            JavaScript output. This is validated by experiment (E2)
+   • LLM Integration (Optional): API access to: OpenAI GPT,
+                                                                            using automated syntax checking.
+     Google Gemini                                                        • (C3): JSIMPLIFIER demonstrates robust processing ca-
+   • Additional Dependencies:
+                                                                            pability on real-world samples at scale. This is shown
+       – All        Python         packages        listed     in            by experiment (E3) with configurable dataset sizes to
+          requirements.txt                                                  balance evaluation thoroughness with time constraints.
+       – All Node.js packages listed in package.json
+   4) Benchmarks:                                                       E. Evaluation
+   • Primary Datasets:                                                     1) Experiment (E1): Deobfuscation Capability Demonstra-
+       – MalJS: 23,212 real-world obfuscated malicious                  tion: [15 human-minutes + 10 compute-minutes]: Validate
+          JavaScript samples (391.78 KB average size)                   JSIMPLIFIER’s capability to handle different obfuscation
+       – BenignJS: 21,209 real-world obfuscated benign                  techniques using provided sample cases.
+                                                                           [Preparation]
+          JavaScript samples (41.40 KB average size)
+                                                                        cd experiments/E1
+B. Artifact Installation & Configuration
+  1) Download and extract the artifact:                                   [Execution]
+      # Download from Zenodo
+      # Extract the downloaded archive                                  # Test individual techniques
+      unzip jsimplifier.zip                                             npm start deobfuscate -- --model=... \
+      cd jsimplifier                                                      --apiKey=... --baseURL=... \
+                                                                          experiments/E1/obfuscated_samples/T0_Rename.js
+                                                                        npm start deobfuscate -- --model=none \
+  2) Install Node.js dependencies:                                        experiments/E1/obfuscated_samples/T1_Indirect.js
+      npm install                                                       # ... or run all samples
+                                                                        python .\run_technique_demos.py --model ... \
+  3) Install Python dependencies:                                         --api-key ... --base-url ...
+      pip install -r requirements.txt
+                                                                          [Results]
+                                                                          Expected: Each sample produces readable, deobfuscated
+  4) Configure LLM API access (optional):
+                                                                        output. Results saved in results/ with side-by-side com-
+     Set environment variables for API access:
+                                                                        parisons.
+      export OPENAI_API_KEY="your-openai-key"
+      export GEMINI_API_KEY="your-gemini-key"                             2) Experiment (E2): Syntax Validation: [10 human-
+      export BASE_URL="your-baseurl"                                    minutes + 5 compute-minutes]: Verify that deobfuscated
+                                                                        output is syntactically valid JavaScript.
+      Or provide API keys directly via command line param-                [Preparation]
+      eters during execution.                                           cd experiments/E2
+
+
+
+                                                                   19
+  [Execution]                                                         statistical representativeness while reducing both evaluation
+# Validate syntax of deobfuscated files
+                                                                      time and costs.
+python validate_syntax.py \                                              Performance Characteristics: JSIMPLIFIER processes
+  ../E1/results/                                                      samples at an average rate of 28 seconds per file (excluding
+                                                                      LLM processing), with memory requirements scaling linearly
+  [Results]                                                           with dataset size (8GB sufficient for standard evaluation). Full
+  Expected: 100% syntax validation success. Output shows              dataset processing requires approximately 8 days on single-
+parsing results for each deobfuscated file.                           core systems or 1-2 days with 8+ cores, as performance is
+  3) Experiment (E3): Scalable Effectiveness Validation:              primarily CPU-bound. Network connectivity is only required
+Time Options: [Quick: 30 minutes] [Standard: 4 hours]                 for optional LLM-based enhancements.
+[Full: 8 days single-core, 1-2 days multi-core]: Demonstrate             Evaluation Flexibility: The artifact supports three eval-
+tool robustness on real-world malicious JavaScript samples            uation scales: quick validation (30 minutes) verifies core
+with flexible scale and parallelization options.                      functionality with representative samples, standard evaluation
+  [Preparation]
+                                                                      (4 hours) provides statistical confidence through multi-core
+tar -zxvf dataset/MalJS.tar.gz                                        processing, and full reproduction (1-3 days depending on
+cd experiments/E3                                                     available cores) processes the complete dataset. LLM process-
+                                                                      ing adds significant overhead and is not recommended for full
+  [Execution Options]                                                 dataset evaluation due to cost and time constraints.
+  Quick Demo (30 minutes):
+# Process 50 representative samples
+python run_validation.py \
+  --dataset quick_demo \
+  --workers 1
+  Standard Evaluation (4 hours):
+# Process 500 samples with multi-core
+python run_validation.py \
+  --dataset standard_eval \
+  --workers 4
+  Full Dataset Processing:
+# Single-core (˜8 days):
+python run_validation.py \
+  --dataset full_dataset \
+  --workers 1
+
+# Multi-core (1-2 days):
+python run_validation.py \
+  --dataset full_dataset \
+  --workers 8
+# Adjust --workers based on
+# available cores
+
+   [Results]
+   Expected: Entropy reduction validation demonstrating de-
+obfuscation effectiveness. The script generates box plots com-
+paring entropy values before and after deobfuscation, showing
+significant complexity reduction across processed samples. See
+output_validation_quick_demo\entropy_com
+parison_boxplot.png in the root directory for visual
+confirmation of entropy reduction results
+
+F. Notes
+   Dataset and Cost Considerations: The complete MalJS
+dataset (23,212 samples) is provided for full reproducibil-
+ity. LLM-based experiments require API access and incur
+approximately $480-500 for full evaluation using GPT-4o-
+mini, though all core claims can be validated without LLM
+processing using AST-only mode. Scaled subsets maintain
+
+
+
+                                                                 20
+

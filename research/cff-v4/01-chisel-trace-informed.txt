@@ -1,0 +1,2384 @@
+Control-Flow Deobfuscation Using Trace-Informed
+Compositional Program Synthesis
+BENJAMIN MARIANO∗ and ZITENG WANG∗ , University of Texas at Austin, USA
+SHANKARA PAILOOR, University of Texas at Austin, USA
+CHRISTIAN COLLBERG, University of Arizona, USA
+IŞIL DILLIG, University of Texas at Austin, USA
+Code deobfuscation, which attempts to simplify code that has been intentionally obfuscated to prevent
+understanding, is a critical technique for downstream security analysis tasks like malware detection. While
+there has been significant prior work on code deobfuscation, most techniques either do not handle control
+flow obfuscations that modify control flow or they target specific classes of control flow obfuscations, making
+them unsuitable for handling new types of obfuscations or combinations of existing ones. In this paper, we
+study a new deobfuscation technique that is based on program synthesis and that can handle a broad class of
+control flow obfuscations. Given an obfuscated program 𝑃, our approach aims to synthesize a smallest program
+that is a control-flow reduction of 𝑃 and that is semantically equivalent. Since our method does not assume
+knowledge about the types of obfuscations that have been applied to the original program, the underlying
+synthesis problem ends up being very challenging. To address this challenge, we propose a novel trace-informed
+compositional synthesis algorithm that leverages hints present in dynamic traces of the obfuscated program to
+decompose the synthesis problem into a set of simpler subproblems. In particular, we show how dynamic
+traces can be useful for inferring a suitable control-flow skeleton of the deobfuscated program and performing
+independent synthesis of each basic block. We have implemented this approach in a tool called Chisel and
+evaluate it on 546 benchmarks that have been obfuscated using combinations of six different obfuscation
+techniques. Our evaluation shows that our approach is effective and that it produces code that is almost
+identical (modulo variable renaming) to the original (non-obfuscated) program in 86% of cases. Our evaluation
+also shows that Chisel significantly outperforms existing techniques.
+
+CCS Concepts: • Security and privacy → Malware and its mitigation; • Software and its engineering
+→ Search-based software engineering.
+
+Additional Key Words and Phrases: Program Synthesis, Deobfuscation, Obfuscation
+
+ACM Reference Format:
+Benjamin Mariano, Ziteng Wang, Shankara Pailoor, Christian Collberg, and Işil Dillig. 2024. Control-Flow
+Deobfuscation Using Trace-Informed Compositional Program Synthesis. Proc. ACM Program. Lang. 8, OOPSLA2,
+Article 349 (October 2024), 44 pages. https://doi.org/10.1145/3689789
+
+∗ Both authors contributed equally to this research.
+
+
+
+Authors’ addresses: Benjamin Mariano, bmariano@cs.utexas.edu; Ziteng Wang, ziteng@cs.utexas.edu, University of Texas
+at Austin, USA, Austin; Shankara Pailoor, University of Texas at Austin, USA, Austin, spailoor@cs.utexas.edu; Christian
+Collberg, University of Arizona, USA, Tucson, collberg@cs.arizona.edu; Işil Dillig, University of Texas at Austin, USA,
+Austin, isil@cs.utexas.edu.
+
+
+Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee
+provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the
+full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored.
+Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires
+prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+© 2024 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM 2475-1421/2024/10-ART349
+https://doi.org/10.1145/3689789
+
+
+                            Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+     349:2                                                                                              Mariano et al.
+
+
+
+
+                               Control Flow Skeleton (CFS) Genera on               CFS Comple on
+                                    Trace-
+                                                                       CFS
+        Obfuscated code                                Trace                                  Trace-
+                                                                             Modular
+                                  informed           decomp-                                  based
+                                                                             synthesis
+                                    search            osi on                                 pruning
+                                                                                                       Deobfuscated
+         Dynamic traces
+                                                                                                           code
+                                                                CHISEL
+
+                                              Fig. 1. Illustration of our approach
+
+
+     1 INTRODUCTION
+     Code obfuscation is a frequently-used software protection technique that thwarts reverse engineer-
+     ing by rewriting code into an equivalent but more complex version. Techniques for obfuscating
+     code can take a variety of different forms, including introduction of dead or irrelevant code [16],
+     altering variable and function names [12], unrolling loops [37], replacing program expressions [76],
+     and introducing bogus control flow [13, 19]. While such obfuscation techniques can be used for
+     legitimate reasons like IP protection [8, 23, 47], they are also commonly used by hackers to hide
+     malicious functionality[44, 48, 72] or for avoiding plagiarism detection software [36, 43]. Hence,
+     techniques for deobfuscating code play a crucial role for downstream analysis tasks, such as malware
+ti
+     identification or software plagiarism detection.
+        While there has been ample prior work on code deobfuscation techniques for recovering the
+     original code from its obfuscated version[9, 17, 18, 21, 22, 25, 32, 34, 40, 46, 52, 55, 61–64, 67, 69, 70],
+     most techniques in this space are designed to handle specific obfuscations. For instance, one
+     technique [62] targets the opaque predicate transformation that introduces dead-code guarded by
+     obfuscated conditionals, and another deobfuscation tool [34] targets obfuscations introduced by
+     the OLLVM [33] obfuscator. Such techniques are point solutions in that they handle individual
+     obfuscations and can be easily circumvented by combining multiple obfuscation techniques or
+     slightly modifying existing ones.
+        In this paper, we present a new general deobfuscation technique based on program synthesis
+     that can handle a broad class of control-flow obfuscations. Specifically, we consider the class of
+     obfuscations that introduce bogus control flow and refer to this class as control flow extension (CFE).
+     CFE obfuscations cover a wide array of known techniques, including flattening [13], dead code
+     insertion [16], irrelevant code insertion [31], loop unrolling [37], dummy loop insertion [37], block
+     fission [60], and combinations thereof. Our technique does not require knowledge about the specific
+     obfuscations used a priori, can handle programs with multiple obfuscations; it can also adapt to
+     previously unknown obfuscation techniques.
+        While there have been prior attempts at using program synthesis for code deobfuscation [9, 18, 32,
+     35, 39, 46, 75], most of these techniques perform deobfuscation at the expression level. Expression-
+     level synthesis is useful for handling so-called dataflow obfuscations that replace a simple expression
+     like 𝑎 + 𝑏 with a much more complex equivalent expression, but such techniques are not adequate
+     for obfuscations that modify control flow, as they are much more global in nature. Unfortunately,
+     the global nature of these obfuscations also makes the corresponding synthesis problem more
+     challenging: the code snippets to be reverse engineered are no longer simple expressions but entire
+     code fragments involving conditionals, loops, and sometimes entire functions.
+        Our proposed method deals with this challenge using a novel trace-informed compositional
+     synthesis technique that leverages hints present in dynamic traces of the obfuscated program to
+     dramatically reduce the search space. As illustrated in Figure 1, a key idea underlying our technique
+
+     Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                349:3
+
+                             1   bool binSearch(int a[], int n, int m) {
+                             2       int l=0; int u = n-1; int mid;
+                             3       while (l <= u) {
+                             4           mid = (l + u) / 2;
+                             5           if (m == a[mid]) { return true; }
+                             6           else if (m < a[mid]) {u = mid - 1;}
+                             7           else { l = mid + 1; }
+                             8       }
+                             9       return false;
+                            10   }
+
+                                 Fig. 2. Binary search implementation in C
+
+
+is to synthesize a so-called control-flow skeleton (CFS) of the target program by analyzing dynamic
+traces. Intuitively, a CFS completely fixes the control flow structure of the program such that the
+only remaining parts to be synthesized are the contents of the individual basic blocks. Thus, in
+the first phase (labeled as CFS Generation in Figure 1), our synthesis algorithm obtains the most
+likely control flow skeleton of the deobfuscated program by performing trace-informed search.
+In addition to biasing the search towards more likely control flow skeletons, the dynamic traces
+also facilitate compositional synthesis, as we can infer specifications (in the form of sub-traces)
+of the unknown parts of the program. Then, in the second CFS completion phase, our algorithm
+synthesizes each basic block independently in a modular fashion and uses the sub-traces associated
+with that basic block to prune the search space. Overall, dynamic traces play a prominent role in
+our synthesis technique and help both prune and prioritize the search.
+   We have evaluated our proposed approach on a benchmark set containing 546 obfuscated
+programs obtained using 6 control-flow obfuscation techniques from the literature as well as their
+combinations. We show that Chisel can successfully deobfuscate 86% of these benchmarks within a
+time limit of 20 minutes. Furthermore, we compare to multiple baselines, including the state-of-the-
+art control-flow deobfuscator from Yadegari et al. [67], and show that none of them can deobfuscate
+nearly as many programs as Chisel. Additionally, we run a detailed performance evaluation of
+Chisel on 100 programs generated by Tigress [14] and find that our technique can scale to quite
+complex programs, including obfuscated programs with nearly 150,000 lines of code. Finally, we
+perform a detailed ablation study where we evaluate the importance of each key component of our
+algorithm and show that all components are critical.
+   In short, this paper makes the following contributions:
+• We propose a new deobfuscation algorithm that targets a large family of obfuscations that we
+  formalize as control-flow extension.
+• We present a trace-informed compositional synthesis algorithm that leverages dynamic program
+  traces to make program synthesis tractable in this context.
+• We implement a proof-of-concept source-to-source tool, Chisel, that simplifies obfuscated C
+  programs.
+• We present the results of an extensive experimental evaluation consisting of 546 benchmarks
+  obfuscated using a variety of different techniques.
+
+2   OVERVIEW
+   In this section, we give a high-level overview of our deobfuscation method using the program in
+Figure 2, which gives a standard implementation of binary search in C. Figure 3 shows the resulting
+program when Tigress [14], a well-known obfuscator, is used to apply two different obfuscations:
+flattening and dead-code insertion. Flattening [13] replaces standard control flow structures (like
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:4                                                                                             Mariano et al.
+
+                               1   bool obfFunc(int *var1, int var2, int var3) {
+                               2     int var4; int var5; int var6; ... bool var23;
+                               3     ...
+                               4     var8[11] = &&label11;
+                               5     var9 = 6UL;
+                               6
+                               7        goto *(var8[var9]);
+                               8       label2: var6=(var4+var5)/2; goto label1;
+                               9       label5: return 1;
+                              10       label7: if (var4 <= var5) {goto label2;}
+                              11               else {goto label4;}
+                              12       label1: if (var3==*(var1+var6))
+                              13                  {goto label5;}
+                              14               else
+                              15                  {goto label10;}
+                              16       label6: var4 = 0; goto label9;
+                              17       label9: var5 = var2-1; goto label7;
+                              18       label10:
+                              19           if ( var21 != var22 ) {
+                              20              if (var3<*(var1+var6))
+                              21                  goto label11;
+                              22           } else {
+                              23             while ( (var3<*(var1+var6))<=var5 ) {
+                              24               return 1;
+                              25           }
+                              26        }
+                              27       label0: var4 = var6 + 1; goto label7;
+                              28       label11: var5 = var6 - 1; goto label7;
+                              29       label4: return 0;
+                              30   }
+
+Fig. 3. Binary search obfuscated by Tigress with flattening and dead-code insertion. Note that the presentation
+of the program has been altered slightly from the output of Tigress for clarity. Opaque predicates introduced
+by dead-code insertion are highlighted in pink .
+
+
+
+
+while loops and if-then-else statements) with gotos and labels as can be seen in lines 7-26 of
+Figure 3. Dead-code insertion introduces one or more sections of code that are never executed and
+thus have no impact on a program’s behavior. Dead-code is often guarded by a so-called opaque
+predicate, which is a complicated expression that always evaluates to a constant value but whose
+behavior is difficult to determine statically. In this case, there are two opaque predicates: var21
+!= var22 always evaluates to true and the guard (var3 < *(var1+var6)) <= var5 always
+evaluates to false.
+   There are several previously published techniques for returning a flattened function to its
+original form [21, 34, 40, 63, 64] and for identifying and removing dead code protected by opaque
+predicates [52, 55, 61, 62]. These techniques, by themselves, do not handle programs such as the
+one in Figure 3 that compose two or more transformations, particularly given that the choice
+of order affects the generated code. For example, the program in Figure 3 was produced by first
+applying Tigress’ Flatten transformation and then the AddOpaque transformation; applying these
+in the reverse order would have generated different code. This makes rule-based approaches to
+deobfuscation unappealing, as they are unlikely to be successful for compositions of different
+obfuscations as well as previously unseen ones.
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                349:5
+
+                               Traces generated using a = [1,2,3,4,5], n = 5, m = 4
+                                  Original                               Obfuscated
+            Index 𝑖     Statement 𝑠      Valuation 𝜎             Statement 𝑠 ′           Valuation 𝜎 ′
+               1              -                 -            goto *(var8[var9])                -
+               2            l = 0          {l ↦→ 0}                var4 = 0              {var4 ↦→ 0}
+               3              -                 -                goto label9                   -
+               4          u = n-1          {u ↦→ 4}             var5 = var2-1            {var5 ↦→ 4}
+               5              -                 -                goto label7                   -
+               6           l <= u             true              var4 <= var5                 true
+               7              -                 -                goto label2                   -
+               8      mid = (l+u)/2 {mid ↦→ 2}              var6 = (var4+var5)/2         {var6 ↦→ 2}
+               9              -                 -                goto label1                   -
+              10       m == a[mid]           false         var3 == *(var1 + var6)           false
+              11              -                 -               goto label10                   -
+              12              -                 -              var21 != var22                true
+              14        m < a[mid]           false          var3 < *(var1+var6)             false
+              15              -                 -      (var3 < *(var1+var6)) <= var5        false
+              16         l = mid+1         {l ↦→ 3}            (var4 = var6+1            {var4 ↦→ 3}
+              17              -                 -                goto label7                   -
+              18           l <= u             true              var4 <= var5                 true
+              19              -                 -                goto label2                   -
+              20      mid = (l+u)/2 {mid ↦→ 3}              var6 = (var4+var5)/2         {var6 ↦→ 3}
+              21              -                 -                goto label1                   -
+              22       m == a[mid]            true          var3 == *(var1+var6)             true
+              23              -                 -                goto label5                   -
+              24       return true              -                  return 1                    -
+
+  Fig. 4. Dynamic traces of obfuscated and deobfuscated programs. Loop guards are highlighted in blue.
+
+
+
+
+   One solution to this problem is program synthesis, which treats the deobfuscation task as a search
+problem for the smallest program equivalent to the obfuscated code. In fact, synthesis has been
+highly successful at addressing a similar deobfuscation problem: synthesizing expressions that
+have been obfuscated using Mixed-Boolean-Arithmetic (MBA) [9, 18]. However, techniques from
+that domain do not translate directly to control-flow obfuscation, which may introduce a multitude
+of complex boolean expressions and control-flow operators. To address this shortcoming, we
+introduce a new synthesis-based algorithm for automatically deobfuscating so-called control-flow
+extended programs. Control-flow extension (CFE) describes a family of control-flow obfuscations that
+preserve the existing control- and data-flow behavior of the program but augment it with additional
+variables, statements, and control-flow constructs. More formally, a program 𝑃 ′ is a control-flow
+extension of 𝑃 if, for any given trace 𝑡 ′ of 𝑃 ′ (consisting of a sequence of atomic statements), the
+corresponding trace 𝑡 of 𝑃 is a subsequence of 𝑡 ′ . Several obfuscation techniques, including control-
+flow flattening and dead code insertion shown in Figure 3 as well as their combinations, fall under
+the umbrella of CFE techniques.
+   Our algorithm relies on a key observation about control-flow extended programs: dynamic pro-
+gram traces of the obfuscated program can help intelligently guide search for the deobfuscated program.
+As an example, consider the two dynamic program traces of the obfuscated and deobfuscated binary
+search programs shown in Figure 4. The trace of the original program is shown in the two columns
+on the left and the obfuscated trace in the two columns on the right (the left-most column gives
+an index 𝑖 for each trace element). The traces are generated when we try to find element m=4 in
+the array 𝑎 = [1, 2, 3, 4, 5] (which is of length 𝑛 = 5). It should be noted that the start of both traces
+have been omitted for simplicity of presentation.
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:6                                                                                                              Mariano et al.
+
+
+   Each trace is a sequence of tuples (𝑠, 𝜎), where 𝑠 is the statement executed (or the guard of
+the statement if the statement is an if-then-else or while loop) and a valuation 𝜎 which maps
+variables to their values. For simplicity, valuations only show updated variable values and a valuation
+of "-" indicates no state is changed. For guards, instead of listing the valuation, we give the value
+of the guard when executed (true or false). Additionally, rows where the statement is marked "-"
+correspond to no-ops which have been introduced to simplify the presentation.
+   Our first observation is that the obfuscated trace contains hints as to the control-flow structure
+of the deobfuscated program. For instance, the length 5 sequence of instructions starting with the
+guard var4 <= var5 evaluating to true is repeated twice. Additionally, no other guard in this
+trace evaluates to true twice. Thus, if there is a loop in the deobfuscated code, we deduce that
+var4 <= var5 is the most likely guard of that loop. Furthermore, if we deduce that var4 <= var5
+is the guard of a loop in the deobfuscated program, it is likely that the statements appearing in
+between true invocations of the guard correspond to traces of the loop body.
+   Our second observation is that, for each element (𝑠, 𝜎) of the original program trace, there is a
+"matching" element of the obfuscated trace (𝑠 ′, 𝜎 ′ ) which is almost identical to the original program
+(modulo variable renaming). Thus, when deobfuscating control-flow-extended programs, we only
+need to consider those programs which produce traces that are "reductions" (i.e., subsequences
+modulo variable renaming) of the obfuscated trace.
+   We leverage these observations to formulate a two-staged deobfuscation algorithm that works
+as follows. The first stage utilizes a set of rules based on common trace patterns of standard
+unobfuscated programs to produce the most-likely control-flow skeletons (CFS) that fix the control
+flow structure. Critically, this stage biases the search towards programs that are more likely given
+the observed traces of the obfuscated program. Once such a control flow skeleton is conjectured,
+our algorithm also produces a so-called trace decomposition, which maps unknowns in the sketch
+to subtraces of the obfuscated program. This decomposition is critical to the scalability of our
+approach, as it allows each unknown in the sketch to be synthesized independently.
+   To gain more intuition about these ideas, suppose our algorithm produces the following sketch,
+where ?𝑠𝑖 indicates an unknown program fragment that could be filled with sequential code:
+                                 ?𝑠1 ; while(var3 < *(var1 + var6), ?𝑠2 ) ; ?𝑠3
+Our rules would assign low probability to such a partial program, as the guard var3 < *(var1
++ var6) appears only once in the trace and evaluates to false. On the other hand, consider the
+following alternative CFS:
+                              ?𝑠1 ; while(var4 <= var5, ?𝑠2 ) ; ?𝑠3
+This sketch would be considered much more promising, as the guard var4 <= var5 appears
+multiple times, evaluating to true each time. Given this high-probability sketch, we can identify
+which portions of the trace likely correspond to each hole. In particular, the part of the sketch
+before the first occurrence of var4 <= var5 corresponds to ?𝑠1 , while each portion of the trace
+after var4 <= var5 evaluates to true corresponds to ?𝑠2 . Thus, a high probability decomposition
+inferred for this trace is the following 1 :
+                       ?𝑠1 ↦→     {[(𝑠 1′ , 𝜎1′ ), . . . , (𝑠 5′ , 𝜎5′ )]}
+                       ?2 ↦→      {[(𝑠 7′ , 𝜎7′ ), . . . , (𝑠 17
+                                                               ′ , 𝜎 ′ )], [(𝑠 ′ , 𝜎 ′ ), . . . , (𝑠 ′ , 𝜎 ′ )]}
+                                                                      17      19 19                 24 24                    (1)
+                       ?𝑠3 ↦→     ∅
+
+1 Note that this is the decomposition inferred for a single trace, and thus some control-paths are not explored (e.g., currently
+
+there are no execution paths that exercise ?𝑠3 ). In practice, we develop a decomposition over multiple traces which explore
+different paths within the program.
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                349:7
+
+
+           Prog 𝑃                     → 𝑆 | 𝑃; 𝑆
+           Stmt Groups 𝑆              → 𝐶 | 𝐵 | 𝑙𝑎𝑏𝑒𝑙 : 𝑆
+           Control-flow Stmt 𝐶        → ite(𝐸, 𝑃1, 𝑃2 ) | while(𝐸, 𝑃) | break | continue | 𝑔𝑜𝑡𝑜
+           Stmt Block 𝐵               → 𝐸 | 𝐿 := 𝐸 | 𝐵 1 ; 𝐵 2 | return 𝐸
+           Expr 𝐸                     → func(𝐸)  ¯ | 𝑉 | 𝑐𝑜𝑛𝑠𝑡 | 𝐸 1 [𝐸 2 ] | (∗𝐸) | alloc(𝐸)
+           LHS Expr 𝐿                 → 𝐿[𝐸] | 𝑉 | (∗𝐿)
+           Var 𝑉                      → 𝑣 1 | . . . | 𝑣𝑛
+
+Fig. 5. Source language L𝑜𝑏 𝑓 for obfuscated programs and target language L for deobfuscated programs.
+
+
+  Given the control flow structure of the program and a trace decomposition mapping each
+unknown to a set of sub-traces, our algorithm "completes" the sketch by replacing each unknown
+with straight-line code. Crucially, the trace decomposition allows the algorithm to synthesize each
+unknown independently: We can use the trace decomposition to figure out the correspondence
+between each hole in the sketch and its corresponding code fragment in the obfuscated program.
+This gives us a “specification" for each hole, allowing them to be synthesized independently.
+
+3     PROBLEM STATEMENT
+We introduce the control-flow deobfuscation problem in the context of an imperative C-like
+language L shown in Figure 5. We describe the syntax of the underlying programming language
+using a context-free grammar, which includes a set of non-terminals V, terminals Σ, productions 𝑅,
+and a start symbol 𝛼. Given a string in 𝑠 ∈ (Σ ∪ V) ∗ , we use 𝑠 ⇒ 𝑠 ′ to indicate that 𝑠 ′ is obtained
+from 𝑠 by replacing some non-terminal 𝑁 ∈ V with a string 𝑤 ∈ (Σ ∪ V) where 𝑁 → 𝑤 is a
+production in 𝑅. We write ⇒∗ to indicate the transitive closure of ⇒.
+   Programs in L consist of sequences of statements, which include both control-flow statements (i.e.,
+if-then-else (ite) and while loops) as well as non-control-flow statements, which include expressions
+and assignments. We differentiate between the language L used for expressing deobfuscated
+programs and the language L𝑜𝑏 𝑓 used for expressing obfuscated programs: The only difference is
+that obfuscated programs may contain gotos while deobfuscated programs may not.
+
+3.1    Traces and Program Equivalence
+As mentioned in Section 2, control-flow extended programs alter the control-flow behavior of
+a program while maintaining a relationship between traces of the source and target programs.
+As is standard, we consider a trace 𝑡 to be a sequence of tuples of the form (𝑠, 𝜎), where 𝑠 is an
+atomic statement and 𝜎 is a valuation mapping variables to their values (after 𝑠 is executed). Atomic
+statements do not have control flow and include (1) assignments and expressions from Figure 5
+and (2) boolean guards 𝑔 that encode control flow predicates. The guards track predicates used
+in conditionals and loops and whether they evaluate to true or false. For example, consider the
+program 𝑖𝑡𝑒 (𝑥 < 0, 𝑦 := 0, 𝑦 := 1) with input 𝑥 and suppose we execute this program on input 𝑥 = 5.
+This execution would be encoded using the following trace 𝑡:
+                              (!(𝑥 < 0), [𝑥 ↦→ 5]), (𝑦 := 1, [𝑥 ↦→ 5, 𝑦 ↦→ 1])
+The first element in 𝑡 shows that the predicate of the if statement evaluates to false in this execution,
+and the second element corresponds to the execution of the false branch.
+   We use the notation 𝜎 ⊆ 𝜎 ′ to indicate that the valuation 𝜎 ′ is an extension of 𝜎, meaning that
+(1) 𝜎, 𝜎 ′ agree on the values of all variables in the domain of 𝜎 and (2) 𝜎 ′ may contain additional
+variables not in the domain of 𝜎. Given a program 𝑃 with input 𝜎, we denote the trace of 𝑃 on
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:8                                                                                            Mariano et al.
+
+
+input 𝜎 as Trace(𝑃, 𝜎), and we write 𝑡 .𝜎𝑖𝑛 to denote the the input that produced 𝑡. We also use the
+notation J𝑃K𝜎 to denote the program output when 𝑃 is executed on 𝜎. We say two programs 𝑃, 𝑃ˆ
+are semantically equivalent, denoted 𝑃 ≡ ˆ 𝑃, if, for all input valuations 𝜎, we have J𝑃K𝜎 = J ˆ
+                                                                                              𝑃K𝜎 .
+
+3.2     Control-flow Extensions and Reductions
+We formalize the class of obfuscations targeted in this paper as control-flow extensions. To define
+this concept, we first introduce the notions of guard-free trace and trace extension:
+  Definition 3.1 (Guard-free trace). Given trace 𝑡, 𝜒 (𝑡) yields a trace 𝑡 ′ such that (1) 𝑡 ′ does not
+contain any boolean guards, and (2) 𝑡 ′ is the longest subsequence of 𝑡 satisfying the first condition.
+  Example 3.1. Suppose 𝑡 is the trace (!(𝑥 < 0), [𝑥 ↦→ 5]), (𝑦 := 1, [𝑥 ↦→ 5, 𝑦 ↦→ 1]) from above.
+Then 𝜒 (𝑡) is (𝑦 := 1, [𝑥 ↦→ 5, 𝑦 ↦→ 1]).
+   Control flow obfuscation can modify control flow predicates in subtle ways – for example, the
+guard of a loop may be negated so that while(x) {...} becomes while(true) { if(!x) break;
+...} or a conditional guard x && y may be split into nested guards x and y separately. To address
+this, we define trace extensions over guard-free traces 𝜒 (𝑡), which remove guards from the trace 𝑡.
+  Definition 3.2 (Trace Extension). We say that a trace 𝑡ˆ is an extension of trace 𝑡 if there exists a
+subsequence 𝑡ˆ′ of 𝑡ˆ such that for every trace element 𝜒 (𝑡) [𝑖] = (𝑠, 𝜎), 𝜒 (𝑡ˆ′ ) [𝑖] = (𝑠, ˆ
+                                                                                              𝜎) where 𝜎 ⊆ ˆ
+                                                                                                           𝜎.
+   Example 3.2. Consider the three following traces:
+                           𝑡 1 = [(x++, {𝑥 ↦→ 4})]
+                           𝑡 2 = [(x--, {𝑥 ↦→ 2}), (x++, {𝑥 ↦→ 3})]
+                           𝑡 3 = [(y--, {𝑥 ↦→ 3, 𝑦 ↦→ 1}), (x++, {𝑥 ↦→ 4, 𝑦 ↦→ 1})]
+Here, 𝑡 3 is an extension of 𝑡 1 as both have an element x++ where 𝑥 is assigned to 4. No other trace is an
+extension of any other one.
+  We note that checking that a trace 𝑡 is an extension of a trace 𝑡 ′ can be done efficiently, as one
+can first project the states of 𝑡 onto the variables 𝑉 occurring in 𝑡 ′ to derive a trace 𝑡𝑉 , and then
+check that 𝑡 ′ is a subtrace of 𝑡𝑉 .
+  Definition 3.3 (Control-flow Extension). Program 𝑃ˆ is a control-flow extension of program
+𝑃 iff 𝑃 is observationally equivalent to 𝑃ˆ (written 𝑃 ≡ ˆ
+                                                         𝑃) and, for every input 𝜎, Trace( ˆ
+                                                                                          𝑃, 𝜎) is an
+extension of Trace(𝑃, 𝜎).
+   Example 3.3. Suppose 𝑃 is x := 1; return x; Then the following program is a control-flow
+extension of 𝑃:
+                           y := 1; if (y >= 1){x := 1;} return x
+as any trace of both programs will contain an entry with x := 1 and where 𝑥 maps to 1.
+   Definition 3.4 (Control-flow Reduction). We say that a program 𝑃 is a control-flow reduction
+of program 𝑃ˆ iff 𝑃ˆ is a control-flow extension of 𝑃.
+
+3.3     Problem Statement
+When deobfuscating a control-flow extended program, our goal is to find the “simplest” deobfuscated
+program. We formalize this notion as a minimum control-flow reduction:
+   Definition 3.5 (Minimum Control-flow Reduction). 𝑃 is a minimum control-flow reduction
+of 𝑃ˆ if 𝑃 is a control-flow reduction of 𝑃ˆ and for any control-flow reduction 𝑃 ′ of 𝑃,
+                                                                                       ˆ we have |𝑃 | ≤ |𝑃 ′ |,
+where |·| returns the AST size of a program.
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                349:9
+
+
+    We now define the control-flow deobfuscation problem:
+   Definition 3.6 (Control-flow Deobfuscation Problem). Given some (obfuscated) program 𝑃ˆ
+from L𝑜𝑏 𝑓 , find a minimum control-flow reduction 𝑃 of 𝑃ˆ in L.
+
+4     DEOBFUSCATION ALGORITHM
+In this section, we first introduce the concept of a trace-augmented sketch (or t-sketch for short)
+which plays a key role in our synthesis algorithm. We then describe the top-level deobfuscation
+procedure, followed by a discussion of its two core components.
+
+4.1    Trace Augmented Program Sketch
+A trace-augmented sketch, abbreviated 𝑡-sketch, consists of two parts: a regular sketch and a trace
+decomposition Δ. A regular sketch is a program with unknown parts:
+   Definition 4.1 (Sketch). Let L = (V, Σ, 𝑅, 𝛼) be the language from Figure 5. A program sketch
+S over L is a string in (Σ ∪ V) ∗ where 𝛼 ⇒∗ S. We refer to any non-terminal 𝑁 ∈ V in S as a hole.
+We distinguish between two types of holes. A control flow hole is a hole ?𝑐 such that ?𝑐 ⇒∗ 𝐶 , while a
+statement hole ?𝑠 is a hole that only derives sequential code. We also write ? to denote a hole of either
+type. Finally, we say a sketch is complete if it has no holes, and it is control-flow complete if it has no
+control-flow holes.
+    Example 4.1. The following is a sketch of a program containing a loop:
+                                         ?𝑐1 ; while(x > y, ?𝑠 ) ; ?𝑐2
+Because the sketch contains control-flow holes, it is not a control-flow complete sketch.
+  As discussed earlier, our technique decomposes the original synthesis problem into smaller
+subproblems by mapping each hole ? in the sketch to a set of subtraces. We introduce trace
+decomposition to capture this idea:
+  Definition 4.2 (Trace Decomposition). Given a sketch S and set of traces 𝑇 , a trace decom-
+position Δ is a mapping from each hole ?𝑖 in S to a set of traces 𝑇𝑖 such that each trace 𝑡𝑖 ∈ 𝑇𝑖 is a
+subsequence of some trace in 𝑇 .
+    Example 4.2. Consider the sketch from Example 4.1 and the following trace:
+                 1. y := 10      {𝑥 ↦→ 14, 𝑦 ↦→ 10}      5. y += 2         {𝑥 ↦→ 14, 𝑦 ↦→ 14}
+                 2. x > y        {𝑥 ↦→ 14, 𝑦 ↦→ 10}      6. x > y          {𝑥 ↦→ 14, 𝑦 ↦→ 14}
+                 3. y += 2       {𝑥 ↦→ 14, 𝑦 ↦→ 12}      7. return y       {𝑥 ↦→ 14, 𝑦 ↦→ 14}
+                 4. x > y        {𝑥 ↦→ 14, 𝑦 ↦→ 12}
+The following is a decomposition is this trace:
+             ?𝑐1 ↦→   {[ (y := 10, {𝑥 ↦→ 14, 𝑦 ↦→ 10}) ]}
+             ?𝑠 ↦→    {[ (y += 2, {𝑥 ↦→ 14, 𝑦 ↦→ 12}) ], [ (y += 2, {𝑥 ↦→ 14, 𝑦 ↦→ 14}) ]}
+             ?𝑐2 ↦→   {[ (return y, {𝑥 ↦→ 14, 𝑦 ↦→ 14}) ]}
+  Definition 4.3 (Trace-augmented sketch). Given a program with traces 𝑇 , a 𝑡-sketch Θ is a
+pair (S, Δ) where S is a sketch and Δ is a trace decomposition of 𝑇 with respect to S. We write Θ.S
+and Θ.Δ to indicate each component of the 𝑡-sketch.
+   Finally, because we are interested in t-sketches that are control-flow complete, we refer to them
+as control flow skeletons:
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:10                                                                                          Mariano et al.
+
+
+ 1: procedure Deobfuscate( ˆ
+                          𝑃,𝑇 )
+ 2:         input: Obfuscated program 𝑃ˆ
+ 3:         input: Trace set 𝑇 of 𝑃ˆ
+ 4:         output: Deobfuscated program 𝑃
+ 5:         while true do
+ 6:           Θ ← GetNextCFS(𝑇 )
+ 7:           if Θ = ⊥ then return ⊥
+ 8:           𝑉 ← GetInputVars(𝑃)   ˆ
+ 9:           while true do
+10:                𝑃 ← CompleteCFS(Θ, ˆ   𝑃, 𝑉 )
+11:                if isReduction(𝑃, ˆ
+                                     𝑃) then return 𝑃
+12:               𝑉 ′ ← GetNextVocabulary(Θ)
+13:                if 𝑉 = 𝑉 ′ then break;
+14:                else 𝑉 ← 𝑉 ′
+
+         Algorithm 1. Top-level deobfuscation algorithm. We note isReduction returns false when 𝑃 is ⊥.
+
+
+   Definition 4.4 (Control-flow skeleton). A control-flow skeleton (CFS) is a 𝑡-sketch where Θ.S
+is control-flow complete.
+  In other words, a CFS completely fixes the control flow of the target program.
+
+4.2      Top-Level Algorithm
+Algorithm 1 shows our top-level deobfuscation algorithm. As discussed earlier, the key idea is to
+use dynamic traces of the obfuscated program to make synthesis more tractable. The algorithm
+consists of two phases that are repeatedly executed until a solution is found:
+• Phase 1: This phase corresponds to the body of the outer loop and identifies the most promising
+  control-flow skeleton by calling GetNextCFS at line 6. As discussed in the next subsection, we
+  use the provided traces to determine how promising a control flow skeleton is.
+• Phase 2: This phase corresponds to the inner loop of Algorithm 1 and tries to synthesize all
+  basic blocks in a given CFS such that the resulting program 𝑃 is a control flow reduction of the
+  input program 𝑃.  ˆ Specifically, given a CFS and a “vocabulary” 𝑉 , CompleteCFS (invoked at line
+  10) returns a complete program that only uses variables in 𝑉 . This vocabulary is initialized to
+  the input variables (line 8) and iteratively updated (via the call to GetNextVocabulary at line
+  12) until a fixed point is reached. The idea behind the vocabulary is that the obfuscation may
+  introduce many spurious variables, so we wish to find a semantically equivalent program that
+  only uses a minimal set of variables. This is why Algorithm 1 only updates the vocabulary if it
+  fails to find a completion of the CFS with the existing vocabulary.
+  In the next two subsections, we present the GetNextCFS and CompleteCFS procedures in more
+detail and provide information about growing the deobfuscation vocabulary in Section 5.
+
+4.3      Synthesizing Control Flow Skeletons
+Algorithm 2 shows the GetNextCFS procedure that lazily enumerates control flow skeletons in
+decreasing order of likelihood with respect to the provided traces 𝑇 . The core idea is to pattern
+match a given sketch against the dynamic program traces to determine whether this control flow
+structure is probable with respect to the observed program executions. For a given sketch S,
+the algorithm also uses 𝑇 to deduce a trace decomposition and refines the current sketch into a
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                 349:11
+
+
+ 1: procedure GetNextCFS(𝑇 )
+ 2:     input: Trace set 𝑇 of 𝑃ˆ
+ 3:     output: Next most likely 𝑡-sketch given 𝑇
+ 4:     W ← PriorityQueue((?𝑐𝑃 , {?𝑐𝑃 ↦→ 𝑇 }), 1)
+ 5:     while ¬Empty(W) do
+ 6:        (Θ, 𝑤) ← W.dequeue()
+ 7:        if ControlFlowComplete(Θ.S) then
+ 8:            yield Θ
+ 9:        F ← Expand(Θ)
+10:        for E𝑖 ∈ F do
+11:            Υ ← Decompose(Θ, E𝑖 )
+12:            C ← {(Θ𝑖′, 𝑤 × 𝑤𝑖 ) | (Θ𝑖 , 𝑤𝑖 ) ∈ Υ}
+13:            W ← W.addAll(C)
+14:     return ⊥
+
+Algorithm 2. Algorithm for getting next CFS. The Expand procedure replaces one of the control flow holes in
+the sketch with the right hand side of all possible productions in the grammar.
+
+
+𝑡-sketch. This process of repeatedly refining 𝑡-sketches continues until the algorithm finds one that
+is control-flow complete.
+   In more detail, the algorithm maintains a priority queue of 𝑡-sketches along with a corresponding
+score. Intuitively, the higher the score, the more likely we consider this sketch to be with respect
+to the observed execution traces. The queue is initialized to be a singleton set containing the
+trivial sketch ?𝑐𝑃 (i.e., a single hole corresponding to the start symbol of the grammar) and the
+decomposition {?𝑐𝑃 ↦→ 𝑇 } which just maps that hole to the input trace set 𝑇 (line 4).
+   The main loop (lines 5-13) starts by dequeueing the next most likely 𝑡-sketch Θ = (S, Δ) from
+the priority queue. If S is control-flow complete, then Θ is returned as the next most promising
+CFS. Otherwise, the algorithm invokes Expand to refine the current 𝑡-sketch by choosing one of the
+control-flow holes in S and finding possible ways to fill that hole. In particular, Expand returns a
+set of mappings from holes in S to a candidate expansion. Here, an expansion for hole ?𝑐 (associated
+with non-terminal 𝑁 ) is a string 𝑠 over the alphabet (V ∪ Σ) such that 𝑁 ⇒∗ 𝑠. Thus, hole ?𝑐 can
+be replaced with 𝑠 to generate a refinement of S. For example, given the empty program ?, Expand
+returns a set of possible refinements, such as ite(𝑥 < 0, ?, ?). Note that, when filling a hole using a
+conditional or loop, the Expand procedure fixes their guards but not their body (as in the previous
+example). When expanding a hole ?, guards are chosen based on which guards appear in traces
+associated with ? in the decomposition Θ.Δ.
+   Each candidate expansion E𝑖 produced by Expand will contain holes that are not present in S,
+meaning that we must infer subtraces for the new holes. Thus, lines 10-13 process each candidate
+
+
+                                 Table 1. Examples of Trace Matching Rules.
+
+                                             Trace Matching Rules
+    Name          "Regex" Structure                   "Regex" Parts                   Control-flow Structure
+ basic-loop    (pre) (body)* [!g] (post)      pre: .* body: g[ˆg]* post: .*       (pre) while(g) do (body) (post)
+ break-loop    (pre) (body)* [g2] (post)      pre: .* body: g[ˆg]* post: .*              while(g) do (body)
+   ite-true     (pre) [g] (body) (post)    pre: [ˆg]* body: ˆs* post: [s] (.)*   (pre) if (g) {(body)} else {*} (post)
+
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:12                                                                                        Mariano et al.
+
+
+proposed by Expand to generate a corresponding new 𝑡-sketch. Specifically, the Decompose pro-
+cedure (discussed next) infers a set of new trace decompositions, along with their corresponding
+scores, for each E𝑖 . Finally, the resulting 𝑡-sketches are added to the priority queue.
+
+4.3.1 Rule-based Decomposition. The basic idea underlying trace decomposition is to pattern
+match the given trace against regular expressions that encode common program structures. If there
+is a match, we decompose the trace into subtraces based on which parts of the regex correspond to
+which subtraces. While our algorithm considers multiple decompositions, only those 𝑡-sketches
+that have a match are assigned a high score, allowing them to be prioritized by the search algorithm.
+It should be noted that our regex matching is not greedy in the sense that it will assign a high score
+to all decompositions matching one of the regular expression rules.
+   Table 1 presents examples of regexes used for decomposing traces. Naturally, these rules capture
+common control flow patterns. For example, the first rule describes traces that correspond to basic
+while loops (without break). According to this rule, a trace 𝑡 of the obfuscated program is likely
+to correspond to a while loop in the original unobfuscated program if 𝑡 exhibits the pattern “Pre
+followed by any number of occurrences of Body, followed by !𝑔 and then Post". Here, Pre and Post
+can include any arbitrary sequence of statements, but Body must start with guard 𝑔 (evaluating to
+true) and must be followed by any sequence of statements except for !𝑔 (denoting 𝑔 evaluating to
+false). Similarly, the second regex captures common looping patterns that involve a break statement.
+This regex is similar to the first one except that the guard 𝑔2 that terminates the loop can be different
+from 𝑔. The last rule captures common if-then-else patterns: here, Pre, Post indicate the part of the
+trace before and after the if statement respectively, and body is the subtrace for the true branch.
+
+  Example 4.3. Consider the trace from Example 4.2 and let x > y be our guard 𝑔. Then, the trace will
+be accepted by the basic-loop rule with the first statement y := 10 matching pre, states 2-5 matching
+body, state 6 matching !𝑔, and state 7 matching post.
+
+   Figure 6 shows how the rules from Table 1 are used to assign scores to 𝑡-sketches using judgments
+Θ, E𝑖 { Θ𝑖 , 𝑤𝑖 . The meaning of this judgment is that, given a 𝑡-sketch Θ and candidate expansion
+E𝑖 , we refine Θ to Θ𝑖 with score 𝑤𝑖 . The Decompose procedure is defined using these rules as:
+
+                             Decompose(Θ, E𝑖 ) = {(Θ𝑖 , 𝑤𝑖 ) | Θ, E𝑖 { Θ𝑖 , 𝑤𝑖 }
+
+We explain the rules from Figure 6 in more detail below.
+While. This rule decomposes candidate expansions involving a while loop with guard 𝑔 and body
+?𝑏𝑜𝑑 𝑦 where the loop has prefix ?pre and suffix ?𝑝𝑜𝑠𝑡 . We first check whether all traces in Θ.Δ[?]
+match one of the loop patterns, such as basic-loop or break-loop from Table 1. If so, the candidate
+expansion is assigned a high score 𝑤𝛾 and a new sketch S𝑖 is obtained by replacing hole ? with
+E𝑖 [?]. Finally, we obtain a decomposition by associating each of the holes ?pre, ?body , and ?post with
+the sub-traces that are matched by pre, body, and post in the loop rules from Table 1.
+ITE. Similar to While, this checks whether all traces match one of the ITE patterns, such as the
+ite-true regex from Table 1. Then, it performs the trace decomposition based on which parts of the
+trace match the ITE regexes.
+Block. This rule considers the case where the expansion is straight-line code. It first checks if
+there is a guard for which a loop or if-then-else pattern that could match with all the traces. If
+the check fails, then no viable control flow pattern is present and so it proceeds to decompose
+the trace by removing all control flow statements from Θ.Δ[?]. Since the rule assumes that the
+original program fragment under consideration does not have nested control-flow statements, any
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                349:13
+
+
+                           Rules for constructing trace decomposition Δ
+
+                     E𝑖 [?] =?𝑝𝑟𝑒 ; while(𝑔, ?𝑏𝑜𝑑 𝑦 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [? ↦→ E𝑖 [?]]
+                             ∀𝑡 𝑗 ∈ Θ.Δ[?]. MatchLoop(𝑡 𝑗 , 𝑔) = (𝑃 𝑗 , 𝐵 𝑗 , 𝐶 𝑗 )
+                          Δ𝑖 = Δ[?𝑝𝑟𝑒 ↦→ ∪ 𝑗 𝑃 𝑗 , ?𝑏𝑜𝑑 𝑦 ↦→ ∪ 𝑗 𝐵 𝑗 , ?𝑝𝑜𝑠𝑡 ↦→ ∪ 𝑗 𝐶 𝑗 ]
+                                                                                                    WHILE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                   E𝑖 [?] =?𝑝𝑟𝑒 ; ite(𝑔, ?𝑡𝑟𝑢𝑒 , ? 𝑓 𝑎𝑙𝑠𝑒 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [? ↦→ E𝑖 [?]]
+                           ∀𝑡 𝑗 ∈ Θ.Δ[?]. (𝑃 𝑗 ,𝑇 𝑗 , 𝐹 𝑗 , 𝐶 𝑗 ) = MatchITE(𝑡 𝑗 , 𝑔)
+                  Δ𝑖 = Δ[?𝑝𝑟𝑒 ↦→ ∪ 𝑗 𝑃 𝑗 , ?𝑡𝑟𝑢𝑒 ↦→ ∪ 𝑗 𝑇 𝑗 , ? 𝑓 𝑎𝑙𝑠𝑒 ↦→ ∪ 𝑗 𝐹 𝑗 , ?𝑝𝑜𝑠𝑡 ↦→ ∪ 𝑗 𝐶 𝑗 ]
+                                                                                                         ITE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                                 𝑇 := Θ.Δ[?] 𝐺 := ∪𝑡 ∈𝑇 Guards(𝑡).
+                         ¬(∃𝑔 ∈ 𝐺 . ∀𝑡 ∈ 𝑇 . MatchLoop(𝑡, 𝑔) ∨ MatchITE(𝑡, 𝑔))
+                                  E𝑖 [?] =?𝐵 S𝑖 = Θ.S [ℎ ↦→ E𝑖 [ℎ]]
+                         Δ𝑖 = Θ.Δ[?𝐵 ↦→ RemoveControlFlowStmts(Θ.Δ[?])]
+                                                                                                BLOCK
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                     E𝑖 [?] =?𝑝𝑟𝑒 ; while(𝑔, ?𝑏𝑜𝑑 𝑦 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [ℎ ↦→ E𝑖 [ℎ]]
+                                    ∃𝑡 𝑗 ∈ Θ.Δ[?]. ¬MatchLoop(𝑡 𝑗 , 𝑔)
+                              Δ𝑖 = Θ.Δ[?𝑝𝑟𝑒 ↦→ ∗, ?𝑏𝑜𝑑 𝑦 ↦→ ∗, ?𝑝𝑜𝑠𝑡 ↦→ ∗]
+                                                                                                    NO-WHILE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤 𝛼
+
+
+                                 Fig. 6. Rules describing Decompose algorithm
+
+
+
+control-flow elements in the trace must be due to the deobfuscation and are therefore removed
+from the decomposed trace for ?𝐵 .
+No-While. This rule exemplifies how we deprioritize unlikely sketches. The proposed expansion
+for hole ? involves a loop with guard 𝑔, but there exists at least one trace that does not match a loop
+pattern for guard 𝑔. Therefore, it is unlikely that E𝑖 is a correct expansion of ?; hence, we assign it
+a low score 𝑤 𝛼 . Furthermore, the decomposition does not carry any information and allows any
+sub-trace (indicated by ∗).
+
+   Example 4.4. Consider the trace 𝑡 from Example 4.2, let Θ = (?𝑐𝑃 , {𝑡 }) (where ?𝑐𝑃 is simply the
+starting hole), and let E𝑖 [?𝑐𝑃 ] = ?𝑝𝑟𝑒 ; while(𝑔, ?𝑏𝑜𝑑 𝑦 ) ; ?𝑝𝑜𝑠𝑡 . In this case, 𝑡 matches the basic-loop
+rule (as mentioned in Example 4.3) and thus Δ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾 is satisfied where S𝑖 = E𝑖 [?𝑐𝑝 ] and
+Δ𝑖 = {?𝑝𝑟𝑒 ↦→ {[(𝑠 1, 𝜎1 )]}, ?𝑏𝑜𝑑 𝑦 ↦→ {[(𝑠 2, 𝜎2 ), . . . , (𝑠 5, 𝜎5 )]}, ?𝑝𝑜𝑠𝑡 ↦→ {[(𝑠 7, 𝜎7 )]}}.
+
+4.4   Synthesizing Basic Blocks of a Control Flow Skeleton
+We now turn our attention to Algorithm 3 for synthesizing basic blocks in a CFS. The CompleteCFS
+procedure takes as input a CFS Θ (i.e., Θ has no control flow holes) and a candidate vocabulary 𝑉
+for the deobfuscated program. It either returns ⊥ to indicate that Θ is infeasible (under vocabulary
+𝑉 ) or returns a deobfuscated program over vocabulary 𝑉 . Recall that the explicit vocabulary allows
+us to disregard some of the variables in the obfuscated program, as program obfuscations typically
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:14                                                                                                    Mariano et al.
+
+
+ 1: procedure CompleteCFS(Θ, ˆ 𝑃, 𝑉 )
+ 2:    input: CFS Θ; deobfuscation vocabulary 𝑉
+ 3:    output: Completion 𝑃 of Θ
+ 4:      𝐶←∅
+ 5:      for ?𝑠 ∈ GetHoles(Θ.S) do
+ 6:                                   𝑃, Θ.Δ[?𝑠 ])
+            𝑃ˆ?𝑠 ← GetObfuscatedCode( ˆ
+ 7:         𝑃?𝑠 ← SynthesizeBasicBlock(?𝑠 , Θ.Δ[?𝑠 ], 𝑃ˆ?𝑠 , 𝑉 )
+ 8:          if 𝑃?𝑠 = ⊥ then return ⊥
+ 9:         𝐶 [?𝑠 ] ← 𝑃?𝑠
+10:      return Θ.S [𝐶]
+
+                         Algorithm 3. Algorithm for completing a control flow skeleton
+
+
+introduce many redundant variables. To this end, we introduce the notion of equivalence modulo a
+set of variables as follows:
+   Definition 4.5 (Equivalence modulo 𝑉 ). Programs 𝑃 and 𝑃 ′ are equivalent modulo variables
+𝑉 , written 𝑃 ≡𝑉 𝑃 ′ , if:
+                           ′
+            ∀𝜎𝑖𝑛 , 𝜎𝑜𝑢𝑡 , 𝜎𝑜𝑢𝑡 . J𝑃K𝜎𝑖𝑛 = 𝜎𝑜𝑢𝑡 ∧ J𝑃 ′ K𝜎𝑖𝑛 = 𝜎𝑜𝑢𝑡
+                                                              ′                           ′
+                                                                  =⇒ ∀𝑣 ∈ 𝑉 . 𝜎𝑜𝑢𝑡 [𝑣] = 𝜎𝑜𝑢𝑡 [𝑣]
+  In other words, 𝑃 and 𝑃 ′ are equivalent modulo variables 𝑉 if, given the same input, their outputs
+agree over 𝑉 .
+   With this definition in place, we now explain the CompleteCFS procedure presented in Al-
+gorithm 3. At a high level, this algorithm performs synthesis in a modular way in that it tries
+to synthesize each basic block independently. For each statement hole ?𝑠 , it first retrieves the
+obfuscated version of the code via the call to GetObfuscatedCode at line 6.2 Then, it invokes the
+SynthesizeBasicBlock procedure (discussed next) to find a completion 𝑃?𝑠 of the hole such that
+𝑃?𝑠 is equivalent to its obfuscated counterpart 𝑃ˆ?𝑠 modulo variables 𝑉 . If the algorithm fails to find
+an equivalent program for any hole in the sketch, either the sketch or the trace decomposition is
+wrong, and the algorithm returns ⊥. The final deobfuscated program is obtained by replacing all
+the holes in the sketch with their completions as given by mapping 𝐶.
+   We next explain SynthesizeBasicBlock (see Algorithm 4), which performs top-down enumera-
+tive search for synthesizing straight-line code. The key difference of this algorithm from standard
+top-down enumerative synthesis is that it utilizes a notion of trace extensibility to identify dead
+ends. In more detail, it takes as input a hole ?𝑠 to be filled in, subtraces 𝑇 associated with ?𝑠 , deob-
+fuscation vocabulary 𝑉 , and code 𝑃ˆ?𝑠 corresponding to ?𝑠 in the obfuscated program. Similar to any
+top-down synthesis algorithm, it maintains a priority queue over partial programs, sorted according
+to program size. In each iteration, it dequeues the smallest program and checks whether it is (a)
+complete (meaning there are no holes) and (b) equivalent to the obfuscated code modulo vocabulary
+𝑉 . If so, this program is returned as a solution (line 10). Otherwise, 𝑃?𝑠 is refined by choosing
+a statement hole and replacing it with either an atomic statement or a sequence of statements
+(line 12). For each possible refinement 𝑃?′𝑠 of 𝑃?𝑠 , the algorithm checks its feasibility by calling the
+TraceExtensible procedure, defined as follows:
+
+2 Since the obfuscated version of the code can be inferred from the trace in a straightforward way, we do not discuss the
+
+implementation of GetObfuscatedCode in detail.
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:15
+
+
+ 1: procedure SynthesizeBasicBlock(?𝑠 ,𝑇 , 𝑃ˆ?𝑠 , 𝑉 )
+ 2:    input: Hole ?𝑠 to be completed
+ 3:    input: Traces 𝑇 for ?𝑠
+ 4:     input: Obfuscated code snippet 𝑃ˆ?𝑠 for ?𝑠
+ 5:     input: Variable set 𝑉
+ 6:     output: Deobfuscated version of 𝑃ˆ
+ 7:     W ← PriorityQueue(?𝑠 , 1)
+ 8:     while ¬Empty(𝑊 ) do
+ 9:       𝑃?𝑠 ← W.dequeue()
+10:       if Complete(𝑃 ?𝑠 ) ∧ 𝑃?𝑠 ≡𝑉 𝑃ˆ?𝑠 then return 𝑃 ?𝑠
+11:       for 𝑃 ?′𝑠 ∈ ExpandStmtHole(𝑃?𝑠 ,𝑇 , 𝑉 ) do
+12:           if TraceExtensible(𝑃?′𝑠 ,𝑇 ) then
+13:                 W ← W.add(𝑃 ?′𝑠 , |𝑃?′𝑠 |)
+14:     return ⊥
+
+                         Algorithm 4. Algorithm for synthesizing a statement hole
+
+
+    Definition 4.6 (Trace extensibility). A code fragment 𝑃 is extensible with respect to trace set 𝑇
+if, for every trace 𝑡 ∈ 𝑇 , 𝑡 is a trace-extension of Trace(𝑃, 𝑡 .𝜎𝑖𝑛 ).
+  Intuitively, if 𝑃?′𝑠 is not trace extensible with respect to 𝑇 , 𝑃?′𝑠 cannot be completed in a way that
+will yield an equivalent deobfuscated program. Hence, the algorithm discards all programs that are
+not extensible with respect to 𝑇 .
+
+4.5   Properties of the Algorithm
+In this section, we prove our algorithm is sound and complete and briefly discuss the assumptions
+under which our algorithm returns the minimum control-flow reduction.
+                                               ˆ ) and 𝑇 are traces of 𝑃,
+   Theorem 4.1 (Soundness). If 𝑃 = Deobfuscate(𝑃,𝑇                     ˆ 𝑃 is either ⊥ or 𝑃 is
+                            ˆ
+a control-flow reduction of 𝑃.
+                                                        ˆ
+  Proof. Follows from the correctness of isReduction(𝑃, 𝑃).                                                       □
+   Theorem 4.2 (Completeness). For traces 𝑇 of ˆ
+                                              𝑃, Deobfuscate( ˆ
+                                                             𝑃,𝑇 ) eventually returns a control-
+flow reduction 𝑃 of 𝑃ˆ if one exists.
+  Proof. Can be found in Appendix C.                                                                              □
+   Our algorithm is guaranteed to return a minimum control-flow reduction under certain assump-
+tions about GetNextCFS and GrowVocabulary. For more information on these assumptions and a
+proof of Theorem 4.2, see Appendices C and D.
+
+5 IMPLEMENTATION
+We implemented our algorithm in a tool called Chisel for deobfuscating C programs. Chisel is
+written in just over 8000 lines of Python and uses GDB [26] for generating traces. In this section,
+we describe a number of important optimizations used in our implementation.
+Exploration of 𝑡-sketches. In Section 4, we compute the likelihood of a new 𝑡-sketch Θ′ given a 𝑡-
+sketch Θ and hole expansion E𝑖 via the rules shown in Figure 6. For each expansion E𝑖 , Algorithm 2
+adds all 𝑡-sketches produced by the rules to the queue. In practice, eagerly adding all 𝑡-sketches
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:16                                                                                        Mariano et al.
+
+
+can be prohibitively expensive. We address this issue by discarding very low probability 𝑡-sketches.
+In other words, if the probability of a 𝑡-sketch falls below a certain threshold, we do not add it
+to the priority queue used in the GetNextCFS procedure. It should be noted that this decision
+sacrifices the theoretical completeness guaranteed by our algorithm. However, in practice, we did
+not encounter any cases in our experimental evaluation where this incompleteness resulted in
+actually missing the desired control-flow sketch.
+Memoizing synthesis results. Algorithm 1 iteratively adjusts the vocabulary 𝑉 when a sketch
+cannot be completed. As presented, every time 𝑉 is adjusted, CompleteCFS resumes synthesis
+from scratch. This significantly slows down the performance of Chisel when several vocabulary
+sets are explored. We address this by memoizing all programs that have been enumerated. For each
+completion of a basic block, we save the completion, execute the code in the blocks using the inputs
+from the associated traces to derive values for each variable, and then save those variables whose
+values agreed with the trace. When the vocabulary is adjusted, we check the cache for programs
+that satisfy the variables in the vocabulary and return the smallest one. Otherwise, we resume
+synthesis, skipping programs that are already in the cache.
+GetNextVocabulary details. GetNextVocabulary internally tracks the vocabulary sets used for a
+given t-sketch and, when called, returns the smallest vocabulary set that has not been used thus far.
+However, many vocabulary sets are infeasible in that there is no valid completion of the CFS given
+that set. For example, if the vocabulary set does not include the return variables then no completion
+of the sketch can be a control-flow reduction of the obfuscated program. GetNextVocabulary
+rules out these infeasible sets by only considering vocabulary sets that include the input variables,
+the return variables and the variables in the guards of the CFS as those are expected to appear
+in the deobfuscated program. Another way a vocabulary set can be infeasible is if it contains a
+variable but none of its data dependencies. To avoid such cases, GetNextVocabulary tracks the data
+dependencies for each variable across all the supplied traces and prunes any vocabulary set which
+includes a variable but none of its dependencies.
+Checking control flow reduction. Checking if the program 𝑃 is a control flow reduction of 𝑃ˆ is a
+highly nontrivial relational verification task. Rather than perform this expensive check for every
+complete CFS, we instead only check if the synthesized program is a reduction with respect to the
+provided traces. More precisely, for each trace 𝑡 in the input trace set, we check that 𝑇 𝑟𝑎𝑐𝑒 (𝑃, 𝑡 .𝜎𝑖𝑛 )
+                                ˆ 𝑡 .𝜎𝑖𝑛 ). While such a check is unsound, we have not encountered a
+is a trace extension of 𝑇 𝑟𝑎𝑐𝑒 (𝑃,
+case where our algorithm returned a program that was not a reduction.
+
+6   EXPERIMENTS
+In this section, we present the results of an experimental evaluation that is designed to address the
+following research questions:
+RQ1. Can Chisel deobfuscate a variety of control-flow obfuscations?
+RQ2. How does Chisel compare against other baselines?
+RQ3. How does Chisel scale with respect to the size of the input program?
+RQ4. How important is trace-informed decomposition in practice?
+RQ5. Does Chisel generalize to new obfuscations?
+RQ6. Can Chisel be useful for binary deobfuscation?
+
+6.1 Benchmarks
+To answer these research questions, we start with a set of 91 unobfuscated C programs used in
+prior work on control-flow obfuscation [4–7]. Among these, 51 are classical algorithms covered in
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                         349:17
+
+                      One Obfuscation Two Obfuscations Three Obfuscations
+                                                                                            < 1 min
+                                                                          64.2%             1 ° 5 min
+                                                81.4%
+                         90.1%
+                                  6.6%
+                                                                                            5 ° 10 min
+                                                          12.0%
+                                         1.1%           5.5%               8.0%
+                                                                                  24.7%     > 10 min
+                                                                  1.1%
+                                                                                            Timed Out
+                                                                         1.2%     1.9%
+
+
+
+
+Fig. 7. Percentage of programs for which Chisel finds a minimum control-flow reduction (per number of
+obfuscations)
+
+
+an undergraduate curriculum (e.g., sorting, search, greatest common divisor, hashing) and 40 are
+artificial programs which use a diverse set of control flow constructs like for-loops, while-loops,
+nested if-statments, etc.3 To evaluate our approach, we obfuscate these programs using six different
+techniques: flattening, dead-code insertion, and basic-block splitting supported by Tigress [14] and
+loop-unrolling, loop-fission, and irrelevant code insertion by C-Obfuscator.4 For Tigress, we used
+parameters from the recommended recipes in the documentation. Please refer to Appendix F.5 for
+the detailed parameters we used to produce the benchmarks. Because generating all combinations
+of obfuscations for all programs is infeasible, we obtain the obfuscated benchmarks using the
+following methodology:
+(1) For each original program, we obtain two obfuscated versions by randomly choosing two
+    obfuscations and applying each to the unobfuscated benchmark.
+(2) We construct two additional benchmarks (per original program) by randomly choosing two
+    pairs of obfuscations and applying each to the unobfuscated benchmark.
+(3) Finally, we obtain yet another two benchmarks by randomly choosing two triples of obfuscations
+    and applying each triple to the unobfuscated benchmark.
+Following this procedure, we generate a total of 546 obfuscated benchmarks.
+
+6.2    Experimental Set-up
+Recall that Chisel requires the user to provide a set of inputs that can be used to generate traces.
+Because dynamic traces are used to infer the original program’s control flow, Chisel’s ability to
+successfully deobfuscate may depend on the quality of the inputs. For our evaluation, we generate
+inputs using the KLEE symbolic execution engine [11], along with randomly sampled inputs. To
+collect traces of programs, we use gdb’s stock Python API, which automates single-stepping in a C
+program and extracting local variable valuations.
+  All of the experiments reported in the following subsections are run on a 56 core machine with
+264 GB RAM, running Debian 12.5 For each benchmark, we use a time limit of 20 minutes to allow
+completing the experiments in a reasonable amount of time.
+
+6.3    Main Results
+The results of our evaluation are summarized in Figure 7, which shows the distribution of synthesis
+times for different number of obfuscations as a pie chart. Note that Chisel can successfully deob-
+fuscate 93% of the benchmarks when only one obfuscation is applied. If we increase the number
+3We note that the original benchmark set had 48 such programs but we removed 8 because they were duplicates.
+4 C-Obfuscator is built by the authors for the purpose of this evaluation due to a lack of open-source options. It will be made
+
+publicly available upon publication of the paper.
+5 The large machine is used to run experiments in parallel – we have recorded comparable results on machines with 16GB of
+
+RAM and 8 cores.
+
+
+                            Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:18                                                                                                             Mariano et al.
+
+
+                                                                                                 1522.77
+                                                Deobfuscated LOC
+                              103
+                                                Obfuscated LOC
+                                                Original LOC            341.33
+
+
+
+                        LOC   102
+                                                47.00
+
+
+                                        16.57                   16.63
+                                                        10.89                    10.94   10.94             10.40
+                                   1
+                              10
+                                       One Obfuscation Two Obfuscation Three Obfuscation
+
+
+             Fig. 8. Average lines of code for programs before and and deobfuscation by Chisel
+
+
+
+of obfuscations to 2 (resp. 3), Chisel can still reverse engineer the code for 88% (resp. 75%) of the
+benchmarks within a 20 minute time limit.
+   To gain more intuition about the quality of the deobfuscated code, Figure 8 shows LOC in log
+scale for (a) the obfuscated code, (b) the original program, and (c) the code synthesized by Chisel.
+As is evident from this bar chart, Chisel almost always retrieves a program of comparable size to
+the original program before obfuscation, even when the obfuscated programs contain thousands
+of LOC. Furthermore, we analyzed the deobfuscated programs and found that 81% of “solved”
+benchmarks are reduced to within 5 LOC of the source program, with an average reduction in size
+of 63%, or 555 lines of code, compared to the obfuscated program.
+   Finally, we performed a manual analysis of the results. We found that most deobfuscated pro-
+grams are minimum control-flow reductions. For those programs which are not, we found a
+common pattern: original programs containing a single while loop with a fixed number of iterations
+𝑁 . These programs can be synthesized by copying the body of the loop 𝑁 times. For example,
+while(i < 3, i++) is equivalent to i++ repeated 3 times when 𝑖 = 0. In this case, because the
+control-flow sketch of the while loop is larger than the control-flow sketch of the straight-line
+program, we will synthesize the straight-line program first. We found the only time this occurs is
+when there is a fixed-iteration loop whose body contains no control-flow operators.
+
+      Result for RQ1: Given a 20 minute time limit, Chisel can deobfuscate 86% of the
+      benchmarks. On average, Chisel results in an average reduction in LOC of 63% (which is
+      on average 555 LOC) compared to the obfuscated code. Furthermore, the deobfuscation
+      result is within 5 (resp. 10) LOC of the original program for 81% (resp. 92% ) of the solved
+      benchmarks.
+
+6.4      Baseline Comparison
+In this section, we compare Chisel to three different baselines inspired by the deobfuscation
+literature. First, we compare to Sketch [59], a CEGIS-based program synthesis tool in which
+we can encode the deobfuscation problem. Second, given the recent successes of large language
+models (LLMs) across a variety of tasks, including deobfuscation (e.g., [38]), we compare Chisel to
+OpenAI’s GPT-4 [50]. Finally, we compare with opt, a binary optimization tool for LLVM bitcode
+which has been shown to be effective for deobfuscation [25].
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                      349:19
+
+
+                                    Table 2. Comparison of Chisel with Sketch.
+
+                                    Sketch Comparison
+                       Tool    1 Obfuscation 2 Obfuscations                        3 Obfuscations
+                      Sketch        0%            0%                                    0%
+                    Sketch+CFS     56%            33%                                   32%
+
+
+6.4.1 Sketch comparison. Sketch [58, 59] is a well-known program synthesis tool which uses
+counterexample-guided inductive synthesis (CEGIS) to solve synthesis problems in a C-like language.
+Among existing synthesis tools, we choose Sketch as a baseline because it is the only synthesizer
+that has a C-like grammar. In contrast, evaluating against other SyGuS baselines requires writing a
+custom C interpreter, which is a non-trivial task.
+   To compare against Sketch, we encode the deobfuscation task as a sketch-completion problem;
+details of our encoding can be found in Appendix F.4. We compare Chisel against two different
+uses of Sketch. In the first case, Sketch is provided the obfuscated program as a specification and
+must synthesize the entire deobfuscation (as is the case for Chisel). We refer to this variant as
+Sketch in our comparison. In the second case, we provide Sketch with the ground-truth control
+flow skeleton and only require it to complete the given CFS. This is in line with Sketch’s original
+usage scenario where the user provides a sketch as input – we refer to this variant as Sketch+CFS.
+However, please note that Sketch+CFS solves a much easier problem compared to Chisel.
+Benchmarks. We evaluate Sketch on a subset of the original benchmarks for two reasons: First,
+to evaluate Sketch-CFS, we need access to a CFS (including the trace decomposition), as the trace
+decomposition defines the specification for each subtask provided to Sketch. However, note that
+we do not have access to such a ground truth CFS unless Chisel produces them6 ; thus, we restrict
+ourselves to the subset of benchmarks for which Chisel produces a CFS. Second, many of the
+benchmarks contain C features that are not supported natively in Sketch, so, to allow for a fair
+comparison, we restrict ourselves to those benchmarks that only contain Sketch-supported features.
+Hence, for this evaluation, we only consider a total of 65 benchmarks.
+Results. Table 2 shows the results of this experiment for Sketch; here, we do not report the results
+for Chisel because it solves all of these benchmarks. As shown in Table 2, Sketch cannot solve
+any of the benchmarks without having access to the control flow skeleton. However, even when it
+is provided the CFS, it can only solve 41% of the benchmarks overall. Furthermore, Sketch solves
+each benchmark in an average of 77.01 seconds as compared to Chisel which takes only 63.38
+seconds on average.7 We believe Chisel outperforms Sketch even when it is provided the CFS
+because Chisel can prune many CFS completions using trace-based decomposition unlike Sketch.
+6.4.2 Large Language Model Comparison. Given the recent successes of large language models
+(LLMs) across a variety of tasks, we next compare Chisel to OpenAI’s GPT-4 [50]. To perform
+this comparison, we sample 150 benchmarks from our benchmark set (50 from each of 1, 2, and 3
+obfuscations). For each benchmark, we ask GPT-4 to deobfuscate the program and take the top 3
+results.8 When developing our prompting strategy for the ChatGPT comparison, we experimented
+6 Obtaining the CFS from the original program is difficult because applying obfuscation alters program statements of a trace
+
+in a non-obvious way, preventing us from directly associating each obfuscated statement to its ground-truth counterpart.
+7 As with all experiments we have reported, both Sketch and Chisel were run on the same machine with the same specs for
+
+this comparison.
+8We tested with between the top 1 and 10 results on a small sample of the benchmarks and found no difference with more
+
+than the top 3 results.
+
+
+                            Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:20                                                                                           Mariano et al.
+
+
+                                  Table 3. Comparison of Chisel with GPT-4.
+
+                                          LLM Comparison
+                              1 Obfuscation    2 Obfuscations                   3 Obfuscations
+                  Tool
+                            Equiv Minimum Equiv Minimum                       Equiv Minimum
+                GPT-4        72%      54%     58%       46%                    58%       46%
+                Chisel       94%      94%     92%       92%                    80%       80%
+
+
+with different numbers and types of prompts and chose the strategy that performed the best across
+a small set of representative examples from our benchmark set. The specific prompt we used can
+be found in Appendix E.
+   The results of this experiment are summarized in Table 3, which shows the percentage of
+benchmarks for which the deobfuscation approach returned (1) an equivalent program and (2) a
+minimum control flow reduction. As shown, Chisel finds a minimum program much more often
+than GPT-4 (34-46% more benchmarks depending on the number of obfuscations). GPT-4 is able to
+find an equivalent (but not necessarily minimal program) in a high number of cases (72%) for 1
+obfuscation, but this drops significantly with multiple obfuscations.
+   To better understand the performance of GPT-4, we manually investigated the programs it
+produced. In 80% of cases, GPT-4 could at least produce compilable code – code that could not
+compile usually contained type errors or left off return values. In cases where GPT-4 produced an
+equivalent but non-minimum program, it was often that some (but not all of) the obfuscations had
+been removed; in fact, it was not unusual for GPT-4 to simply copy the obfuscated code. In cases
+where GPT-4 produced the minimum program, we noticed that the program usually corresponded
+to common programming assignments like factorial or bubblesort (as opposed to one of the artificial
+programs from the benchmark set). This observation suggests that our results may slightly overstate
+the abilities of GPT-4 for deobfuscation, given that it seems to do best on the programs which
+(likely) occur most frequently in its training data.
+6.4.3 Compiler Optimization Comparison. Compiler optimizations have been found to be effective
+for code deobfuscation in a variety of domains [25, 28, 41, 71]. In this experiment, we compare
+Chisel to opt, LLVM’s binary optimizer. Because Chisel operates at the source-code level while
+opt simplifies LLVM bitcode, we perform the comparison by compiling the results of Chisel and
+comparing the resulting binary size. Table 4 shows the results of this experiment. In general, we
+can see that binaries produced from Chisel are significantly smaller (30% smaller binary size on
+average) and are much closer in size to the compiled minimum program.
+   To give further context to these results, we sampled 30 benchmarks and used the Hex-Rays
+decompiler [29] to compare the results of opt and Chisel at the source-code level. For those
+benchmarks sampled, opt could produce the minimum reduction in only 7 cases (23%) as compared
+to Chisel which can find the minimum reduction in all 30 cases. Furthermore, decompiled code
+from Chisel was on average 150 LOC (or about 42%) smaller as compared to decompiled code from
+opt. On manual inspection of the decompiled code from opt, we found that in most cases most of
+the obfuscations still remained.
+
+6.5      Related Tool Comparison
+In addition to the general deobfuscation baselines compared to in Section 6.4, we also compare
+to Yadegari et al. [67] which construct a simplified control-flow graph (CFG) from a trace of a
+control-flow obfuscated program. In their algorithm, Yadegari et al. apply simplification rules to
+the input trace, construct a CFG based on that simplified trace, and apply transformations to the
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:21
+
+
+                              Table 4. Comparison of Chisel with LLVM opt.
+
+                            Compiler Optimization Comparison
+                                                   Chisel        opt
+                       Measurement
+                                               mean median mean median
+                     Binary Size (in KB)        4.5     4.1  6.4     5.9
+             Size Compared to Minimum Program 1.1       1.0  1.5     1.4
+
+
+
+
+CFG to further simplify it. This is conceptually very different from our synthesis-based approach
+which uses traces as a mechanism for pruning the search space.
+   Thus, to compare and contrast these different approaches, we perform a small comparison
+with their tool on 5 simple benchmarks which Chisel can solve in seconds. The benchmarks are
+obfuscated with 3 different control-flow extensions: branch insertion, dead-code insertion (via
+opaque predicates), and flattening. It should be noted that a key difference between Chisel and
+the tool from Yadegari et al. is that their tool uses a single trace to construct a simplified program
+while Chisel uses multiple. Thus, for each example, we tried each trace used by Chisel as an input
+to the tool from Yadegari et al. and chose whichever produced the best result.
+   We found that their implementation does not produce an equivalent program on any benchmark
+we tried. For instance, we considered a simple program that returns the parity of an integer
+and obfuscated it by adding irrelevant branches. Not only does Yadegari’s tool not remove the
+comparison instructions introduced by obfuscation, but it also incorrectly removes the parity check
+computation. This trend holds for every benchmark we tested, i.e., Yadegari’s tool never removed
+all of the obfuscated code nor did it ever even produce equivalent code. In Appendix F.6, we give a
+full explanation of each of the benchmarks considered and how the tool from Yadegari et al. failed
+to deobfuscate that benchmark.
+   We conjecture two reasons as to why the tool from Yadegari et al. performed so poorly on
+these simple benchmarks. First, as mentioned above, their work makes the strong assumption that
+an equivalent program can be recovered from a single trace. We believe this assumption is too
+strong in many cases, especially when programs contain complex looping and conditional behavior.
+Chisel overcomes this limitation by considering multiple traces at once while deobfuscating.
+Second, the tool from Yadegari et al. was analyzed and evaluated on virtualization and return-
+oriented-programming (ROP) obfuscations, which have very different behavior from the control-
+flow extensions considered by Chisel. For instance, branch insertion statically adds extra control-
+flow into a program, while virtualization encodes a program into a new IR which is dynamically
+decoded and executed at runtime. It is not surprising that an algorithm designed to deobfuscate
+techniques like virtualization and ROP might not be as effective when facing the static control-flow
+extensions considered in this paper.
+   While this evaluation is not a completely apples-to-apples comparison, we believe it sheds light
+on the different intended usage scenarios of these tools. In particular, our comparison indicates
+that Chisel may be more effective for static obfuscations like branch insertion while the tool from
+Yadegari et al. can handle obfuscations like virtualization and ROP which are out of the scope of
+obfuscations considered by Chisel. Because of this, we believe it is feasible that the two techniques
+could be combined to handle a wider variety of obfuscations than those considered by either tool
+individually.
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:22                                                                                                                              Mariano et al.
+
+
+                    100
+
+                     80
+
+
+
+
+   % Deobfuscated                                                         Median Time (sec)
+                                                                                               101
+                     60
+
+                     40                                                                        100
+
+                     20
+                                                                                              10−1
+                      0
+                          0-9   10-19 20-29 30-39 40-49        > 50                                  0-9   10-19 20-29 30-39 40-49        > 50
+                                 # of Control-Flow Operators                                                # of Control-Flow Operators
+
+  (a) Percentage of Synthetic Program Deobfus-                           (b) Median Deobfuscation Time of Synthetic Pro-
+  cated by Control-Flow Complexity                                       grams by Control-Flow Complexity
+
+                                              Fig. 9. Chisel performance by code complexity
+
+                                              Table 5. Highlights from scalability evaluation.
+
+                                                   Deobfuscation Highlights
+                                          Max # ITE 33,996      Max # Loops  6,556
+                                          Max LOC 147,923 Max # of Variables 4,384
+
+
+             Result for RQ2: Chisel is able to deobfuscate a significantly larger portion of the bench-
+             marks compared to three different baselines, including (1) Sketch, a program synthesis
+             tool, (2) GPT-4, a state-of-the-art large language model, and (3) LLVM’s binary opti-
+             mizer. Chisel is also able to handle obfuscations like branch insertion which are not well
+             supported by Yadegari et al. [67], a state-of-the-art control-flow deobfuscator.
+
+6.6                 Scalability Evaluation
+To stress test the scalability of our approach, we perform an additional experiment on 50 synthetic
+benchmarks that intentionally vary in size and complexity. In more detail, we sampled 10 programs
+for each AST-size of 5, 10, 15, 20, and 30 and obfuscate these synthetic source programs using the
+exact same methodology described in Section 6.1. To evaluate the scalability of Chisel, we plot the
+number of benchmarks solved and time taken to solve benchmarks vs. the control-flow complexity
+of the program, measured as the number of control-flow operators in the program.9
+   The results of this evaluation are shown in Figures 9a and 9b. As expected, the more complicated
+the program, the fewer benchmarks Chisel can solve. Similarly, the more complicated the program,
+the slower the deobfuscation. However, it should be noted that Chisel can still solve over half of
+benchmarks containing between 40 and 50 control-flow operators, which comprise programs of
+thousands of lines of code. Furthermore, the largest programs that Chisel can deobfuscate contain
+up to 33,996 if statements, 6,556 loops, and 147,923 lines of code.
+
+             Result for RQ3: Given a 20-minute timeout,Chisel is able to deobfuscate programs
+             containing up to 6,556 loops, up to 33,996 conditionals and more than one hundred
+             thousand lines of code.
+9 It should be noted that this is a better metric of complexity than LOC as some obfuscations create large amounts of dead
+
+code that are easily eliminated.
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                              349:23
+
+
+                                                              Number of Programs Deobfuscated by Time
+
+
+
+
+                       # of Programs Deobfuscated
+                                                                                       Chisel
+                                                    400
+                                                                                       Chisel-NoRegex
+                                                                                       Chisel-NoDecomp
+                                                    300
+                                                                                       Chisel-NoTraceExtend
+
+                                                    200
+
+                                                    100
+
+                                                      0
+                                                          0     200     400      600       800    1000    1200
+                                                                         Running Total (sec)
+
+                                                          Fig. 10. Comparison of Chisel and ablations.
+
+
+
+6.7    Ablation Study
+Next, we evaluate the relative importance of the key ideas underlying our approach through an
+ablation study. Specifically, we consider the following variants of Chisel:
+• Chisel-NoRegex: This variant does not use regex pattern matching to assign scores to 𝑡-sketches.
+  It considers all 𝑡-sketches to be equally likely and enumerates them according to size.
+• Chisel-NoDecomp: This variant does not performs trace decomposition. As a result, it cannot
+  complete holes in the sketch in a modular way.
+• Chisel-NoTraceExtend: This variant is identical to Chisel except it does not use trace extensi-
+  bility for pruning the search space. This variant essentially corresponds to removing the call to
+  TraceExtensible in Algorithm 4.
+  The results of this ablation study are presented as a cumulative distribution function (CDF) in Fig-
+ure 10 where the 𝑥-axis shows cumulative running time and the 𝑦-axis shows the number of bench-
+marks solved. Chisel outperforms all ablations – the next best ablation (Chisel-NoTraceExtend)
+can solve 85% of the benchmarks solved by Chisel, while the other two solve only 28% and 6%
+respectively.
+
+      Result for RQ4: Trace-informed compositional synthesis is crucial for the effective-
+      ness of our approach: Without using traces for CFS inference, Chisel solves 94% fewer
+      benchmarks, and, without decomposition, Chisel solves 72% fewer benchmarks.
+
+6.8    Generalizability of Chisel
+To assess if Chisel can be applied to new obfuscation techniques, we performed two experiments.
+In the first, we chose an obfuscation technique from the literature called the branch insertion
+transformation [15] which is different from all obfuscations considered when creating Chisel.
+The branch insertion transformation statically replaces each basic block 𝐵 in the program with a
+non-deterministic choice between two new basic-blocks 𝐵 1 and 𝐵 2 , each of which is an obfuscated
+version of 𝐵. A detailed description of the technique can be found in Appendix F.2. We used this
+technique to obfuscate all 91 benchmarks and found that Chisel could find the minimum program
+for 85 of them (93%) in under 20 minutes.
+
+                                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:24                                                                                        Mariano et al.
+
+
+   In the second experiment, we disabled each trace-matching rule from Table 1 individually to
+assess their impact on the performance of Chisel per obfuscation type – if a rule is general, one
+would expect its absence to affect performance for multiple obfuscation types. We found that the
+average difference in performance between obfuscation types when disabling a rule was 8.4%.
+In other words, disabling any of our rules leads to a similar decrease in performance across all
+obfuscation types, indicating the rules generalize beyond the specific obfuscations considered in
+this evaluation. The full results can be seen in the appendix in Table 8.
+
+      Result for RQ5: Chisel is able to deobfuscate 93% of the programs obfuscated with
+      the branch insertion transformation which was not considered when developing the
+      tool. Furthermore, disabling any trace-matching rule results in a performance decrease
+      across most of the obfuscation types we consider, indicating they are not overfit to handle
+      specific obfuscations.
+
+
+
+
+6.9      Binary Evaluation
+Our experiments in the preceding sections demonstrate that Chisel can be useful across a variety
+of obfuscations and programs. However, all of these evaluate Chisel’s usefulness on source-level
+deobfuscation, while many deobfuscation tasks are at the binary level. To address this concern, we
+evaluate Chisel’s binary deobfuscation capabilities by combining it with IDA-Pro [29], a state-of-
+the-art decompiler. To do this, we first compiled 60 random obfuscated benchmarks that Chisel
+was able to solve and then used IDA-Pro to decompile them. As noted by [42], most decompilers
+(IDA-Pro included) do not produce compilable code. Thus, we perform a number of small changes
+to the output of the decompiler, similar to those described in [42], such as adding back in necessary
+keywords, adjusting illegal variable names, and removing keywords that are not supported by gcc.
+A full description of the changes can be found in Appendix F.3. To recompile the programs, we
+use gcc with default options. Finally, we used Chisel to deobfuscate the resulting program with a
+20-minute timeout. For these benchmarks, Chisel finds the minimum program for 81% and finds a
+program smaller than the original for 91%.
+Failure analysis. We conducted a manual analysis of the remaining 9% of programs for which
+Chisel could not find a smaller version of the obfuscated program and found that all failures were
+due to one of two different code changes introduced by the decompiler. The first is that some
+assignments are merged into other expressions – for instance, x < y; x++ would be merged into
+x++ < y. Chisel does not currently support this form of updating in its trace collection. When
+these are split out into separate statements (as can be achieved with lightweight static analysis)
+Chisel succeeds on these benchmarks. The second cause of failures is that the decompiler splits a
+single variable into multiple copies of the same variable. This change causes some of our regular
+expression matching rules to fail (as a guard may appear using various forms of the same variable),
+slowing Chisel’s deobfuscation process. Again, however, we believe this could be easily resolved
+via lightweight static analysis to merge duplicate variables.
+
+      Result for RQ6: When combined with a state-of-the-art decompilation technique,
+      Chisel was able to successfully deobfuscate 55 out of 60 obfuscated binaries, resulting in
+      an average LOC reduction of 85%.
+
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:25
+
+
+7   LIMITATIONS
+Our experiments demonstrate that Chisel is able to deobfuscate a wide variety of control-flow
+obfuscations across different programs, even when multiple obfuscations are applied. However,
+there are some limitations to both our approach, as well as our prototype, which we discuss next.
+   First, our method relies on dynamic traces for deobfuscation. We use dynamic analysis because
+static analyses are notoriously ineffective for reasoning about obfuscated code [16, 49]. We are
+not alone in making this decision – a number of deobfuscation techniques rely on dynamic traces
+[9, 17, 25, 66, 67]. However, it should be noted that this decision is a tradeoff. While it avoids many
+of the pitfalls faced by static analyses, low coverage can reduce the speed of our synthesis algorithm
+as it uses traces to speed up the synthesis process and reduce the search space. Although trace
+coverage can impact our algorithm’s ability to retrieve the complete deobfuscated program, per
+Theorem 4.2, it can always eventually recover the portions of the original program exercised by the
+traces. This is a valuable property for real-world reverse engineering, where perfect deobfuscation
+is not always necessary.
+   Second, programs generated by Chisel intentionally do not contain gotos (as they often make
+code less readable) and only use while for looping (with break statements). Hence, if the orig-
+inal program contains alternative looping mechanisms such as a for loop, the code synthe-
+sized by Chisel would instead have a while loop. Similarly, switch statements deobfuscate to
+if-then-else statements.
+   Third, our implementation uses testing (rather than full-fledged verification) to check that the
+deobfuscated program is equivalent to the obfuscated one, which means it is possible for Chisel to
+produce a program that is not equivalent. While this outcome is certainly possible, we found no
+instances of this when manually reviewing the results of our experiments, which included hundreds
+of deobfuscated programs.
+   Finally, Chisel only handles control-flow extensions, which do not include some well-known
+control-flow obfuscations, including virtualization [65], return-oriented programming [10], and
+exception-based obfuscations [68]. In addition, popular non-control-flow based obfuscations like
+mixed boolean arithmetic [76] are not supported by Chisel. However, there is no fundamental
+reason why Chisel cannot be used in tandem with techniques designed to handle such obfuscations.
+
+8   RELATED WORK
+Chisel is part of a long line of work on program deobfuscation. Broadly speaking, prior work
+can be bucketed into two categories depending on whether they target data-flow [9, 18, 76] or
+control-flow [37] obfuscations. Recall that data-flow obfuscations focus on obfuscating constants
+and expressions in the program, whereas control-flow obfuscations focus on complicating the
+overall control flow of the program. Chisel falls under the latter category, so we first describe prior
+work on control-flow debofuscation.
+Control-flow deobfuscation. In recent years, many control flow deobfuscators have been proposed
+that target specific control flow deobfuscations or limited combinations of them [22, 69, 70]. For
+example, the ReDex code optimizer [70] and Deoptfuscater [69] remove target variable renaming,
+call indirection, and opaque predicates in Android applications. CaDeCFF [22] uses data-flow anal-
+ysis and tree-based code generation to deobfuscate flattening. DiANa [34] combines taint analysis
+and symbolic execution to deobfuscate Android binaries obfuscated using O-LLVM [33]. BinRec
+[1] deobfuscates a binary by lifting dynamic traces of the binary to an intermediate representation
+that can be lowered back into a "recovered" binary after simplification. Their approach is similar
+in spirit to compiler optimization for code deobfuscation [25, 28, 41, 71] which we compare to in
+Section 6.4.3. Unlike these prior works, Chisel can handle a broad class of control flow obfuscations
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:26                                                                                        Mariano et al.
+
+
+including arbitrary combinations of them. One prior work that also targets a broad class of control
+flow obfuscations is Yadegari et al., [67]. They perform dynamic taint analysis to identify control
+dependencies, use the dependencies to apply semantics-preserving simplifications, and finally
+construct a control-flow graph (CFG) representing the deobfuscated code. However, the effective-
+ness of this technique is dependent on manually-crafted simplification rules that may or may not
+apply for some types of obfuscations. In contrast to their approach, our method uses syntax-guided
+synthesis rather than rule-based simplification. Please see Section 6.5 for a comparison between
+their approach and Chisel. Additionally, please see Appendix F.1 for a detailed discussion on our
+attempts to evaluate against other control-flow deobfuscators, and why we believe Chisel will
+outperform them.
+Trace-guided synthesis. A number of synthesizers use traces to guide their search procedure
+[20, 30, 45, 51, 53, 57, 73], but they do so in different ways from Chisel. In particular, prior work
+on recursive program synthesis requires users to provide “recursion traces” to effectively augment
+the set I/O examples for the synthesis task. For example, Myth [51] requires users to provide a
+complete trace of the call stack of the desired program for a given I/O example, and Syrup [73]
+utilizes a novel version-space algebra based on recursion traces to compactly represent solutions
+to recursive synthesis problems. Traces are also used in programming from demonstration tasks
+[20, 53] where a program needs to be synthesized that matches a trace of actions performed
+by the expert. For example, Patton et al [53], use traces to synthesize robot controllers. Their
+idea is to view demonstrations as positive string examples over a language and infer a program
+sketch by generalizing from those positive examples to a regular expression. They complete the
+inferred sketches using LLM guidance. Prior work by Mariano et al [45] leverages traces to transpile
+imperative to functional programs. Similar to Chisel, they use traces to prune infeasible partial
+programs using a notion of trace-compatibility, which is similar to our trace-extensibility. Their
+notion of trace compatibility requires agreement between values of shared expressions in a pair of
+so-called cognate grammars, whereas our notion of trace extensibility requires agreement between
+a subset of the variables. However, unlike [45], we additionally use traces to guide the generation of
+control flow skeletons and decompose the target program into independent sub-problems. Finally,
+Konure [56] uses active learning to infer models of applications which access relational databases.
+Like Chisel, their approach observes database interactions (a sort of trace) and uses program
+synthesis to generate a matching program from those interactions. However, unlike Chisel, which
+is designed for the problem of deobfuscation, Konure’s DSL and inference algorithm are designed
+specifically for database applications.
+Compositional synthesis. Many synthesizers try to decompose a high level synthesis task into
+independent subtasks to improve scalability [2, 3, 24, 27, 51, 54, 74]. For example, 𝜆 2 [24] uses
+the semantics of list combinators to infer new I/O examples for sub-problems and type-directed
+synthesizers like Synquid [54] propagate goal types for holes in the partial program which, in many
+cases, can be solved independently. CLIS [74] performs UDF to SQL translation using a notion of
+lazy inductive synthesis where each iteration of the synthesis procedure generates increasingly hard
+synthesis sub-problems given a dataflow graph of the UDF program. Unlike all these approaches,
+our work performs modular synthesis using traces from the obfuscated program along with a
+candidate control-flow sketch.
+Synthesis for deobfuscation. We are not the first to apply program synthesis techniques to
+deobfuscate programs. Syntia [9] uses SMT-solving and stochastic program synthesis to deobfuscate
+Mixed Boolean-Arithmetic (MBA) expressions [76]. Xyntia [46] proposes a new AI-based blackbox
+method for deobfuscating MBA expressions. AutoSimpler [75] deobfuscates MBA expressions via a
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                       349:27
+
+
+heuristic Nested Monte Carlo Search. QSynth [18] deobfuscates MBA expressions and virtualization
+expressions using enumerative synthesis. The work described in [32] deobfuscates loop-free code
+by reducing to SMT solving. These deobfuscators target either data-flow obfuscations or straight
+line programs, and thus are not applicable to our setting where entire functions with loops and
+conditionals need to be synthesized.
+
+9   CONCLUSION AND FUTURE WORK
+In this paper, we proposed a new technique for reverse engineering control-flow obfuscations using
+program synthesis. We have performed an extensive empirical evaluation of our tool, Chisel, on
+more than 500 obfuscated programs, including those that have been obfuscated using multiple
+different techniques. Our evaluation shows that Chisel is able to successfully recover the original
+program in 86% of the cases. We compare Chisel against three different general deobfuscation
+baselines, including a program synthesizer, a state-of-the-art LLM, and a binary optimizer, and
+show that Chisel is much more effective at the deobfuscation task. We also compare Chisel with a
+state-of-the-art control-flow deobfuscator from the literature [67] and conclude that their approach
+is potentially complimentary with ours as they focus on a different set of obfuscation techniques
+than those considered by Chisel.
+
+ACKNOWLEDGMENTS
+This works was supported in part by National Science Foundation grant 2040206. This work was
+conducted in a research group supported by NSF awards CCF-1762299, CCF-1918889, CNS-1908304,
+CCF-1901376, CNS-2120696, CCF-2210831, and CCF-2319471.
+
+REFERENCES
+ [1] Anil Altinay, Joseph Nash, Taddeus Kroes, Prabhu Rajasekaran, Dixin Zhou, Adrian Dabrowski, David Gens, Yeoul
+     Na, Stijn Volckaert, Cristiano Giuffrida, Herbert Bos, and Michael Franz. 2020. BinRec: dynamic binary lifting and
+     recompilation. In Proceedings of the Fifteenth European Conference on Computer Systems (Heraklion, Greece) (EuroSys
+     ’20). Association for Computing Machinery, New York, NY, USA, Article 36, 16 pages. https://doi.org/10.1145/3342195.
+     3387550
+ [2] Rajeev Alur, Pavol Černý, and Arjun Radhakrishna. 2015. Synthesis Through Unification. In Computer Aided Verification,
+     Daniel Kroening and Corina S. Păsăreanu (Eds.). Springer International Publishing, Cham, 163–179. https://doi.org/10.
+     1007/978-3-319-21668-3_10
+ [3] Rajeev Alur, Arjun Radhakrishna, and Abhishek Udupa. 2017. Scaling Enumerative Program Synthesis via Divide and
+     Conquer. In Tools and Algorithms for the Construction and Analysis of Systems, Axel Legay and Tiziana Margaria (Eds.).
+     Springer Berlin Heidelberg, Berlin, Heidelberg, 319–336. https://doi.org/10.1007/978-3-319-21668-3_10
+ [4] Sebastian Banescu. 2017. Characterizing the strength of software obfuscation against automated attacks. Ph. D. Disserta-
+     tion. Technische Universität München.
+ [5] Sebastian Banescu, Christian Collberg, Vijay Ganesh, Zack Newsham, and Alexander Pretschner. 2016. Code Ob-
+     fuscation against Symbolic Execution Attacks. In Proceedings of the 32nd Annual Conference on Computer Security
+     Applications (Los Angeles, California, USA) (ACSAC ’16). Association for Computing Machinery, New York, NY, USA,
+     189–200. https://doi.org/10.1145/2991079.2991114
+ [6] Sebastian Banescu, Christian Collberg, and Alexander Pretschner. 2017. Predicting the Resilience of Obfuscated Code
+     Against Symbolic Execution Attacks via Machine Learning.. In USENIX Security Symposium. USENIX, USA, 661–678.
+ [7] Sebastian Banescu, Martín Ochoa, and Alexander Pretschner. 2015. A framework for measuring software obfuscation
+     resilience against automated attacks. In 2015 IEEE/ACM 1st International Workshop on Software Protection. IEEE, IEEE,
+     USA, 45–51.
+ [8] Chandan Kumar Behera and D Lalitha Bhaskari. 2015. Different obfuscation techniques for code protection. Procedia
+     Computer Science 70 (2015), 757–763.
+ [9] Tim Blazytko, Moritz Contag, Cornelius Aschermann, and Thorsten Holz. 2017. Syntia: Synthesizing the Semantics of
+     Obfuscated Code. In USENIX Security Symposium. USENIX, USA, 643–659.
+[10] Pietro Borrello, Emilio Coppa, Daniele Cono D’Elia, and Camil Demetrescu. 2019. The ROP needle: hiding trigger-based
+     injection vectors via code reuse. In Proceedings of the 34th ACM/SIGAPP Symposium on Applied Computing (Limassol,
+
+
+                            Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:28                                                                                                      Mariano et al.
+
+
+     Cyprus) (SAC ’19). Association for Computing Machinery, New York, NY, USA, 1962–1970. https://doi.org/10.1145/
+     3297280.3297472
+[11] Cristian Cadar, Daniel Dunbar, and Dawson Engler. 2008. KLEE: Unassisted and Automatic Generation of High-
+     Coverage Tests for Complex Systems Programs. In Proceedings of the 8th USENIX Conference on Operating Systems
+     Design and Implementation (San Diego, California) (OSDI’08). USENIX Association, USA, 209–224.
+[12] Jien-Tsai Chan and Wuu Yang. 2004. Advanced obfuscation techniques for Java bytecode. Journal of Systems and
+     Software 71, 1 (2004), 1–10. https://doi.org/10.1016/S0164-1212(02)00066-3
+[13] Christian Collberg. 2023. Flatten. https://tigress.wtf/flatten.html. Accessed: 2023-04-10.
+[14] Christian Collberg. 2023. The Tigress C Obfuscator. https://tigress.wtf/. Accessed: 2023-04-09.
+[15] Christian Collberg, Clark Thomborson, and Douglas Low. 1997. A taxonomy of obfuscating transformations. Technical
+     Report. Department of Computer Science, The University of Auckland, New Zealand.
+[16] Christian Collberg, Clark Thomborson, and Douglas Low. 1998. Manufacturing Cheap, Resilient, and Stealthy
+     Opaque Constructs. In Proceedings of the 25th ACM SIGPLAN-SIGACT Symposium on Principles of Programming
+     Languages (San Diego, California, USA) (POPL ’98). Association for Computing Machinery, New York, NY, USA,
+     184–196. https://doi.org/10.1145/268946.268962
+[17] Kevin Coogan, Gen Lu, and Saumya Debray. 2011. Deobfuscation of Virtualization-Obfuscated Software A Semantics-
+     Based Approach. In Proceedings of the 18th ACM Conference on Computer and Communications Security. ACM, USA,
+     275–284. https://doi.org/10.1145/2046707.2046739
+[18] Robin David, Luigi Coniglio, and Mariano Ceccato. 2020. QSynth - A Program Synthesis based approach for Binary
+     Code Deobfuscation. Proceedings 2020 Workshop on Binary Analysis Research 0, 0 (2020), 42–49.
+[19] Stephen Dolan. 2013. mov is Turing-complete. https://drwho.virtadpt.net/files/mov.pdf
+[20] Rui Dong, Zhicheng Huang, Ian Iong Lam, Yan Chen, and Xinyu Wang. 2022. WebRobot: web robotic process
+     automation using interactive programming-by-demonstration. In Proceedings of the 43rd ACM SIGPLAN International
+     Conference on Programming Language Design and Implementation (San Diego, CA, USA) (PLDI 2022). Association for
+     Computing Machinery, New York, NY, USA, 152–167. https://doi.org/10.1145/3519939.3523711
+[21] Weiyu Dong, Jian Lin, Rui Chang, and Ruimin Wang. 2022. CaDeCFF: Compiler-Agnostic Deobfuscator of Control
+     Flow Flattening. In Internetware 2022: 13th Asia-Pacific Symposium on Internetware, Hohhot, China, June 11 - 12, 2022.
+     ACM, China, 282–291. https://doi.org/10.1145/3545258.3545269
+[22] Weiyu Dong, Jian Lin, Rui Chang, and Ruimin Wang. 2022. CaDeCFF: Compiler-Agnostic Deobfuscator of Control
+     Flow Flattening. In Proceedings of the 13th Asia-Pacific Symposium on Internetware (Hohhot, China) (Internetware ’22).
+     Association for Computing Machinery, New York, NY, USA, 282–291. https://doi.org/10.1145/3545258.3545269
+[23] Stephen Drape. 2010. Intellectual property protection using obfuscation.
+[24] John Feser, Swarat Chaudhuri, and Isil Dillig. 2015. Synthesizing Data Structure Transformations from Input-Output
+     Examples. ACM SIGPLAN Notices 50 (06 2015), 229–239. https://doi.org/10.1145/2813885.2737977
+[25] Peter Garba and Matteo Favaro. 2019. SATURN - Software Deobfuscation Framework Based on LLVM. CoRR
+     abs/1909.01752 (2019), 27–38. arXiv:1909.01752 http://arxiv.org/abs/1909.01752
+[26] GNU. 2023. GDB: The GNU Project Debugger. https://www.sourceware.org/gdb/. Accessed: 2023-04-09.
+[27] Sankha Narayan Guria, Jeffrey S. Foster, and David Van Horn. 2021. RbSyn: Type- and Effect-Guided Program
+     Synthesis. In Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and
+     Implementation (Virtual, Canada) (PLDI 2021). Association for Computing Machinery, New York, NY, USA, 344–358.
+     https://doi.org/10.1145/3453483.3454048
+[28] Adrian Herrera. 2020. Optimizing Away JavaScript Obfuscation. In 2020 IEEE 20th International Working Conference on
+     Source Code Analysis and Manipulation (SCAM). IEEE, USA, 215–220. https://doi.org/10.1109/SCAM51674.2020.00029
+[29] SA Hex-Rays. 2013. Hex-Rays Decompiler.
+[30] Martin Hofmann. 2010. IGOR2 - an analytical inductive functional programming system: tool demo. In Proceedings
+     of the 2010 ACM SIGPLAN Workshop on Partial Evaluation and Program Manipulation (Madrid, Spain) (PEPM ’10).
+     Association for Computing Machinery, New York, NY, USA, 29–32. https://doi.org/10.1145/1706356.1706364
+[31] Anusthika Jeyashankar. 2023. Most Common Malware obfuscation Techniques. https://www.socinvestigation.com/
+     most-common-malware-obfuscation-techniques/. Accessed: 2023-04-09.
+[32] Susmit Jha, Sumit Gulwani, Sanjit A. Seshia, and Ashish Tiwari. 2010. Oracle-Guided Component-Based Program
+     Synthesis. In Proceedings of the 32nd ACM/IEEE International Conference on Software Engineering - Volume 1 (Cape
+     Town, South Africa) (ICSE ’10). Association for Computing Machinery, New York, NY, USA, 215–224. https://doi.org/
+     10.1145/1806799.1806833
+[33] Pascal Junod, Julien Rinaldini, Johan Wehrli, and Julie Michielin. 2015. Obfuscator-LLVM – Software Protection for
+     the Masses. In 2015 IEEE/ACM 1st International Workshop on Software Protection. IEEE, USA, 3–9. https://doi.org/10.
+     1109/SPRO.2015.10
+
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                        349:29
+
+
+[34] Zeliang Kan, Haoyu Wang, Lei Wu, Yao Guo, and Guoai Xu. 2019. Deobfuscating Android Native Binary Code. In 2019
+     IEEE/ACM 41st International Conference on Software Engineering: Companion Proceedings (ICSE-Companion). IEEE, USA,
+     322–323. https://doi.org/10.1109/ICSE-Companion.2019.00135
+[35] Seoyeon Kang, Jeongwoo Kim, Eun-Sun Cho, and Seokwoo Choi. 2022. Program Synthesis-based Simplification of
+     MBA Obfuscated Malware with Restart Strategies. In Proceedings of the 2022 ACM Workshop on Research on Offensive
+     and Defensive Techniques in the Context of Man At The End (MATE) Attacks (Los Angeles, CA, USA) (Checkmate ’22).
+     Association for Computing Machinery, New York, NY, USA, 13–18. https://doi.org/10.1145/3560831.3564258
+[36] Sangjun Ko, Jusop Choi, and Hyoungshick Kim. 2017. COAT: Code Obfuscation Tool to Evaluate the Performance of
+     Code Plagiarism Detection Tools. In 2017 International Conference on Software Security and Assurance (ICSSA). IEEE,
+     USA, 32–37. https://doi.org/10.1109/ICSSA.2017.29
+[37] Renuka Kumar and Anjana Mariam Kurian. 2018. A Systematic Study on Static Control Flow Obfuscation Techniques
+     in Java. ArXiv abs/1809.11037 (2018), 1–20.
+[38] Marie-Anne Lachaux, Baptiste Roziere, Marc Szafraniec, and Guillaume Lample. 2021. Dobf: A deobfuscation pre-
+     training objective for programming languages. Advances in Neural Information Processing Systems 34 (2021), 14967–
+     14979.
+[39] Jaehyung Lee and Woosuk Lee. 2023. Simplifying Mixed Boolean-Arithmetic Obfuscation by Program Synthesis
+     and Term Rewriting. In Proceedings of the 2023 ACM SIGSAC Conference on Computer and Communications Security (,
+     Copenhagen, Denmark,) (CCS ’23). Association for Computing Machinery, New York, NY, USA, 2351–2365. https:
+     //doi.org/10.1145/3576915.3623186
+[40] Yuhan Li, Bin Wen, and Haixiao Zheng. 2023. Generic O-LLVM Automatic Multi-Architecture Deobfuscation Framework
+     Based on Symbolic Execution. In Proceedings of the 4th International Conference on Advanced Information Science and
+     System (Sanya, China) (AISS ’22). Association for Computing Machinery, New York, NY, USA, Article 59, 6 pages.
+     https://doi.org/10.1145/3573834.3574541
+[41] Mingyue Liang, Zhoujun Li, Qiang Zeng, and Zhejun Fang. 2018. Deobfuscation of Virtualization-Obfuscated Code
+     Through Symbolic Execution and Compilation Optimization. In Information and Communications Security, Sihan Qing,
+     Chris Mitchell, Liqun Chen, and Dongmei Liu (Eds.). Springer International Publishing, Cham, 313–324.
+[42] Zhibo Liu and Shuai Wang. 2020. How Far We Have Come: Testing Decompilation Correctness of C Decompilers. In
+     Proceedings of the 29th ACM SIGSOFT International Symposium on Software Testing and Analysis (Virtual Event, USA)
+     (ISSTA 2020). Association for Computing Machinery, New York, NY, USA, 475–487. https://doi.org/10.1145/3395363.
+     3397370
+[43] Lannan Luo, Jiang Ming, Dinghao Wu, Peng Liu, and Sencun Zhu. 2014. Semantics-based obfuscation-resilient binary
+     code similarity comparison with applications to software plagiarism detection. In Proceedings of the 22nd ACM SIGSOFT
+     International Symposium on Foundations of Software Engineering (Hong Kong, China) (FSE 2014). Association for
+     Computing Machinery, New York, NY, USA, 389–400. https://doi.org/10.1145/2635868.2635900
+[44] Davide Maiorca, Davide Ariu, Igino Corona, Marco Aresu, and Giorgio Giacinto. 2015. Stealth attacks: An extended
+     insight into the obfuscation effects on Android malware. Computers and Security 51 (2015), 16–31. https://doi.org/10.
+     1016/j.cose.2015.02.007
+[45] Benjamin Mariano, Yanju Chen, Yu Feng, Greg Durrett, and Işil Dillig. 2022. Automated Transpilation of Imperative to
+     Functional Code Using Neural-Guided Program Synthesis. Proc. ACM Program. Lang. 6, OOPSLA1, Article 71 (apr
+     2022), 27 pages. https://doi.org/10.1145/3527315
+[46] Grégoire Menguy, Sébastien Bardin, Richard Bonichon, and Cauim de Souza Lima. 2021. Search-Based Local Black-Box
+     Deobfuscation: Understand, Improve and Mitigate. In Proceedings of the 2021 ACM SIGSAC Conference on Computer
+     and Communications Security (Virtual Event, Republic of Korea) (CCS ’21). Association for Computing Machinery, New
+     York, NY, USA, 2513–2525. https://doi.org/10.1145/3460120.3485250
+[47] Uwe Meyer-Bäse, Encarni Castillo, Guillermo Botella, L. Parrilla, and Antonio García. 2011. Intellectual property
+     protection (IPP) using obfuscation in C, VHDL, and Verilog coding. In Independent Component Analyses, Wavelets,
+     Neural Networks, Biosystems, and Nanoengineering IX, Harold Szu (Ed.), Vol. 8058. International Society for Optics and
+     Photonics, SPIE, USA, 80581F. https://doi.org/10.1117/12.884142
+[48] Philip O’Kane, Sakir Sezer, and Kieran McLaughlin. 2011. Obfuscation: The Hidden Malware. IEEE Security and Privacy
+     9, 5 (2011), 41–47. https://doi.org/10.1109/MSP.2011.98
+[49] Mathilde Ollivier, Sébastien Bardin, Richard Bonichon, and Jean-Yves Marion. 2019. How to Kill Symbolic Deobfuscation
+     for Free (or: Unleashing the Potential of Path-Oriented Protections). In Proceedings of the 35th Annual Computer Security
+     Applications Conference (San Juan, Puerto Rico, USA) (ACSAC ’19). Association for Computing Machinery, New York,
+     NY, USA, 177–189. https://doi.org/10.1145/3359789.3359812
+[50] OpenAI. 2024. GPT-4 Technical Report. arXiv:2303.08774 [cs.CL]
+[51] Peter-Michael Osera and Steve Zdancewic. 2015. Type-and-example-directed program synthesis. SIGPLAN Not. 50, 6
+     (jun 2015), 619–630. https://doi.org/10.1145/2813885.2738007
+
+
+                            Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:30                                                                                                        Mariano et al.
+
+
+[52] Colby Parker, Jeffrey Todd McDonald, and Dimitrios Damopoulos. 2021. Machine Learning Classification of Obfuscation
+     using Image Visualization. In Proceedings of the 18th International Conference on Security and Cryptography, SECRYPT
+     2021, July 6-8, 2021, Sabrina De Capitani di Vimercati and Pierangela Samarati (Eds.). SCITEPRESS, USA, 854–859.
+     https://doi.org/10.5220/0010607408540859
+[53] Noah Patton, Kia Rahmani, Meghana Missula, Joydeep Biswas, and Işıl Dillig. 2024. Programming-by-Demonstration
+     for Long-Horizon Robot Tasks. Proceedings of the ACM on Programming Languages 8, POPL (Jan. 2024), 512–545.
+     https://doi.org/10.1145/3632860
+[54] Nadia Polikarpova, Ivan Kuraj, and Armando Solar-Lezama. 2016. Program synthesis from polymorphic refinement
+     types. SIGPLAN Not. 51, 6 (jun 2016), 522–538. https://doi.org/10.1145/2980983.2908093
+[55] Aleieldin Salem and Sebastian Banescu. 2016. Metadata recovery from obfuscated programs using machine learning.
+     In Proceedings of the 6th Workshop on Software Security, Protection, and Reverse Engineering, SSPREW@ACSAC 2016, Los
+     Angeles, California, USA, December 5-6, 2016, Mila Dalla Preda, Natalia Stakhanova, and Jeffrey Todd McDonald (Eds.).
+     ACM, USA, 1:1–1:11. https://doi.org/10.1145/3015135.3015136
+[56] Jiasi Shen and Martin C. Rinard. 2019. Using active learning to synthesize models of applications that access databases.
+     In Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation (Phoenix,
+     AZ, USA) (PLDI 2019). Association for Computing Machinery, New York, NY, USA, 269–285. https://doi.org/10.1145/
+     3314221.3314591
+[57] Eui Chul Shin, Illia Polosukhin, and Dawn Song. 2018. Improving Neural Program Synthesis with Inferred Execution
+     Traces. In Advances in Neural Information Processing Systems, S. Bengio, H. Wallach, H. Larochelle, K. Grauman,
+     N. Cesa-Bianchi, and R. Garnett (Eds.), Vol. 31. Curran Associates, Inc., USA. https://proceedings.neurips.cc/paper_
+     files/paper/2018/file/7776e88b0c189539098176589250bcba-Paper.pdf
+[58] Armando Solar-Lezama, Christopher Grant Jones, and Rastislav Bodík. 2008. Sketching concurrent data structures. In
+     Proceedings of the ACM SIGPLAN 2008 Conference on Programming Language Design and Implementation (PLDI). ACM,
+     USA, 136–148. https://doi.org/10.1145/1375581.1375599
+[59] Armando Solar-Lezama, Liviu Tancau, Rastislav Bodík, Sanjit A. Seshia, and Vijay A. Saraswat. 2006. Combinatorial
+     sketching for finite programs. In Proceedings of the 12th International Conference on Architectural Support for Program-
+     ming Languages and Operating Systems (ASPLOS). ACM, USA, 404–415. https://doi.org/10.1145/1168857.1168907
+[60] PreEmptive Solutions. 2023. Control Flow Obfuscation. https://www.preemptive.com/dasho/pro/userguide/en/
+     understanding_obfuscation_control.html. Accessed: 2023-04-11.
+[61] Ramtine Tofighi-Shirazi, Irina Mariuca Asavoae, and Philippe Elbaz-Vincent. 2019. Fine-Grained Static Detection
+     of Obfuscation Transforms Using Ensemble-Learning and Semantic Reasoning. CoRR abs/1911.07523 (2019), 1–12.
+     arXiv:1911.07523 http://arxiv.org/abs/1911.07523
+[62] Ramtine Tofighi-Shirazi, Irina-Mariuca Asavoae, Philippe Elbaz-Vincent, and Thanh-Ha Le. 2019. Defeating Opaque
+     Predicates Statically through Machine Learning and Binary Analysis. In Proceedings of the 3rd ACM Workshop on
+     Software Protection (London, United Kingdom) (SPRO’19). Association for Computing Machinery, New York, NY, USA,
+     3–14. https://doi.org/10.1145/3338503.3357719
+[63] Ramtine Tofighi-Shirazi, Maria Christofi, Philippe Elbaz-Vincent, and Thanh-ha Le. 2018. DoSE: Deobfuscation Based
+     on Semantic Equivalence. In Proceedings of the 8th Software Security, Protection, and Reverse Engineering Workshop
+     (San Juan, PR, USA) (SSPREW-8). Association for Computing Machinery, New York, NY, USA, Article 1, 12 pages.
+     https://doi.org/10.1145/3289239.3289243
+[64] S.K. Udupa, S.K. Debray, and M. Madou. 2005. Deobfuscation: reverse engineering obfuscated code. In 12th Working
+     Conference on Reverse Engineering (WCRE’05). IEEE, USA, 10 pp.–54. https://doi.org/10.1109/WCRE.2005.13
+[65] Code Virtualizer. 2023. Total obfuscation against reverse engineering.
+[66] Babak Yadegari and Saumya Debray. 2015. Symbolic Execution of Obfuscated Code. In Proceedings of the 22nd ACM
+     SIGSAC Conference on Computer and Communications Security (Denver, Colorado, USA) (CCS ’15). Association for
+     Computing Machinery, New York, NY, USA, 732–744. https://doi.org/10.1145/2810103.2813663
+[67] Babak Yadegari, Brian Johannesmeyer, Ben Whitely, and Saumya Debray. 2015. A Generic Approach to Automatic
+     Deobfuscation of Executable Code. In 2015 IEEE Symposium on Security and Privacy. IEEE, USA, 674–691. https:
+     //doi.org/10.1109/SP.2015.47
+[68] Xinlei Yao, Jianmin Pang, Yichi Zhang, Yong Yu, and Jianping Lu. 2012. A Method and Implementation of Control Flow
+     Obfuscation Using SEH. In 2012 Fourth International Conference on Multimedia Information Networking and Security.
+     IEEE, USA, 336–339. https://doi.org/10.1109/MINES.2012.25
+[69] Geunha You, Gyoosik Kim, Sangchul Han, Minkyu Park, and Seong-Je Cho. 2022. Deoptfuscator: Defeating Advanced
+     Control-Flow Obfuscation Using Android Runtime (ART). IEEE Access 10 (2022), 61426–61440. https://doi.org/10.1109/
+     ACCESS.2022.3181373
+[70] Geunha You, Gyoosik Kim, Jihyeon Park, Seong-Je Cho, and Minkyu Park. 2020. Reversing obfuscated control flow
+     structures in android apps using redex optimizer. In The 9th International Conference on Smart Media and Applications.
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                  349:31
+
+
+     ACM, USA, 272–276.
+[71] Geunha You, Gyoosik Kim, Jihyeon Park, Seong-Je Cho, and Minkyu Park. 2021. Reversing Obfuscated Control Flow
+     Structures in Android Apps Using ReDex Optimizer. In ACM (Jeju, Republic of Korea) (SMA 2020). Association for
+     Computing Machinery, New York, NY, USA, 272–276. https://doi.org/10.1145/3426020.3426089
+[72] Ilsun You and Kangbin Yim. 2010. Malware Obfuscation Techniques: A Brief Survey. In 2010 International Conference
+     on Broadband, Wireless Computing, Communication and Applications. IEEE, USA, 297–300. https://doi.org/10.1109/
+     BWCCA.2010.85
+[73] Yongwei Yuan, Arjun Radhakrishna, and Roopsha Samanta. 2023. Trace-Guided Inductive Synthesis of Recursive
+     Functional Programs. Proc. ACM Program. Lang. 7, PLDI, Article 141 (jun 2023), 24 pages. https://doi.org/10.1145/
+     3591255
+[74] Guoqiang Zhang, Yuanchao Xu, Xipeng Shen, and Işıl Dillig. 2021. UDF to SQL translation through compositional lazy
+     inductive synthesis. Proc. ACM Program. Lang. 5, OOPSLA, Article 112 (oct 2021), 26 pages. https://doi.org/10.1145/
+     3485489
+[75] Yujie Zhao, Zhanyong Tang, Guixin Ye, Xiaoqing Gong, and Dingyi Fang. 2021. Input-output example-guided data
+     deobfuscation on binary. Security and Communication Networks 2021 (2021), 1–16.
+[76] Yongxin Zhou, Alec Main, Yuan X. Gu, and Harold Johnson. 2007. Information Hiding in Software with Mixed
+     Boolean-Arithmetic Transforms. In Information Security Applications, Sehun Kim, Moti Yung, and Hyung-Woo Lee
+     (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 61–75.
+
+
+
+
+                           Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:32                                                                                                    Mariano et al.
+
+
+A     FULL TRACE MATCHING RULES
+Table 6 shows the full set of trace matching rules used in our implementation:
+
+                                         Table 6. Trace Matching Rules.
+
+                                               Trace Matching Rules
+           Name             "Regex" Structure         "Regex" Components             Control-flow Structure
+                                                              pre: .*                            (pre)
+         basic-loop      (pre) (body)* [!g] (post)        body: g[ˆg]*                 while(g) do (body)
+                                                             post: .*                           (post)
+                                                              pre: .*                            (pre)
+      break-loop-1         (pre) (body)* (post)           body: g[ˆg]*                 while(g) do (body)
+                                                            post: [s].*                         (post)
+                                                              pre: .*                            (pre)
+         break-loop      (pre) (body)* [g2] (post)        body: g[ˆg]*                 while(g) do (body)
+                                                             post: .*                           (post)
+                                                            pre: [ˆg]*                           (pre)
+          ite-true     (pre) [g] (true-body) (post)      true-body: ˆs*          if (g) { (true-body) } else { * }
+                                                           post: [s] (.)*                       (post)
+                                                            pre: [ˆg]*                           (pre)
+          ite-false   (pre) [!g] (false-body) (post)     false-body: ˆs*         if (g) { * } else { (false-body) }
+                                                           post: [s] (.)*                       (post)
+
+
+B     FULL DECOMPOSE RULES
+Figure 11 shows the full set of rules used in computation of Decompose.
+
+C     PROVING COMPLETENESS
+We now give a proof that our deobfusation algorithm is complete. At a high level, our proof
+consists of two phases. First, we show that for every obfuscated program 𝑃,    ˆ there is a par-
+ticular 𝑡-sketch Θ𝑚𝑖𝑛 , which we coin as a minimum 𝑡-sketch, and a vocabulary set 𝑉𝑚𝑖𝑛 such
+that CompleteCFS(Θ𝑚𝑖𝑛 , 𝑃, ˆ 𝑉𝑚𝑖𝑛 ) returns the minimum control flow reduction of 𝑃.
+                                                                                   ˆ Afterwards,
+                                                                           ˆ
+we show that Deobfuscate either returns a control flow reduction of 𝑃 or eventually calls
+CompleteCFS(Θ𝑚𝑖𝑛 , 𝑃, ˆ 𝑉𝑚𝑖𝑛 ) and returns the minimum control flow reduction of 𝑃.
+                                                                                 ˆ
+
+C.1       Minimum t-sketch
+In this subsection we formally define a minimum 𝑡-sketch and prove that CompleteCFS will produce
+a control flow minimum program given this 𝑡-sketch. We start by defining the term minimum
+control-flow sketch which, informally, is the complete control-flow sketch corresponding to the
+minimum control flow reduction of an obfuscated program 𝑃:   ˆ
+
+   Definition C.1 (Minimum Control-Flow Sketch). Let 𝑃ˆ denote an obfuscated program and
+             ˆ minimum control flow reduction. We say that the S𝑚𝑖𝑛 is the minimum control-flow
+let 𝑃 denote 𝑃’s
+sketch of program 𝑃ˆ if S𝑚𝑖𝑛 can be derived by replacing each sequence of non-control-flow statements
+in 𝑃 with a fresh hole. We define the corresponding M S𝑚𝑖𝑛 to refer to a mapping from each hole
+introduced in S𝑚𝑖𝑛 to the corresponding sequence of statements from 𝑃 which it replaced.
+    For example, suppose the minimum control flow reduction 𝑃 was the following:
+                                 x: = 1 ; while(x >= y, y++) ; return y
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                                   349:33
+
+
+                           Rules for constructing trace decomposition Δ
+
+                     E𝑖 [?] =?𝑝𝑟𝑒 ; while(𝑔, ?𝑏𝑜𝑑 𝑦 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [? ↦→ E𝑖 [?]]
+                             ∀𝑡 𝑗 ∈ Θ.Δ[?]. MatchLoop(𝑡 𝑗 , 𝑔) = (𝑃 𝑗 , 𝐵 𝑗 , 𝐶 𝑗 )
+                          Δ𝑖 = Δ[?𝑝𝑟𝑒 ↦→ ∪ 𝑗 𝑃 𝑗 , ?𝑏𝑜𝑑 𝑦 ↦→ ∪ 𝑗 𝐵 𝑗 , ?𝑝𝑜𝑠𝑡 ↦→ ∪ 𝑗 𝐶 𝑗 ]
+                                                                                                    WHILE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                   E𝑖 [?] =?𝑝𝑟𝑒 ; ite(𝑔, ?𝑡𝑟𝑢𝑒 , ? 𝑓 𝑎𝑙𝑠𝑒 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [? ↦→ E𝑖 [?]]
+                           ∀𝑡 𝑗 ∈ Θ.Δ[?]. (𝑃 𝑗 ,𝑇 𝑗 , 𝐹 𝑗 , 𝐶 𝑗 ) = MatchITE(𝑡 𝑗 , 𝑔)
+                  Δ𝑖 = Δ[?𝑝𝑟𝑒 ↦→ ∪ 𝑗 𝑃 𝑗 , ?𝑡𝑟𝑢𝑒 ↦→ ∪ 𝑗 𝑇 𝑗 , ? 𝑓 𝑎𝑙𝑠𝑒 ↦→ ∪ 𝑗 𝐹 𝑗 , ?𝑝𝑜𝑠𝑡 ↦→ ∪ 𝑗 𝐶 𝑗 ]
+                                                                                                         ITE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                                 𝑇 := Θ.Δ[?] 𝐺 := ∪𝑡 ∈𝑇 Guards(𝑡).
+                         ¬(∃𝑔 ∈ 𝐺 . ∀𝑡 ∈ 𝑇 . MatchLoop(𝑡, 𝑔) ∨ MatchITE(𝑡, 𝑔))
+                                  E𝑖 [?] =?𝐵 S𝑖 = Θ.S [ℎ ↦→ E𝑖 [ℎ]]
+                         Δ𝑖 = Θ.Δ[?𝐵 ↦→ RemoveControlFlowStmts(Θ.Δ[?])]
+                                                                                                BLOCK
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤𝛾
+
+                     E𝑖 [?] =?𝑝𝑟𝑒 ; while(𝑔, ?𝑏𝑜𝑑 𝑦 ) ; ?𝑝𝑜𝑠𝑡 S𝑖 = Θ.S [ℎ ↦→ E𝑖 [ℎ]]
+                                    ∃𝑡 𝑗 ∈ Θ.Δ[?]. ¬MatchLoop(𝑡 𝑗 , 𝑔)
+                              Δ𝑖 = Θ.Δ[?𝑝𝑟𝑒 ↦→ ∗, ?𝑏𝑜𝑑 𝑦 ↦→ ∗, ?𝑝𝑜𝑠𝑡 ↦→ ∗]
+                                                                                                    NO-WHILE
+                                              Θ, E𝑖 { (S𝑖 , Δ𝑖 ), 𝑤 𝛼
+
+                          E𝑖 [?] =?𝑝𝑟𝑒 ; ite(𝑔, ?𝑡𝑟𝑢𝑒-𝑏𝑜𝑑 𝑦 , ? 𝑓 𝑎𝑙𝑠𝑒-𝑏𝑜𝑑𝑦 ) ; ?𝑝𝑜𝑠𝑡
+                  S𝑖 = Θ.S [ℎ ↦→ E𝑖 [ℎ]]       ∃𝑡 𝑗 ∈ Θ.Δ[?]. ¬MatchITEPattern(𝑡 𝑗 )
+                    Δ𝑖 = Δ[?𝑝𝑟𝑒 ↦→ ∗, ?𝑡𝑟𝑢𝑒-𝑏𝑜𝑑 𝑦 ↦→ ∗, ? 𝑓 𝑎𝑙𝑠𝑒-𝑏𝑜𝑑𝑦 ↦→ ∗, ?𝑝𝑜𝑠𝑡 ↦→ ∗]
+                                                                                                         NO-ITE
+                                               Θ, E { (S𝑖 , Δ𝑖 ), 𝑤 𝛼
+
+                                Fig. 11. Rules describing Decompose algorithm
+
+
+then the minimum sketch would be:
+                                     S𝑚𝑖𝑛 = ?1 ; while(x >= y, ?2 ) ; ?3
+and the corresponding sketch mapping:
+                                               ?1 ↦→     [x := 1]
+                                               ?2 ↦→     [y++]
+                                               ?2 ↦→     [return y]
+   Our proof will be partially constructive as we will explicitly construct the minimum 𝑡-sketch. To
+assist us, we first prove a lemma relating the minimum control flow reduction 𝑃 to its minimum
+sketch and sketch mapping. First we define the statement projection operator which will be used
+in the lemma:
+
+  Definition C.2 (Statement Projection). Given some guard-free trace 𝑡 = [(𝑠 1, 𝜎1 ), . . . , (𝑠 𝑁 , 𝜎𝑁 )]
+the statement projection of 𝑡, denoted StmtProj(𝑡), is equal to [𝑠 1, . . . , 𝑠 𝑁 ].
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:34                                                                                              Mariano et al.
+
+
+  Finally, we say the implementation of GetNextVocab is "complete" if, for some 𝑡-sketch Θ, for
+any subset of variables 𝑉 appearing in Θ, GetNextVocab(Θ) will eventually return 𝑉 .
+  Lemma C.1 (Minimum sketch trace subsequences). Given some program 𝑃 (that is a minimum
+control-flow reduction of some 𝑃)    ˆ and its sketch abstraction S (and corresponding sketch abstraction
+map M S ), for any input 𝜎, the statement projection of the guard-free trace StmtProj( 𝜒 (Trace(𝑃, 𝜎)))
+can be expressed as 𝑏 1 + 𝑏 2 + . . . + 𝑏 𝑁 , where each 𝑏𝑖 is a sequence of statements in M S and + denotes
+sequence concatenation.
+  Proof. This proof comes naturally from the following:
+  (1) Given some sequence of statements 𝑠 1 ; 𝑠 2 , if neither 𝑠 1 or 𝑠 2 is a control-flow statement, if 𝑠 1
+      executes, so must 𝑠 2 .
+  (2) The only statements which can appear in the guard-free trace of 𝑃 are non control-flow
+      statements in 𝑃
+  (3) Given the semantics of control-flow operators in our language, for all sequences of statements
+      in M S , statements are executed starting with the first statement.
+                                                                                                          □
+    With these lemmas in place we will now define the minimum 𝑡-sketch. To help us we first describe
+some additional notation needed to make the presentation more concise. In particular, suppose we
+are given an obfuscated program 𝑃ˆ with minimum control flow reduction 𝑃 and let 𝑇ˆ be a set of
+traces of ˆ𝑃. Then, for each trace 𝑡ˆ𝑖 ∈ 𝑇ˆ , we let 𝑡𝑖 = Trace(𝑃, 𝑡ˆ𝑖 .𝜎𝑖𝑛 ), i.e., the corresponding trace in 𝑃.
+Since 𝑃ˆ is a control flow extension of 𝑃, for every (guard-free) trace element 𝜒 (𝑡𝑖 ) [ 𝑗] = (𝑠, 𝜎) there
+                         ′                 ′
+exists a subsequence 𝑡ˆ𝑖 such that 𝜒 (𝑡ˆ𝑖 ) [ 𝑗] = (𝑠, 𝜎 ′ ). To simplify notation, for each such element, let
+𝑗ˆ refer to the index of (𝑠, 𝜎 ′ ) in the original obfuscated trace 𝑡ˆ𝑖 .
+    Finally, per Lemma C.1, we can rewrite StmtProj(𝜒 (𝑡𝑖 )) as 𝑏 1 + . . . + 𝑏 𝑁 . Let hole ?𝑖 be the hole
+mapping to 𝑏𝑖 in M S . Let B be a mapping from each hole ?𝑖 to the start and end indices of every
+occurence of 𝑏𝑖 in StmtProj( 𝜒 (𝑡𝑖 )).
+  Definition C.3 (Minimum decomposition map for trace). Let 𝑃ˆ denote an obfuscated program
+and 𝑃 denote its minimum control flow reduction. Let 𝑇ˆ be a set of traces of 𝑃ˆ and S𝑚𝑖𝑛 be the minimum
+control-flow sketch. We define the minimal decomposition map for trace 𝑡ˆ𝑖 , denoted Δ𝑖 , as follows:
+                                     Δ𝑖 [?𝑖 ] = {𝑡ˆ𝑖 [ 𝑗ˆ : 𝑗ˆ′ ] | ( 𝑗, 𝑗 ′ ) ∈ B [𝑏𝑖 ]}
+  for every hole ?𝑖 in S𝑚𝑖𝑛
+  With this in place we can define a minimum decomposition map
+  Definition C.4 (Minimum decomposition map). Let 𝑃ˆ denote an obfuscated program and 𝑃
+denote its minimum control flow reduction. Let 𝑇ˆ be a set of traces of 𝑃ˆ and S𝑚𝑖𝑛 be the minimum
+control-flow sketch. We define the minimum decomposition map to be a map Δ𝑚𝑖𝑛 such that for every
+hole ?𝑖 of S𝑚𝑖𝑛 we have:
+                                                    Ø
+                                       Δ𝑚𝑖𝑛 [?𝑖 ] =   Δ𝑡 [?𝑖 ]
+                                                               𝑡ˆ𝑖 ∈𝑇ˆ
+
+  Finally, we define the minimum 𝑡-sketchas follows:
+   Definition C.5 (Minimum 𝑡-sketch). Given an obfuscated program 𝑃ˆ with minimum control
+flow reduction 𝑃 a set of traces 𝑇ˆ of 𝑃ˆ we define the minimum 𝑡-sketch Θ𝑚𝑖𝑛 to be the tuple (S𝑚𝑖𝑛 , Δ𝑚𝑖𝑛 )
+where S𝑚𝑖𝑛 is the minimal control-flow sketch of 𝑃ˆ and Δ𝑚𝑖𝑛 the minimum decomposition.
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:35
+
+
+   Lemma C.2 (CompleteCFS completeness). Let 𝑃ˆ denote an obfuscated program and 𝑃 denote
+its minimum control flow reduction. Let 𝑇ˆ be a set of traces of 𝑃ˆ and Θ𝑚𝑖𝑛 be a minimum 𝑡-sketch. If
+𝑉𝑚𝑖𝑛 = GetVars(𝑃), then CompleteCFS(Θ𝑚𝑖𝑛 , ˆ    𝑃, 𝑉𝑚𝑖𝑛 ) is guaranteed to eventually return 𝑃.
+   Proof. This lemma trivially holds assuming ExpandStmtHole is complete (i.e., applies all possible
+sequences of statements appearing in traces for the given hole, i.e., Δ𝑚𝑖𝑛 [?]). This is because
+CompleteCFS enumerates completions in order of size and should return the smallest completion
+of Θ𝑚𝑖𝑛 .                                                                                         □
+
+C.2    Completness Proof
+We have shown that for every obfuscated program 𝑃ˆ and trace set 𝑇 of 𝑃ˆ that there is a minimum
+𝑡-sketch Θ𝑚𝑖𝑛 such that Θ𝑚𝑖𝑛 can be completed into the minimum control flow reduction 𝑃 via
+CompleteCFS. We can think of this sketch as a failsafe in that the Deobfuscate algorithm will
+complete Θ𝑚𝑖𝑛 into 𝑃 in the worst case if it hasn’t found another control flow reduction.
+   First, we show that every 𝑡-sketch will eventually be returned by GetNextCFS. As a consequence,
+this means Θ𝑚𝑖𝑛 will be returned (assuming Deobfuscate doesn’t return a control flow reduction).
+  Lemma C.3 (𝑡-sketch Generation Completeness). Given some trace set 𝑇 , GetNextCFS(𝑇 ) is
+guaranteed to eventually return all possible 𝑡-sketch Θ = (S, Δ).
+   Proof. First, note that every 𝑡-sketch that is added to W is eventually dequeued (assuming
+GetNextCFS is called a sufficient number of times). This is due to two facts. First, at iteration
+𝑛, all the 𝑡-sketch that get added to the worklist have weight at most 𝑤𝛾𝑛 . Intuitively, this weight
+corresponds to the best case scenario where the heuristics have worked for each of the 𝑁 expansions.
+Thus, assuming 𝑤𝛾 ∈ (0, 1), for any 𝑡-sketch in the worklist, eventually all programs that are added
+to the worklist will have lower priority than it. Second, at each iteration Expand and D𝑒𝑐𝑜𝑚𝑝𝑜𝑠𝑒
+only return a finite number of 𝑡-sketches. This is because our grammar has a finite number of
+productions and for every control-flow sketch and trace set 𝑇 there are only a finite number
+of possible decompositions (partitions of the trace set). As such, at each iteration, only a finite
+number of 𝑡-sketches are added to the worklist. These two facts imply that for every 𝑡-sketch all
+the programs that get added to the worklist have lower priority than it, and that there will always
+be a finite number of 𝑡-sketches ahead of it in the worklist. Thus, every 𝑡-sketch that is added
+eventually gets de-queued. To see why every possible 𝑡-sketch will get returned follows trivially
+from the fact that Expand is sound and returns all possible expansions and that Decompose scores
+every possible decomposition.                                                                      □
+    Theorem C.1 (Completeness). If 𝑇ˆ are traces of 𝑃,     ˆ a call to Deobfuscate(𝑃, ˆ 𝑇ˆ ) is guaranteed to
+                                                   ˆ
+eventually return a control-flow reduction 𝑃 of 𝑃 if such a program exists (assuming that GetNextVocab
+is complete).
+    Proof. Let (S𝑚𝑖𝑛 , Δ𝑚𝑖𝑛 ) be a minimum 𝑡-sketch of 𝑃,     ˆ 𝑃, and 𝑇ˆ . Per Lemma C.3, at some point
+a call to GetNextCFS is guaranteed to return Θ𝑚𝑖𝑛 . Additionally, per our assumption that Get-
+NextVocab is complete, we are guaranteed to eventually get 𝑉 = GetVocab(𝑃) (i.e., the vocabulary
+corresponding to variables from the deobfuscated program 𝑃). Finally, per Lemma C.2, given this 𝑡-
+sketch and vocab, CompleteCFS(Θ, 𝑉 ) is guaranteed to return either 𝑃 or a control-flow reduction
+𝑃 ′ of 𝑃. If 𝑃 ′ is returned, this is also a control-flow reduction of 𝑃ˆ per the definition.              □
+
+D     PROVING MINIMALITY
+The ability of the algorithm to return the minimum control-flow reduction is dependent on the order
+in which we enumerate 𝑡-sketches. To formalize this, we first formalize the notion of a minimum
+𝑡-sketch ordering as follows:
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:36                                                                                        Mariano et al.
+
+
+   Definition D.1 (Minimum 𝑡-sketch Ordering). Given an obfuscated program 𝑃ˆ and traces 𝑇 of
+𝑃, we say a function GetNextCFS computes a minimum 𝑡-sketch ordering iff for any two 𝑡-sketch Θ
+ˆ
+and Θ′ produced by GetNextCFS(𝑇 ) in that order, it is never the case that CompleteCFS(Θ, ˆ 𝑃, 𝑉 ) = 𝑃
+and CompleteCFS(Θ′, ˆ  𝑃, 𝑉 ) = 𝑃 ′ where IsReduction(𝑃, ˆ
+                                                         𝑃) and IsReduction(𝑃 ′, ˆ
+                                                                                 𝑃) and |𝑃 | > |𝑃 ′ |.
+
+
+  In other words, we say GetNextCFS computes a minimum 𝑡-sketch ordering if it will always
+produce 𝑡-sketches corresponding to minimum control-flow reductions before any other 𝑡-sketches
+corresponding to non-minimum control-flow reductions.
+  We also define a minimum vocabulary ordering as follows:
+
+
+   Definition D.2 (Minimum Vocabulary Ordering). Given some program 𝑃ˆ and traces 𝑇 of
+𝑃, as well as 𝑡-sketch Θ, we say a function GetNextVocab computes a minimum vocabulary or-
+ ˆ
+dering iff for any two vocabularies 𝑉 and 𝑉 ′ produced by GetNextVocab(Θ), it is never the case
+that CompleteCFS(Θ, 𝑃, ˆ 𝑉 ) = 𝑃 and CompleteCFS(Θ, 𝑃, ˆ 𝑉 ′ ) = 𝑃 ′ where IsReduction(𝑃, 𝑃)
+                                                                                          ˆ and
+                ′ ˆ
+IsReduction(𝑃 , 𝑃) and |𝑃 | > |𝑃 |.
+                                ′
+
+
+
+
+   Similarly, this definition states that GetNextVocab computes a minimum vocabulary ordering if
+it will always produce vocabularies corresponding to minimum control-flow reductions before any
+other vocabularies corresponding to non-minimum control-flow reductions.
+
+
+  Theorem D.1 (Minimum Completeness). If𝑇 are traces of 𝑃,  ˆ GetNextCFS computes a minimum
+sketch-decomposition ordering, and GetNextVocab computes a minimum variable ordering, a call to
+              ˆ ) is guaranteed to eventually return a minimum control-flow reduction 𝑃 of 𝑃ˆ if
+Deobfuscate(𝑃,𝑇
+such a program exists.
+
+
+  Proof. This follows from Theorem 4.2 and the fact that GetNextCFS computes a minimum
+sketch-decomposition ordering and GetNextVocab is complete.                          □
+
+
+
+
+   It should be noted that the implementation of GetNextCFS presented is not guaranteed to
+compute a minimum 𝑡-sketch ordering. For example, if there is some sketch which can be completed
+to the minimum control-flow reduction but does not match any of our trace regular expressions, it
+would be assigned low weight 𝑤 𝛼 according to either rule NO-MATCH-WHILE or NO-MATCH-ITE
+(see Figure 6), while some other sketch which can be completed to a non-minimum control-flow
+reduction could be assigned higher weight 𝑤𝛾 if it matches any of the WHILE, ITE, or BLOCK rules.
+However, because Decompose places higher weight on any program which matches our rules,
+our implementation of GetNextCFS computes a mimimum 𝑡-sketch ordering modulo our rules,
+meaning that it is guaranteed to return the minimum 𝑡-sketch among all 𝑡-sketches matching our
+rules. This translates to a similar minimum completeness modulo rules property of our algorithm,
+stating that our algorithm is guaranteed to return the minimum control-flow reduction which is
+derived from a 𝑡-sketch matching our rules.
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:37
+
+
+Table 8. Results for ablation where each trace-matching rule was disabled and performance recorded by
+obfuscation type.
+
+    Trace Matching             % Benchmarks Solved as Compared to Un-ablated Chisel
+     Rule Disabled    B. Fission Deadcode Flattening Irr. Code L. Fission L. Unroll                         All
+      basic-loop         28%        34%        46%        52%       42%         37%                         41%
+     break-loop-1        92%        68%        66%        64%       64%        74%                          67%
+      break-loop         90%        89%        99%        95%       97%        100%                         97%
+        ite-true         38%        34%        38%        29%       25%         30%                         31%
+       ite-false         45%        37%        59%        46%       46%         46%                         47%
+
+
+E     LLM PROMPT
+
+                          Table 7. Prompt used for LLM comparison with GPT-4.
+
+                                           Prompt Description
+         GPT-4 Prompt                        The following C function/s have been obfuscated.
+                                             Please return a deobfuscated version of the code
+                                             containing a single function. Please only return
+                                             the code and do not change the function name
+                                             from ‘OBF_FUNC‘ and do not put the code in a
+                                             code block.
+
+The prompt used for our large language model experiment is shown in Table 7. The prompt is
+followed by the obfuscated program. We include the bit about "containing a single function" as
+some obfuscations introduce multiple functions and we wanted to be clear that GPT-4 should only
+return a single function. We also included the parts about not changing function name and code
+blocks as these were common mistakes that GPT-4 seemed to make which would result in code
+that could not be compiled.
+
+F     TRACE MATCHING RULE ABLATION STUDY FULL RESULTS
+Table 8 shows the full results of disabled trace matching rules and recording the associated perfor-
+mance of Chisel per obfuscation type.
+
+F.1    Baselines for Comparison with Chisel
+In total, besides the baseline comparisons which we include in the main paper in Sections 6.4 and
+6.5, we identified 7 different deobfuscators which tackle related problems and could be used for
+comparison. However, ultimately we concluded none were well-suited for comparison as they (1)
+do not handle obfuscations of the type we consider in this paper [70], (2) are overly specialized to
+particular obfuscation tools [69], or (3) are out-of-date and unable to be built by our team [34]. For
+other tools that are not available, we suspect that they might not compare favorably with Chisel as
+we found they (1) are specialized to a particular type of obfuscation [17, 22] or (2) rely on symbolic
+analysis techniques [25, 66] which may struggle on specialized anti-static-analysis obfuscations as
+suggested in the literature [16, 49].
+   In what follows, we give a brief description of each baseline we considered, why we considered
+it ill-suited for comparison, and why we suspect Chisel would compare favorably if we could
+compare to these tools.
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:38                                                                                        Mariano et al.
+
+
+   Redex Deobfuscator [70]. This tool targets android binaries and considers the following obfus-
+cations: variable renaming, call indirection, statement reordering, complex branching. The paper
+states “Experimental results have shown that ReDex cannot remove meaninglessly inserted goto
+and nop instructions” as well as “Another possible direction for further research is to develop a
+tool that can handle . . . control-flow obfuscations.” Both of these conclusions indicate ReDex (or a
+similar code optimization tool) would be ill-suited to combat the obfuscations considered in this
+paper. Because of this and the fact this targets Android binaries (and not C programs), we did not
+include a comparison with this tool.
+
+  Deoptfuscator [69]. This tool targets android binaries and considers opaque predicate obfus-
+cations. Deoptfuscator is specially designed to target the obfuscator DexGuard. From the paper:
+“Deoptfuscator is the first tool for Android apps to detect and deobfuscate high-level control-flow
+obfuscation patterns of DexGuard.” This translates to techniques that are only relevant to programs
+obfuscated with this tool – for example, when deobfuscating programs using opaque predicates,
+Deoptfuscator checks particular variables “because DexGuard’s control-flow obfuscation does not
+use other classes’ opaque variables, but defines global opaque variables for each class and uses
+them only within a class.” Because of this and the fact this targets Android binaries (and not C
+programs), we did not include a comparison with this tool.
+
+   DiANa [34]. At the time of writing, the code of this tool is available at https://github.com/DiANa-
+deobfuscation-2020/DiANa. However, the code has not been updated since 2020, and attempts to
+build it encountered multiple errors in the build process (running ‘pip install -r requirements.txt‘
+failed when trying with multiple different versions of python and setuptools). We have contacted
+the authors for help building the tool but have not yet heard back. As far as we can tell, DiANa works
+by identifying the three obfuscation techniques it was designed to target (instruction substitution,
+bogus control flow, and flattening) and then deobfuscating them. Thus, we believe DiANa would
+not perform well on obfuscation techniques handled by Chisel but not considered by their tool,
+such as loop fission and loop unrolling.
+
+  CaDeCFF [22]. We could not find any available artifact or tool from this paper. We have contacted
+the authors asking for access to their implementation, but have not yet heard back. This paper
+only targets control-flow flattening. Thus, while it is possible/plausible that it could perform
+competitively with Chisel on benchmarks obfuscated with flattening, we strongly suspect it would
+be unable to handle other obfuscations or even compositions of flattening with other obfuscations.
+
+  Anti-Virtualization [17]. We could not find any available artifact or tool from this paper. We
+have contacted the authors asking for access to their implementation, but have not yet heard back.
+Because this tool is specific to virtualization (which is not a control-flow extension and thus is not
+considered by Chisel), we suspect it would not be able to handle any of the obfuscated programs
+we consider.
+
+   Saturn Framework [25]. We contacted authors about using the tool but were informed "the actual
+source code and compiled artifacts will likely never be publicly available". Their approach uses
+(1) LLVM/Souper code optimizations and (2) SMT solving to remove obfuscations like opaque
+predicates and dead code. We believe their approach would be ill-suited for obfuscations that Chisel
+can handle which require deeper code reasoning to deobfuscate (such as the obfuscation discussed in
+Section 6.8 which requires reasoning about the equivalence of two branches). Additionally, because
+this approach relies on static analysis and an SMT solver, it is likely subject to anti-static-analysis
+techniques like those presented in [16, 49].
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+     Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:39
+
+
+        ConcoLynx [66]. After contacting the authors, it appears there is no longer a working version of
+     the tool. They instead pointed us to the tool we compared to in Section 6.5. Their approach uses a
+     combination of taint-analysis, bit-level symbolic constraints, and architecture-aware constraint
+     generation to deobfuscate three specific obfuscations: symbolic jumps, predicate rewriting, and
+     symbolic code. Because their approach seems highly specialized to these particular obfuscations,
+     we suspect their approach could not handle many of the obfuscations considered by Chisel, such
+     as control-flow flattening and loop unrolling. Additionally, like the approach above, this approach
+     relies on static analysis (specifically symbolic execution) and thus can potentially be defeated by
+     anti-static-analysis techniques [16, 49].
+
+     F.2   Obfuscation from the Literature
+     To show that our rules are not overfit to specific obfuscation techniques, we consider a new
+     obfuscation that we did not use in our evaluation nor when developing our trace-matching
+     rules. The technique was first published in [15] and works by replacing each basic block 𝐵 with
+     𝑖 𝑓 (𝑅) { 𝐵 1 } 𝑒𝑙𝑠𝑒 { 𝐵 2 } where 𝑅 is a non-deterministic expression (like 𝑐ℎ𝑜𝑜𝑠𝑒_𝑟𝑎𝑛𝑑 ( [0, 1]) == 0)
+     and 𝐵 1 = 𝑜𝑏 𝑓 𝑢𝑠𝑐𝑎𝑡𝑖𝑜𝑛 1 (𝐵) and 𝐵 2 = 𝑜𝑏 𝑓 𝑢𝑠𝑐𝑎𝑡𝑖𝑜𝑛 2 (𝐵) (i.e., 𝐵 1 and 𝐵 2 are the result of applying
+     two potentially different obfuscations to 𝐵). To better understand this obfuscation, consider the
+     program in Figure 12. The result of applying this obfuscation to the program is shown in Figure 13.
+                                  1   #include <stdio.h>
+                                  2   int main() {
+                                  3      printf("Hello, World!");
+                                  4      return 0;
+                                  5   }
+
+                                        Fig. 12. Simple unobfuscated program.
+
+
+1    #include <stdio.h>
+2    int main() {
+3       if (NONDETERMINISTIC_GUARD) { // guard nondeterministically evaluates to true/false
+4          if (FALSE_OPAQUE_PREDICATE) { // false opaque predicate -- guards dead-code
+5             int x = 0;
+6             printf("Bogus string output!");
+7             if (x == 0) printf("Hello, World!");
+8          }
+9          printf("Hello, World!");
+10         return 0;
+11      } else {
+12         // following 5 lines are irrelevant code over temporary variables
+13         int x,y,z;
+14         x++;
+15         y=z*z;
+16         if (y > 2*x) z = x*y;
+17         printf("Hello, World!");
+18         return 0;
+19      }
+20   }
+
+                                             Fig. 13. Obfuscated program.
+
+        This obfuscation is most similar in style to opaque predicates. However, unlike opaque predicates,
+     introduced conditionals do not always evaluate to a fixed truth value – instead, their truth value
+
+                              Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:40                                                                                        Mariano et al.
+
+
+does not matter. To safely remove such an obfuscation using static techniques, a deobfuscator
+would need to prove that both branches are equivalent, which is particularly challenging for this
+obfuscation as different obfuscations are applied to each branch.
+
+F.3      Decompilation Output Adjustment
+As noted by [42], most decompilers (including IDA-Pro which we use in our experiments) do not
+produce compilable code. To overcome this, we apply a few small changes to the output of the
+decompiler. The changes are as follows:
+  (1) The decompiler output incorrectly removes the struct keyword – we add this keyword back
+      in. For example, structA a; would become struct structA a;.
+  (2) The decompiler introduces some illegal variable names, such as variable names starting with
+      integers. We replace all such occurences with legal variable names.
+  (3) The decompiler introduces some keywords that are not supported by GCC, such as __fastcall
+      and __cdecl. We remove all such keywords.
+  Additionally, we make two additional changes beyond making the code compilable. The first
+replaces all for loops with equivalent while loops – this has to do with a limitation of GDB
+producing proper traces for certain for loops. The second change replaces all loops of the form
+while (cond && (some_random_guard)) {...} with while(cond) {if (!some_random_guard)
+break; ...}. It should be noted that this transformation is not necessary for Chisel to run but
+rather is an optimization to improve the performance of Chisel. We believe this is a reasonable
+update to make as loops of this form are a common pattern in the output produced by IDA-Pro
+which can be easily automatically identified and updated.
+
+F.4      Sketch Encoding
+In our paper, we evaluate Sketch with two options: Sketch and Sketch-CFS. Here, we outline the
+encoding scheme for them.
+Input and specification. In both Sketch variants, we provide the following input: (1) program
+statements and (2) guards we extracted from its traces, and (3) the initialization of local variables
+we obtained by static analysis. In addition, we also give the ground-truth control-flow sketch to the
+Sketch-CFS variant. The synthesis specification uses the same set of I/O examples that Chisel
+obtained in trace generation; they are encoded as a series of assertions of the sketch skeleton. Below
+is an example of a Sketch specification.
+harness void main() {
+  Output io_0 = skeleton(1, 2, 3);    assert io_0.ret_val == 6;
+  Output io_1 = skeleton(3, 4, 5, 6); assert io_1.ret_val == 18;
+}
+
+Statement and guard encoding. First, we have a generator stmt that choose a single statement
+to change the local variables (given as ref parameters) in place.
+generator void stmt(ref int n, ref int i, ref int sum) {
+  int stmt_idx = ??;
+  if (stmt_idx == 0) i++;
+  if (stmt_idx == 1) sum += i;
+  if (stmt_idx == 2) sum += 100;
+  if (stmt_idx == 3) sum -= 100;
+}
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:41
+
+
+   To ensure the minimality of each basic block, we use minrepeat keyword to constrain the block
+to the shortest sequence of statements obtained by multiple invocations of stmt.
+generator void stmts(ref int n, ref int i, ref int sum) {
+  minrepeat {
+    stmt(n, i, sum);
+  }
+}
+    Similarly, the guards are encoded as a generator.
+generator bits guards(int n, int i, int sum) {
+  int guard_idx = ??;
+  if (guard_idx == 0) return i < n;
+}
+
+Program space encoding. We encode the program space in a Sketch generator cl that non-
+deterministically chooses a control-flow structure. In the following template generator, the place-
+holders (including ref_local_vars_decl and local_vars) contain local variables, which will be
+updated in place by the statement block selected by stmts().
+generator void cl(${ref_local_vars_decl}, int bnd) {
+  assert bnd > 0;
+
+    int kk = ??;
+    if (kk == 0) {
+      stmts(${local_vars});
+    }
+    if (kk == 1) {
+      stmts(${local_vars});
+      cl(${local_vars}, bnd-1);
+    }
+    if (kk == 2) {
+      while (guard(${local_vars})) {
+        cl(${local_vars}, bnd-1);
+      }
+      cl(${local_vars}, bnd-1);
+    }
+    if (kk == 3) {
+      if (guard(${local_vars})) {
+        cl(${local_vars}, bnd-1);
+      } else {
+        cl(${local_vars}, bnd-1);
+      }
+      cl(${local_vars}, bnd-1);
+    }
+}
+
+void skeleton() {
+  ${local_vars_declaration}
+  cl(${ref_local_vars});
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:42                                                                                        Mariano et al.
+
+
+    return return ret_expr(${local_vars});
+}
+
+
+𝑡-sketch encoding. Since a 𝑡-sketch is already a sketch with statement block holes, it is sufficient to
+translate it into a Sketch function with holes replaced by the corresponding statement generators.
+
+generator bits guards(int n, int i, int sum) {
+  int guard_idx = ??;
+  if (guard_idx == 0) return i < n;
+}
+
+generator void stmt_1(ref int n, ref int i, ref int sum) {
+  int stmt_idx = ??;
+  if (stmt_idx == 0) i = 0;
+  if (stmt_idx == 1) sum = 0;
+}
+
+generator void stmt_2(ref int n, ref int i, ref int sum) {
+  int stmt_idx = ??;
+  if (stmt_idx == 0) sum += i;
+  if (stmt_idx == 1) i++;
+}
+
+generator int ret_expr(int n, int i, int sum) {
+  return {| sum |};
+}
+
+void skeleton(int n) {
+  int i = 0;
+  int sum = 0;
+
+    stmts_1(ref n, ref i, ref sum);
+
+    while (i < n) {
+      stmts_2(ref n, ref i, ref sum);
+    }
+
+    return ret_expr(n, i, sum);
+}
+
+
+Deciding hyperparameters of Sketch. When running Sketch evaluation, we try several com-
+binations of Sketch hyperparameters that affect the synthesis performance. The relevant hyper-
+parameters are --bnd-unroll-amnt, --bnd-unroll-amnt, and --bnd-unroll-amnt. We first run
+Sketch on a smaller configuration (20, 30, and 10 for each of the parameters respectively), and
+if it fails to find any solution, we use a slightly larger configuration (60, 150, and 15 respectively).
+Finally, if Sketch still fails, we increase each parameter by 10 until time out.
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+Control-Flow Deobfuscation Using Trace-Informed Compositional Program Synthesis                              349:43
+
+
+                                      Table 9. Tigress flattening options.
+
+                        Option Name                      Values
+                         Transform                      Flatten
+                  FlattenSplitBasicBlocks                 true
+                      FlattenDispatch         switch, goto, indirect, call
+             FlattenNumberOfBlocksPerFunction               1, 2
+                  FlattenConditionalKinds                branch
+                   FlattenRandomizeBlocks                  true
+                    FlattenObfuscateNext                  false
+
+                               Table 10. Tigress dead-code insertion options.
+
+                                    Option Name                   Values
+                                      Transform               InitEntropy
+                                  InitEntropyKinds                 vars
+                                      Transform                InitOpaque
+                                   InitOpaqueCount                   2
+                                 InitOpaqueStructs               env, list
+                                      Transform                 AddOpaque
+                                   AddOpaqueKinds            call, bug, true
+                                   AddOpaqueCount                    2
+                                  AddOpaqueStructs               env, list
+
+                               Table 11. Tigress basic-block splitting options.
+
+                                     Option Name                   Values
+                                      Transform                   Flatten
+                                 FlattenBasicBlocks                 true
+                                      Transform                InitEntropy
+                                   InitEntropyKinds                 vars
+                                      Transform                 InitOpaque
+                                   InitOpaqueCount                    2
+                                  InitOpaqueStructs               env, list
+                                      Transform                  AddOpaque
+                                    AddOpaqueKinds                  true
+                                    AddOpaqueCount                    2
+                                   AddOpaqueStructs               env, list
+
+
+F.5   Tigress Parameters
+We used Tigress for flattening, dead-code insertion, and basic-block splitting. The full set of
+options and values we use to perform each of these obfuscations are given in Tables 9, 10,
+and 11. All options are given in the order they are provided to the tool. Note that we com-
+posed the obfuscation transformations by applying Tigress multiple times with the different
+options outlined in the tables. All obfuscations were followed by the transform CleanUp with
+–CleanUpKinds=removeUnusedFunctions.
+
+                         Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+349:44                                                                                        Mariano et al.
+
+
+F.6      Yadegari Tool Comparison Results
+In this small comparison with the tool from Yadegari et al. [67], we compare with 3 different
+programs. The first is a simple program which performs a simple check and returns an integer. The
+second computes the parity of an integer provided as a command-line argument. The final is a
+simple looping program which computes double the sum of all natural numbers up to an integer
+provided as a command-line argument. The first two are obfuscated using branch insertion. The
+final program is obfuscated using branch insertion, dead-code insertion, and flattening. For all of
+the benchmarks, we used the Intel PIN tool to generate traces to feed to the tool from Yadegari
+et al. (as suggested by the original authors). For all three benchmarks where branch insertion
+was used, the cmp instructions introduced by the obfuscation were not removed. Furthermore, all
+three removed some critical part of the trace, rendering the resulting trace invalid (e.g. removal
+of the actual parity computation). Similar results were seen for the benchmarks obfuscated with
+dead-code insertion and flattening. For a full explanation of these results, including the actual
+outputs of Yadegari’s tool, please consult https://github.com/anonymous-submission-acct/Yadegari-
+Deobfuscator-Evaluation/tree/main/rebuttal.
+Received 2024-04-05; accepted 2024-08-18
+
+
+
+
+Proc. ACM Program. Lang., Vol. 8, No. OOPSLA2, Article 349. Publication date: October 2024.
+

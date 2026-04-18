@@ -1,0 +1,843 @@
+                   Automatic Simplification of Obfuscated JavaScript Code:
+                               A Semantics-Based Approach
+
+
+                                          Gen Lu       Saumya Debray
+                                         Department of Computer Science
+                                           The University of Arizona
+                                            Tucson, AZ 85721, USA
+                                Email: {genlu, debray}@cs.arizona.edu
+
+
+   Abstract—JavaScript is a scripting language that is        code to avoid detection [13]. The growing prevalence
+commonly used to create sophisticated interactive client-     of malicious JavaScript code is exemplified by the
+side web applications. With the popularity growth in          Gumblar worm, which uses dynamically generated and
+those “Web 2.0” sites, browsing the Internet without          heavily obfuscated JavaScript to avoid detection and
+JavaScript support is impractical. However, JavaScript
+                                                              identification, and which at one point was considered
+code can also be used to exploit vulnerabilities in the
+web browser and its extensions, and in recent years it        to be the fastest-growing threat on the Internet [17].
+has become a major mechanism for web-based malware               Identifying malicious JavaScript code is not easy,
+delivery. In order to avoid detection, attackers often take   however. The mere presence of obfuscated JavaScript
+advantage of the dynamic nature of JavaScript to create       does not, in itself, signal the presence of malicious
+highly obfuscated code. This makes the identification         content, since benign web pages also to use code
+of malicious JavaScript code challenging: current ap-
+                                                              obfuscation to protect intellectual property [7], [16].
+proaches to analyzing such code typically either make
+assumptions that may not hold in practice, or else            Moreover, attackers often use server-side scripting to
+require manual intervention that can be tedious and           deliver randomly obfuscated code where each instance
+time-consuming. This paper describes a semantics-based        is syntactically different from the next (server-side
+approach for automatic deobfuscation of JavaScript code       polymorphism). For these reasons, static signature-
+using dynamic analysis and slicing. Experiments using a       based heuristics (e.g., “‘eval(’ and ‘unescape(’ within
+prototype implementation indicate that our approach is        15 bytes of each other” [17]) have limited success
+able to penetrate multiple layers of complex obfuscations     when dealing with obfuscated JavaScript. Traditional
+and extract the core logic of the computation, which          anti-virus tools that process web pages typically rely
+makes it easier to understand the behavior of the code.
+                                                              on such syntactic heuristics and so tend to produce a
+                                                              high misidentification rate [7], [13], [16].
+                   I. I NTRODUCTION                              A better solution would be to use semantics-based
+   Recent years have seen a dramatic rise in the role of      techniques that focus on code behavior. Unfortunately,
+the World-Wide Web in many aspects of our day-to-             current behavioral analysis techniques for obfuscated
+day lives. Unfortuately, there has been a concomitant         JavaScript typically require considerable manual inter-
+increase in the use of the Web as a malware-delivery          vention, e.g., to modify the code in specific ways or
+platform: even a single visit by an unwary user to            to monitor its execution within a debugger [19], [22],
+an infected website may be sufficient to cause an             [32]. There has been some recent work on automated
+arbitrary malicious payload to be downloaded and              behavioral analyses of obfuscated JavaScript that in
+executed without user’s permission or knowledge. This         many cases has a “deobfuscator” component [4], [6],
+process, known as drive-by-downloading, is carried out        [7], [9], [16], as well as standalone JavaScript deobfus-
+by exploiting vulnerabilities in web browsers and/or          cation tools [1], [10], [23], [30]. These deobfuscators
+their extensions [25], [26] and can be delivered us-          all rely on some simple and intuitive assumptions about
+ing a variety of web-based mechanisms [24]. Drive-            the obfuscation and the structure of the obfuscated
+by-downloads often rely on JavaScript, a scripting            code. Although these assumptions seem plausible, it is
+language widely used for generating dynamic web               not difficult to construct obfuscations that violate them
+content. Attackers often take advantage of the dy-            and thereby defeat the corresponding deobfuscators.
+namic nature of JavaScript to create highly obfuscated        This is illustrated in Section IV.
+   This paper proposes a different approach to analyze                        II. BACKGROUND
+obfuscated JavaScript code. We collect bytecode exe-
+cution traces from the target program and use dynamic          This section provides an overview of the JavaScript
+slicing and semantics-preserving code transformations       language and the host environment of web browser and
+to automatically simplify the trace, then reconstruct       describes some widely used real-world code obfusca-
+deobfuscated JavaScript code from simplified trace.         tion techniques.
+The code so obtained is observationally equivalent to
+the original program for the execution path considered,     A. JavaScript Basics
+but has obfuscations simplified away, thereby exposing
+                                                               The term “JavaScript”, commonly used to refer to
+the core logic of the computation performed by the
+                                                            a scripting language used for client-side programming
+original code. The resulting code can then be examined
+                                                            of dynamic websites, actually encompasses several dis-
+manually or fed to other analysis tools for further pro-
+                                                            tinct components. These include the core programming
+cessing. Our approach differs from existing approaches
+                                                            language, an implementation of the ECMA-262 stan-
+in that it makes no assumptions about the structure of
+                                                            dard; and the host enviroment, namely, the Document
+the obfuscation and uses semantics-based techniques
+                                                            Object Model (DOM) provided by web browser.
+to reveal the behavior of the code.
+                                                               The core JavaScript language provides a set of
+   In previous work [18], we have described a
+                                                            data types (e.g. Boolean, String, Object), a collection
+semantics-based approach to deobfuscating “core”
+                                                            of built-in objects and functions (e.g. RegExp, Math,
+JavaScript, i.e. code that runs on a standalone
+                                                            Date), and a prototype-based inheritance mechanism,
+JavaScript engine. This does not account for interac-
+                                                            among other things. Like most scripting languages,
+tions between the executing JavaScript code and the
+                                                            JavaScript is highly dynamic in nature. It is dynam-
+host browser, which provides the Document Object
+                                                            ically typed, which means that a variable can take
+Model (DOM) for manipulating HTML documents and
+                                                            on values of different types at different points in a
+the ability to interact with external websites. This pa-
+                                                            program. Properties of (associative-array based) ob-
+per, by contrast, focuses on the more challenging task
+                                                            jects can be added/deleted on the fly, and code can be
+of deobfuscating JavaScript code in the full context
+                                                            generated from strings at runtime using built-in eval
+of the browser’s execution environment. This is much
+                                                            function.
+more complex than the “core” JavaScript considered in
+[18], and admits many more options for obfuscation,            The Document Object Model (DOM) is an API that
+but is able to handle the full range of behaviors of real   abstracts HTML documents as a structural represen-
+JavaScript malware. We evalute our approach using           tation of objects and provides a mechanism for ma-
+a prototype implemention and test it againest both          nipulating this abstraction, thereby enabling JavaScript
+synthetic programs and real malware code. The results       code to modify and interact with the content of web
+show that our approach can penetrate multiple layers        pages dynamically. For example, write method of the
+of complex obfuscations, some of which cannot be            document object can be used to dynamically write
+handled by existing techniques, and extract the core        HTML expressions or JavaScript code to a document.
+logic of the underlying computation.                        In contrast to the built-in objects defined in core
+                                                            JavaScript, objects defined in the DOM specification
+   The rest of this paper is organized as follows.
+                                                            are called “host objects”, and are provided as a part of
+Section II provides the background information of
+                                                            the host environment by the web browser.
+JavaScript malwares and obfuscation techniques. Sec-
+tion III describes the concept of semantic-based de-
+obfuscation and the implementation of our approach.         B. JavaScript Runtime
+Section IV presents our experimental evaluation. Sec-          At the implementation level, JavaScript typically
+tions V and VI discusses related and future work, and       uses an expression-stack-based byte-code interpreter;
+Section VII concludes. Appendix A presents the com-         modern implementations of these interpreters usually
+plete code contexts for malware sample P4 discussed         come with JIT compilers. For example, Mozilla’s
+in Section IV.                                              popular FireFox web browser uses an open source
+                                                            JavaScript interpreter, SpiderMonkey, written in C/C++
+                                                            [21]. This is a single dispatching function that steps
+                                                            through the bytecode one instruction at a time.
+                                                           1    <div id=’x’>HelloWorld</div>
+   As discussed in previous sections, client-side
+                                                           2    <script>
+JavaScript programs have the ability of generating code    3    a = document; b = "Id";
+at runtime, using various mechanisms provided by both      4    var c = a[f()](’x’)[’i’+’nn’+’erH’+’TML’];
+interpreter and browser (e.g. eval(), document.write()     5    function f(){
+and iframe, etc). Further, dynamic code generation can     6      var p=’ent’+’By’+b;
+be multi-layered, e.g., a string that is eval-ed may       7      var q=’get’+’Elem’;
+itself contain calls to eval, and such embedded calls      8      return q+p;
+to eval can be stacked several layers deep. We refer       9    }
+to such dynamic code generating as code unfolding,         10   </script>
+and for each piece of code generated by runtime
+unfolding, we call it a code context. Native and non-            Figure 1.   Example of obfuscated JavaScript code
+native functions are also terms being used through out
+this paper. In JavaScript programs, functions defined      using document.getElementById() at runtime. And, of
+in JavaScript (using keyword function) are called non-     course, document.write() is a more powerful weapon
+native functions; and functions provided by the inter-     than eval(), which can be used in combination of those
+preter or browser (e.g. built-in functions and methods     obfuscation techqniues mentioned above, to generate
+of host objects) are called native functions. Unlike       script, document elements storing data and pointers to
+non-native functions, native functions do not generate     external documents, all at runtime.
+a bytecode trace when executed. We will see this              Figure 1 presents an example of JavaScript code
+difference of native/non-native functions is important     obfuscated using some of the techniques discussed
+to our deobfuscation technique.                            above. Line 3 of this code snippet uses bracket notation
+                                                           to reference object property, using the strings ‘getEle-
+C. JavaScript Obfuscation Techniques                       mentById’ (obtained as the concatenation of the strings
+                                                           ‘get’, ‘Elem’, ‘ent’, ‘By’, and ‘Id’) and ‘innerHTML’
+   The dynamic nature of Javascript code makes pos-
+                                                           (obtained as the concatenation of the strings ‘i’, ‘nn’,
+sible a variety of obfuscation techniques. Particularly
+                                                           ‘erH’, and ‘TML’) as array indices instead of using
+challenging is the combination of the ability to execute
+                                                           the more straightforward dot-notation to obtain the
+a string using code unfolding, as described above,
+                                                           corresponding property values. Furthermore, it uses the
+and the fact that the string being “executed” may
+                                                           DOM method document.getElementById() to retrieve
+be obfuscated in a wide variety of ways. Howard
+                                                           data, namely, the string ‘HelloWorld.’ For simplicity of
+discusses several such techniques in more detail [13].
+                                                           exposition, this code uses a very straightforward obfus-
+For example, the characters in the string can be en-
+                                                           cation of the array index strings, namely, concatenation
+coded in various ways, e.g., using %-encoding (a as
+                                                           of a few smaller strings; the code could, however, just
+%61, b as %62, . . . ), Unicode (a as \u0061, b as
+                                                           as easily have used arbitrarily more complex obfusca-
+\u0062, . . . ), Base-64, etc. The string can be kept in
+                                                           tions to construct these strings. The script is equivalent
+encrypted, compressed, or permuted form. It can be
+                                                           to var c = document.getElementById(’x’).innerHTML.
+constructed at runtime by concatenating other strings
+                                                           The value finally assigned to variable c is a string
+together. Besides, in addition to the traditional “dot
+                                                           ’HelloWorld’ which is retrived from the HTML <div>
+notation” (obj.property) for object access, one can use
+                                                           element with ID ’x’.
+a “bracket notation” (obj[“property”]) instead. In the
+latter case, moreover, the use of a string as an array        Those obfuscation techniques can be combined in ar-
+index makes applicable all of the string obfuscation       bitrary ways with multi-layered code unfolding, which
+techniques mentioned earlier.                              makes it difficult to determine the intent of a JavaScript
+                                                           program from a static examination of the program
+   The host environment of web browser also provides
+                                                           text. To make it more challenging, the payload can be
+various options for obfuscation. One approach is to
+                                                           scattered in multiple code contexts at different levels,
+split code into several parts, either in the same file
+                                                           with each piece using various obfuscation techniques
+or even into multiple files stored among web servers.
+                                                           and hidden in the garbage code whose only purpose is
+This technique is frequently seen with web-based
+                                                           to confuse deobfuscators. We will show in Section IV
+malware. Another approach takes advantage of DOM
+                                                           this trick can defeat existing JavaScript deobfuscators,
+interaction. For example, data can be stored in the
+                                                           which assume the unobfuscated, complete payload is
+HTML file, outside the <script> block, then retrieved
+revealed in one of the (typically the last) unfolded        are observationally equivalent if they execute identical
+JavaScript code contexts.                                   sequences of system calls (together with the argument
+   There are also tools available for reducing the size     vectors to these calls).
+of scripts [11], [33], usually by removing unnecessary         This notion of equivalence suggests a simple ap-
+whitespaces and comments, and renaming symbols.             proach to deobfuscation: identify code that directly or
+This technique is called code compression or mini-          indirectly affects the values of the arguments to system
+fication, although it makes code difficult to read, the     calls; these instructions are “semantically relevant”.
+behavior is still apparent. Therefore, we don’t consider    Any remaining instructions, which are by definition
+code minification as obfuscation.                           semantically irrelevant, may be discarded. For the
+                                                            JavaScript code considered in this paper, the actual
+     III. S EMANTICS -BASED D EOBFUSCATION                  system calls are typically made from built-in browser
+                                                            routines that appear as native functions. Our imple-
+   In this section, we describe the concept of semantics-   mentation therefore uses native functions as a proxy for
+based deobfuscation and the architecture of our proto-      system calls: this is sound, but potentially conservative
+type system in more detail. In particular, we discuss       since not all native functions lead to system calls.
+how we collect execution information of JavaScript          Then, to identify instructions that affect the values
+programs at runtime, and how we use dynamic slicing         of native function arguments, we use dynamic slicing,
+technique to identify “semantically relevant” code from     applied at the byte-code level. One of the advantages of
+obfuscated script.                                          doing analysis at byte-code level is that the JavaScript
+                                                            compiler does part of the job for us: many obfuscation
+A. Overview                                                 techniques used to confuse human analysts or auto-
+   Semantics-based approach. Deobfuscation refers           mated script parsers can be revealed or removed after
+to the process of simplifying a program to remove           compilation. Examples of such tricks are discussed in
+obfuscation code and produce a simpler and function-        [32], [34].
+ally equivalent program. Static analysis of obfuscated        System overview. Our approach to deobfuscating
+JavaScript code usually cannot penetrate (possibly mul-     JavaScript code consists of the following steps, as
+tiple levels of) dynamic code unfolding to examine          shown in Figure 2:
+the actual code that is materialized at runtime. Most
+existing JavaScript deobfuscators therefore resort to        1) Use an instrumented web browser to obtain an
+dynamic analyses [6], [7], [10], [23], [30]. These tech-        execution trace for the JavaScript code under
+niques work for programs that match their assumptions           analysis.
+about the code structure, but would have difficulty          2) Construct a dynamic control flow graph from
+to automatically handle programs using more general             collected trace to determine the structure of the
+obfuscations.                                                   executed code.
+                                                             3) Use our deobfuscation slicing algorithm to iden-
+   The motivation of our approach is from the semantic          tify semantically relevant instructions, i.e., in-
+intuition behind any deobfuscation process. In general,         structions that affect the externally-observable be-
+we cannot expect deobfuscation to produce the original          havior of the program. As previously discussed,
+source code for the program, either because the source          externally-observable behavior is carried out by
+code is unavailable, or due to code transformations             native functions.
+applied during obfuscation. All we can require, then,        4) Decompile the dynamic control flow graph to
+is that the process of deobfuscation must be semantics-         an abstract syntax tree (AST) and label all the
+preserving: i.e., that the code resulting from deobfus-         nodes constructed from resulting set of relevant
+cation be equivalent to the original program. For the           instructions.
+analysis of potentially-malicious code, a reasonable         5) Use semantics-preserving transformations to elim-
+notion of equivalence is that of observational equiv-           inate invalid source-level constructs such as goto
+alence, where two programs are considered equiva-               statements. Finally, generate deobfuscated source
+lent if they behave—i.e., interact with their execution         code by traversing the AST and printing only
+environment—in the same way. Since a program’s run-             labeled (relevant) syntax tree nodes.
+time interactions with the external environment occur
+through system calls, this means that two programs          Our current implementation seperates trace collection
+                            Figure 2.   Semantics-based JavaScript deobfuscation: System overview
+
+
+
+from the remaining steps: the generated trace is written             target.
+out to a file, which is then read by the trace analyzer.           – global variables, array elements, and object prop-
+This is purely for convenience, since it is conceptually             erty accesses: which property of which object is
+straightforward to build the analysis facilities directly            being defined or used;
+into the web browser. Our current implementation                   – local variables and arguments: an index specify-
+writes out the abstract syntax tree obtained at the end              ing which local variable or argument amongst the
+of the above process in the form of JavaScript source                function’s locals is being accessed;
+code, but one can also imagine directly applying other             – function calls: the reference to the callee (func-
+malware analysis tools to the syntax tree itself.                    tion object) and the number of arguments being
+                                                                     passed, together with a flag indicating whether the
+B. Trace Collection                                                  callee is a native function;
+                                                                   – function references: the reference to the function
+  We use an instrumented Mozilla FireFox web
+                                                                     object in which this intruction belongs to. This
+browser to collect the program’s execution trace. Fire-
+                                                                     informantion is used to identify functions which
+Fox first compiles JavaScript source code to bytecode
+                                                                     is not called explicitly;
+and then executes it using its embeded SpiderMon-
+                                                                   – document.write flags: a flag indicating current
+key interpreter. Since obfuscations commonly used by
+                                                                     instruction is a call to document.write() function;
+malware take advantage of the built-in functionality
+                                                                   – document elements: the reference to the document
+of JavaScript interpreter as well as document related
+                                                                     element that is created or accessed by functions
+operations provided by the browser (see Section II-C),
+                                                                     such as getElementById();
+our instrumentation covers both the interpreter and
+                                                                   – unfolded code: string passed to code generating
+DOM.
+                                                                     operations (i.e. eval(), document.write(), etc.)
+  Each byte-code instruction instance generated by
+our instrumented web browser includes instruction’s
+                                                                 As discussed in Section II-B, the execution of a non-
+address, opcode mnemonic, length (in bytes), and
+                                                                 native function generates a bytecode trace while a call
+operands, together with any additional information
+                                                                 to a native function does not. However, the call to the
+about the instruction that may be relevant. In particular,
+                                                                 non-native function can not be determined merely by
+we print the following information, which is used for
+                                                                 the existence of bytecode trace. There are native func-
+subsequent steps of the deobfuscation:
+                                                                 tions take other functions as arguments, i.e. callbacks.
+  – expression stack: set of memory locations on the             These callback functions are invoked implicitly by the
+    stack that are read and/or written by the instruc-           native function and generate bytecode trace, makes it
+    tion;                                                        similar to the execution of a non-native function. One
+  – constants: encoded as part of the byte-code in-              such example is string.replace(), it takes a callback
+    struction, can be an integer or a reference to an            function as argument, the callback will be invoked
+    object (i.e., string and floating point number), for         after the match has been performed. The callback result
+    the latter case, the actual value of constant is             (return value) will be used as the replacement string.
+    retrieved and printed instead of the reference;              Therefore, a flag is used to distinguish calls to native
+  – conditional and unconditional branches: the offset           and non-native functions, and for each instruction
+    (relative to the current instruction) of the branch          instance in the trace, we use the function reference
+to indicate in which function this instruction belongs,    trace, such as handling different instances of the same
+in order to associate the execution and definition of      instruction and the lack of information about functions,
+callback functions. The callback functions can also be     are given in our previous paper [18].
+invoked inside a non-native function, in that case, no        One particular challenge for JavaScript dynamic
+special handling is required, therefore, in this paper,    CFG construction is how to deal with code generated
+the term callback is only used to refer to non-native      dynamically. In order to distinguish code used for
+callback functions invoked implicitly by native func-      generating other code at runtime, from code used for
+tion.                                                      other computation, we treat dynamically unfolded code
+ The references to document elements and docu-             similar to the way we handle non-native functions: a
+ment.write flags are used to handle obfuscations involv-   seperate CFG is constructed for each piece of dynam-
+ing DOM operations, which is opaque to JavaScript          ically unfolded code, as the function body; and the
+interpreter, but is crucial for the purpose of deob-       unfolding instruction (e.g. eval()) is treated as a call to
+fuscating JavaScript in web pages: HTML document           the function. This turns out to be conceptually simple
+elements can be created and modified dynamically, and      and also reflects the way in which the eval() construct
+are often used for storing data by obfuscated JavaScript   is handled in the underlying implementation.
+programs (e.g., see Figure 1). Unlike eval(), which is        Another modification we made on standard CFG
+directly translated to an “eval” bytecode instruction, a   construction algorithm is the processing of callback
+call to document.write() is indistinguishable from other   functions. For the function call instruction labeled as
+native function calls. The document.write flag is used     native call, if the instruction follows it in the trace is
+by our deobfuscation slicing algorithm to establish the    not adjacent (determined by instruction’s address), then
+connection between HTML document and JavaScript            all the instructions between the native call instruction
+code.                                                      and its adjacent instruction are generated by (one or
+                                                           more execution of) callback function. In this sub-trace,
+C. Control Flow Graph Construction
+                                                           the boundary of each execution is identified and it is
+   In principle, obtaining the static control flow graph   then used for the CFG construction of corresponding
+(CFG) for a JavaScript program is possible. JavaScript     callback function. Also, as a preliminary step for
+source code is compiled into bytecode before exe-          applying deobfuscation-slicing (discussed in Section
+cution, and it is straightforward to decompile this        III-D), the sub-trace of callback execution is cut off
+bytecode to an abstract syntax tree. In practice, the      from the trace and associated with the call instruction
+control flow graph so obtained may not be very useful      to the native function which invokes the callback.
+if the intent is to simplify obfuscations away. The
+reason for this is that dynamic constructs such as         D. Semantic-Based Deobfuscation
+eval(), commonly used to obfuscate JavaScript code,
+are essentially opaque in the static control flow graph:      Given the execution trace and control flow graph, the
+their runtime behavior—which is what we are really         next step is to identify the instructions that are seman-
+interested in—cannot be easily determined from an          tically relevant to the program’s externally observable
+inspection of the static control flow graph. For this      behavior. For this, we use a variation on a program
+reason, we opt instead for a dynamic control flow          analysis technique known as dynamic slicing.
+graph, which is obtained from an execution trace of           In general, dynamic slicing is the problem of identi-
+the program. However, while the dynamic control flow       fying, for a given execution of a program P , which
+graph gives us more information about the runtime          instructions (or statements) in P actually affect the
+behavior of constructs such as eval(), it does so at the   value of a given variable at a given point in P .
+cost of reduced code coverage.                             Intuitively, this involves tracing dependencies between
+   The algorithm for constructing a dynamic CFG from       uses and definitions of variables; the issue is somewhat
+an execution trace is adapted from the algorithm for       more complicated in stack-based interpreters because
+static CFG construction, found in standard compiler        the instructions that use the expression stack typically
+texts [3], modified to deal with dynamic execution         do not have their operands represented explicitly. Dy-
+traces, plus the standard dominator analysis to iden-      namic slicing in such situations has been investigated
+tify the loops. A more detailed discussion of issues       by Wang and Roychoudhury in the context of slicing
+about recovering the CFG from dynamic execution            Java byte-code traces [31]. We adapt their algorithm
+                                                                  in two ways, both having to do with the dynamic
+                                                                  features of JavaScript used extensively for obfuscation.
+     Input: A dynamic trace T ; an instruction instance           The first is that while Wang and Roychoudhury use a
+            instr ∈ T ; a dynamic control flow graph G;
+     Output: A slice S;
+                                                                  static control flow graph, we use the dynamic control
+                                                                  flow graph discussed in Section III-C. The reason for
+1  S := ∅;                                                        this is that in our case a static control flow graph
+2  currFrame := lastFrame := NULL;
+                                                                  does not adequately capture the execution behavior
+ 3 LiveSet := ∅;
+ 4 stack := a new empty stack;
+                                                                  of exactly those dynamic code unfolding constructs,
+ 5 I := instruction instance at the last position in T;           such as eval() and document.write(), that we need
+ 6 while true do                                                  to handle when dealing with obfuscated JavaScript.
+ 7     inSlice := false;                                          The second is in the treatment of dynamic constructs
+ 8     Uses := locations of data used by I;                       during slicing, such as code-unfolding and the bracket
+ 9     Defs := locations of data defined by I;                    notation. Consider a statement eval(s): in the context
+10     if I is property access by bracket notation ∧ all          of deobfuscation, we have to determine the behavior
+       instances of the corresponding instruction access          of the code obtained from the string s; the actual
+       the same name then
+11          Uses := Uses - location of the string argument;
+                                                                  construction of the string s, however, is simply part
+12     end                                                        of the obfuscation process and is not directly relevant
+                                                                  for the purpose of understanding the functionality of
+13         inSlice := I is instr;
+                                                                  the program. When slicing, therefore, we do not follow
+14         if I is a return instruction then
+15              push a new frame on stack;                        dependencies through any code unfolding statements.
+16         else if I is an interpreted function call then            A different approach is used to handle object prop-
+17              lastFrame := pop(stack);                          erty accesses using bracket notation. This access mech-
+18         else                                                   anism is useful in situations where different executions
+19              lastFrame = NULL;                                 of the same piece of bracket-notation code access
+20         end
+21         currFrame := top frame on stack;
+                                                                  different object properties, e.g., when iterating over
+                                                                  a list of properties in a loop. In such situations, the
+22         if I is an interpreted function call ∧ I is not eval   code used to construct the various strings used for the
+           ∧ I is not code-unfolding document.write then
+                                                                  bracket-notation access is relevant to understanding the
+23              inSlice := inSlice ∨ lastFrame is not empty;
+24         else if I is a control transfer instruction then       behavior of the program, and should be included in
+25              for each instruction J in currFrame s.t. J is     the slice. On the other hand, if every instance of the
+                control-dependent on I do                         bracket-notation code accesses the same property, then
+26                  inSlice := true;                              this access mechanism provides no additional benefit
+27                  remove J from currFrame;                      compared to the more common dot-notation access;
+28              end                                               arguably, it makes the code a little harder to understand
+29         end                                                    (especially if the string being used for the bracket-
+30         inSlice := inSlice ∨ (LiveSet ∩ Defs 6= ∅);            notation access is constructed dynamically), and so
+31         LiveSet := LiveSet − Defs;                             is obfuscatory. For this reason, given an instruction
+32         if inSlice then                                        instance I in the trace that uses a bracket-notation
+33              add I into S;                                     access, we check whether all the instances of I in
+34              add I into currFrame;
+                                                                  the trace access the same property name s: if so, the
+35              LiveSet := LiveSet ∪ Uses;
+36         end                                                    dependency from I to the code that constructs s is not
+                                                                  followed; instead, the constructed name s is used in
+37         if I is not the first instruction instance in T then   decompilation stage. Otherwise, if different instances
+38              I := previous instruction instance in T;
+39         else
+                                                                  of I use different property names s, the dependency
+40              break;                                            from I to the code that constructs s is treated normally
+41         end                                                    and the string construction code is included.
+42   end                                                             The key to any dynamic slicing based technique
+     Algorithm 1: Deobfuscation-Slicing algorithm                 is to accurately capture the data and control flow
+                                                                  of the target program, which is especially challeng-
+                                                                  ing for slicing JavaScript code in web pages: DOM
+enables the interaction between JavaScript code and          stack that are read and/or written by the instruction,
+the host HTML document, but the document related             and similarly for properties and DOM elements. Lines
+information is opaque to the JavaScript interpreter. For     10 − 12 cut the dependency for property access using
+example, a program can store data in a HTML element          bracket notation, as discussed above. If we encounter
+and retrieve it later, similar to the usage of variables     a return instruction, this instruction must be in a
+(e.g., see Figure 1). Furthermore, JavaScript program        callee function, and since the trace is being traversed
+can also perform code unfolding at runtime using             backwards we push a new frame on the stack (line 14);
+DOM methods (e.g. document.write()), either directly         analogously, when we encounter a call to an interpreted
+or from an external source. Therefore, to precisely slice    function (native functions are not traced), we pop the
+JavaScript program, it is important to keep track of the     stack because the call instruction is in the caller (line
+connection between the byte-code used by interpreter         16). The underlying implementation handles dynamic
+and DOM operations. To this end, our slicing algorithm       code generation via eval() and document.write() like a
+considers extra information provided by instrumented         function call; line 22 of our algorithm ignores code
+DOM, as discussed in Section III-B. More specifically,       unfolding, as discussed above. To keep the description
+the reference to the document element is printed at the      of deobfuscation-slicing algorothm clear and concise,
+point where it is accessed by DOM methods, which             the detail of callback processing is omitted from pseu-
+recovers the data dependence hidden in the native            docode.
+functions.
+   In additon, we treat document.write() specially. doc-         Input: A dynamic trace T ; a dynamic control flow
+ument.write() method writes a string of text to the                     graph G;
+                                                                 Output: All relevant instructions R;
+HTML document, which could be used both for basic
+document manipulation and code unfolding. Those two          1  R ← ∅;
+cases are handled differently, depends on whether new        2  U ← ∅;
+                                                              3 for i ← length of T to 1 do
+code is introduced and executed. If JavaScript code
+                                                              4     instr ← i-th instruction instance in T;
+is dynamically generated and executed by calling this         5     if instr is a code unfolding instruction then
+method, then our slicing algorithm handles the call           6          U ← U ∪ Deobfuscation-Slicing(T , instr,
+exactly the same way as eval(): cut the dependence                       G);
+between document.write() and the code generated. Oth-         7     end
+erwise, we consider it a regular native function call         8 end
+which is used for output purpose.                             9 for i ← length of T to 1 do
+                                                             10     instr ← i-th instruction instance in T;
+   The handling of callback functions requires some ex-      11     if instr is a native function call ∧ instr ∈
+                                                                                                               / U then
+tra processing. Assuming there is a call to native func-     12          R ← R ∪ Deobfuscation-Slicing(T , instr, G);
+tion f which takes callback c as an argument, in order       13     end
+for our slicing algorithm to follow the dependency           14 end
+accurately, we need to explicitly make connections               Algorithm 2: Semantics-based deobfuscation algo-
+between the return value of f and the return value from          rithm.
+each execution of c, as well as the arguments passed to
+f and parameters of c. More specifically, if the call to
+f is included in the slice because of data dependency           The deobfuscation-slicing algorithm only solves half
+on f ’s return value, then return instructions from all      of the puzzle, we still have to determine which instruc-
+the execution of c should be included in the slice; if       tions affect program’s behavior, i.e. on which instruc-
+an instruction included in slice is dependent on any         tions to apply deobfuscation-slicing. Our approach of
+parameter of c, then the call instruction invokes f          semantics-based deobfuscation consists of two basic
+should also be included in slice.                            steps, both steps rely on the deobfuscation-slicing
+                                                             algorithm. The pseudocode is shown in Algorithm 2:
+   We refer to this algorithm as deobfuscation-slicing.
+The pseudocode is shown in Algorithm 1. Lines 1 − 5              1) identify all instructions relevant to code unfold-
+are initialization. The algorithm traverses the execution           ing (line 3-8). First, the algorithm traverses the
+trace backwards, processing each instruction in order               execution trace in order from the last instruction
+from the last instruction to the first. Lines 8−9 extracts          instance to the first, for each instance of dynamic
+from the trace the set of memory locations on the                   code unfolding instructions in trace (e.g. eval()
+    and call to document.write()), the deobfuscation-       the nodes of corresponding natural loop obtained from
+    slicing algorithm is applied on it to identify          section III-C. Once we have an extened AST with
+    instruction instances relevant to code unfolding,       goto nodes, additional code transformation is applied
+    which include native function calls contribute to       to generate valid JavaScript soure code. Basic block
+    dynamic code generation. After this step, set U         node and loop node in AST will be refered as block
+    contains all the instructions in trace T that are       node.
+    relevant to code unfolding.
+ 2) identify all instructions relevant to observable        F. Code Transformation
+    behavior (line 9-14). The algorithm traverses              Introducing goto statments during decompilation
+    the trace backwards, applying the deobfuscation-        allows us to apply a straightforward algorithm to
+    slicing algorithm on each call to the native func-      construct AST, but JavaScript source code generated
+    tion which is irrelevant to code unfolding (those       directly from this AST is invalid. To recover valid code,
+    not in set U as identified in the first step). The      we need to transform the extended AST to eliminate
+    resulting set R contains instructions semantically      goto statements, without changing the logic of the
+    relevant to the observable behavior of the script.      program.
+E. Decompilation                                               Joelsson proposed a goto removal algorithm for de-
+                                                            compilation of Java byte-code with irreducible CFGs,
+   The slicing step described above identifies instruc-     the algorithm traverses the AST over and over and
+tions in the dynamic trace that directly or indirectly      applies a set of transformations whenever possible [14].
+affect arguments to native function calls, which in-        We adapt this algorithm to handle JavaScript and the
+cludes functions that invoke system calls. Instead of re-   instruction set used by the SpiderMonkey JavaScript
+computing a control flow graph considering only those       engine [21]. The basic idea is to transform the program
+relevant instructions, we adopt a simpler approach          so that each goto is either replaced by some other
+for decompilation: transform the original control flow      construct, or the goto and its target are brought closer
+graph to the higher-level representation such as an         together in a semantics-preserving transformation. The
+abstract syntax tree (AST), and label those AST nodes       transformation stops when none of the rules above can
+constructed from relevant instrucions. This way, we         be applied to the AST. The resulting syntax tree is
+avoid the complexity of handling protential problems        traversed one last time, for each node labeled by the
+caused by slicing, for example, basic blocks might be       decompiler described in section III-E, corresponding
+scattered and the branching target instruction might not    source code has been printed out. Again, the detailed
+in the slice.                                               description of our transformation rules can be found in
+   A program in the byte-code representation of Spi-        [18] .
+derMonkey can not be directly converted into valid          G. Attacking our Algorithm
+JavaScript source code, due to the existence of those
+low level branch instructions, e.g. ifne, goto, etc.           Intuitively, there are two ways by which an attacker
+Therefore, as the first step, we use goto statement to      might attempt to evade our approach to deobfuscation.
+represent those branch operations in AST. Since the         The first is to hide relevant instructions, by adding fake
+CFG has already been processed using loop analysis          dependency between them and strings to be unfolded.
+and function indentification, we need to construct an       Our approach is immune to this technique, because
+abstract syntax tree for each function. The basic blocks    an unfolded string s depends on some code v doesn’t
+of the CFG are traversed in depth first order on the        automatically exclude v from the resulting slice; if the
+corresponding dominance tree, goto node is created          real workload depends on v , then v would be added to
+in two cases: at the end of basic block that doesn’t        slice regardless of the connection with code unfolding
+end with a brach instruction, or whenever a branch          operation. In other words, only code which is solely
+instruction is encountered. In addition to storing in-      used for obfuscation would be eliminated. The second
+formation of target block in goto nodes, we also keep       evasion technique is to disguise the obfuscation code
+track of a list of preceding goto nodes in each target      as relevant by adding extra irrelevant native function
+node. Once every basic block has been translated to an      calls and creating dependencies between the obfusca-
+AST node, loop structures are constructed by creating       tion code and those irrelevant calls. Our semantics-
+infinite while loop node which, initially, contains only    based approach can not automically simplify away this
+                                                           Figure 4.   Fragments of obfuscated versions of the program P1
+          Figure 3.   The test programs P1 and P2
+
+kind of disguised obfuscation because, in general, the
+additional native function calls potentially change the
+observable behavior of the program. One approach to
+mitigating such attacks is to select, either manually or
+automatically, a (possibly proper) subset of the native
+function calls in the program that are used as the basis
+for the slicing process described above. A detailed
+discussion of this issue is beyond the scope of this
+paper.
+
+         IV. E XPERIMENTAL E VALUATION
+   We evaluated the efficacy of our ideas using a pro-
+totype implementation based on Mozilla’s open source
+FireFox web browser, which uses SpiderMonkey as its
+JavaScript engine. We tested this prototype on three
+synthetic programs as well as an actual JavaScript            Figure 5.   Deobfuscator outputs for programs P1 and P2
+malware sample obtained from the Internet. First, we
+used two versions of the familiar Fibonacci program:       in Figure 3(a), this program is hand-obfuscated to
+this was chosen, first because it contains a variety of    incorporate multiple nested levels of dynamic code
+language constructs, including conditionals, recursive     generation using eval for each level of recursion. The
+function calls, and arithmetic; and second because it      second program, P2 , as shown in Figure 3(b), is
+is small and familiar, which makes it easy to assess       also hand-obfuscated, in which we added dependency
+the quality of deobfuscation. Our third synthetic test     between real workload and the value used by eval
+case is a very simple program that obfuscated so as to     (local variable x in function fib). Three versions of
+distribute its “payload” over multiple code contexts.      each of these programs are used—the program as-
+This poses a problem for most existing JavaScript          is as well as two obfuscated versions—one using an
+deobfuscators, which assume that the entirety of the       obfuscator we wrote ourselves that uses many of the
+payload is contained in one of the unfolded JavaScript     obfuscation techniques described in Section II-C, in-
+code contexts. Finally, we tested our prototype using      cluding DOM operation; and an online obfuscator [2].
+a sample of actual malicious code obtained from the        Figures 4 shows the fragments of obfuscated programs
+Internet by using the ‘wget’ command to retrieve the       corresponding to P1 ; the obfuscated code for P2 are
+contents of a URL extracted from a spam email sent         very similar and not shown separately due to space
+to one of the authors.                                     constraints.
+  Figure 3 shows two version of Fibonacci number             The output of our deobfuscator for these programs is
+computation programs. The first one, P1 is shown           shown in Figure 5. Figure 5(a) shows the deobfuscated
+                                                                           Figure 7.   Deobfuscator outputs for programs P3
+
+                                                                     of the unfolded JavaScript code contexts, i.e. if the
+                                                                     deobfuscator simply examines every string passed to
+                                                                     code unfolding operations such as eval() and docu-
+                                                                     ment.write(), the unobfuscated payload can be directly
+                                                                     identified in one of them. Our next test program, P3 , is
+                                                                     purposely constructed to violate this assumption. For
+                                                                     illustrative purpose, we make the original logic of P3
+                                                                     very simple, which consists of only three statements:
+                                                                                         b=0; ++b; alert(b);
+                                                                        This code is manually obfuscated by hiding each
+                                                                     statement into obfuscated variants of P1 and P2 , in
+                                                                     four steps. First, we remove the calls to native function
+                                                                     alert() in P1 and P2 in Figure 3. Next, the modified
+Figure 6. Unfolded code contexts from obfuscated version of
+                                                                     P1 and P2 are obfuscated using the online obfuscator
+programs P3 . the original code of P3 is highlighted. Some smaller   [2]. Then we insert first two statements of P3 into
+code contexts are omitted.                                           these two obfuscated programs, as if a part of the
+                                                                     obfuscation process, and concatenate them together.
+code for all three versions of P1 (the original code,                Last, we apply one more level of obfuscation to the
+shown in Figure 3(a), as well as the two obfuscated                  code from last step, and attach the third statement
+versions shown in Figure 4). Figure 5(b) shows the                   of P3 to its end. Figure 6 shows the unfolded code
+deobfuscated code for all three versions of P2 . For                 contexts of obfuscated P3 as described above. Figure
+each of P1 and P2 , the deobfuscator outputs are the                 6(a) is the topmost level obfuscation, statement alert(b)
+same for all of the three versions. It can be seen that              of P3 resides in this context. Figure 6(b) is the context
+the recovered code is very close to the original, and                unfolded by the eval() in Figure 6(a). This context con-
+expresses the same functionality. The results obtained               sists of obfuscated Fibonacci number programs, and
+show that the technique we have described is effective               the first two statements of P3 are hidden in these two
+in simplifying away obfuscation code and extracing                   obfuscation processes consecutively. Figure 6(c) and
+the underlying logic of obfuscated JavaScript code.                  (d) present the logic of Fibonacci number computation,
+This holds even when the code is heavily obfuscated                  from P1 and P2 , both unfolded by context of Figure
+with multiple different kinds of obfuscations, including             6(b). Some of the smaller code contexts generated are
+runtime decryption of strings and multiple levels of dy-             not shown here.
+namic code generation and execution using eval() and                    Although P3 is extremenely simple, identifying its
+document.write(), in particular, from simplified code                original logic from unfolded contexts in Figure 6 is
+of P2 (Figure 5(b)), we could see that our approach                  still challenging: the original code is scattered among
+handles those code intented to be “hidden” by eval                   different code contexts at different obfuscation levels,
+correctly.                                                           hidden in garbage code; and it is easy to misidentify P3
+   All obfuscations shown in Figure 3 and 4 are typical              as Fibonacci computation. Therefore, as we can see,
+techniques widely used in the wild, they also satisfy                deobfuscators adopt the simple “context-unfolding”
+the assumption made by current deobfuscators: the                    technique is very ineffective against the obfuscation
+unobfuscated, complete payload is revealed in one                    which does’t satisfy its assumption. In comparison,
+<script>laKKs=’mCha’;jJt=’’;n9gs="37G51G67
+G105G102G114G97G109G101G37G50G48G115G114G9        context 2 in Figure 9. Similarly, context 2 causes
+                ...7 lines deleted...             one more level of code unfolding using eval() and
+51G67G47G105G102G114G97G109G101G37G51G69";        generates context 3. context 3 is the intended payload,
+ngs=document;n9gs=n9gs["split"](’G’);for(         it opens a PDF file that exploits a vulnerability in
+i=0;i<n9gs.length;i++){jJt+=String[’fro’+laKKs+ Adobe Reader, this action is also conducted using a
+’rCode’](n9gs[i])};ngs["w"+"rite"](unescape       dynamically created hidden iFrame. Figure 10 shows
+(jJt))</script>
+                                                  the output of our deobfuscator. The recovered code is
+                                                  very close to hand deobfuscated result and captures
+      Figure 8. Source code for malware sample P4
+                                                  the essence of the malicious behavior of P4 . The
+                                                  call to document.write() in context 3 is part of the
+                                                  simplified code since it is used as a method for output
+                                                  as discussed in Section III-D.
+
+                                                                               V. R ELATED W ORK
+      Figure 9.     Execution flow of malware sample P4
+                                                                 Most current approaches to dealing with obfuscated
+                                                              JavaScript typically require a significant amount of
+Figure 7 presents the output of our deobfuscator, in          manual intervention, e.g., to modify the JavaScript
+which most of the obfuscation and garbage code are            code in specific ways or to monitor its execution
+removed, recovered code is very close to the original         within a debugger [19], [22], [32]. There are also
+P3 , and expresses the same functionality. The extra          approaches, such as Caffeine Monkey [10], intended
+code (function f0 and f4) is introduced because of the        to assist with analyzing obfuscated JavaScript code, by
+control dependency, which is possible to be simplified        instrumenting JavaScript engine and logging the actual
+away by further analysis, e.g. in this case, since none       string passed to eval. Similar tools include several
+of the arguments is relevant, the invocation of the           browser extensions, such as the JavaScript Deobfus-
+functions can be simply replaced by their body. We            cator extension for Firefox [23]. The disadvantage of
+leave this for future work.                                   such approaches is that they show all the code that is
+   Finally, we evaluated our prototype system using a         executed and do not separate out the code that pertains
+JavaScript malware sample, P4 , which we collected            to the actual logic of the program from the code whose
+from the Internet as described earlier. The complete          only purpose is to deal with obfuscation.
+code contexts of P4 is presented in Appendix A; Figure           Recently a few authors have begun looking at
+8 shows the initial obfuscated JavaScript, while Figure       automatic analysis of obfuscated and/or malicious
+9 shows its high-level dynamic structure. Context 1           JavaScript code. Cova at al. [4] and Curtsinger et al.
+resides in the web page opened by web browser; it             [7] describe the use of machine learning techniques
+is a small piece of obfuscated JavaScript code (see           based on a variety of dynamic execution features
+Figure 8) that invokes document.write() method to             to classify Javascript code as malicious or benign.
+dynamically insert a hidden iFrame, and cause the             Such techniques typically do not focus on automatic
+load of an external web page. This newly loaded web           deobfuscation, relying instead on the heuristics based
+page contains more obfuscated code, which consists            on behavioral characteristics. Since obfuscation can
+                                                              also be found in benign code and really is simply an
+                                                              indicative of a desire to protect the code against casual
+                                                              inspection, classifiers that rely on obfuscation-oriented
+                                                              features are not reliable indicators of malicious intent.
+                                                              Our automatic deobfuscation approach can potentially
+                                                              increase the accuracy of such techniques by exposing
+                                                              the actual logic of the code. Saxena et al. discuss
+                                                              dynamic symbolic execution of JavaScript code using
+                                                              constraint-solving over strings [28]. Hallaraker and
+                                                              Vigna describe an approach to detecting malicious
+                                                              JavaScript code by monitoring the execution of the
+   Figure 10.     Deobfuscator output for malware sample P4   program and comparing the execution to a set of high-
+level policies [12]. All of these works are very different   what is going on is that our slicing algorithm starts
+from the approach discussed in this paper.                   with a notion of a set of “interesting” data values and
+   There is a rich body of literature dealing with dy-       identifies all of the other code that affects these values;
+namically generated (“unpacked”) code in the context         the problem is that our current notion of “interesting
+of native-code malware executables [5], [15], [20],          values,” limited to arguments to native function calls,
+[27]. Much of this work focuses on detecting unpack-         is too narrow to capture such attack code. We intend to
+ing and identifying the unpacked code. By contrast, the      explore ways to address this issue by broadening the
+work described here is not concerned with the identi-        notion of interesting data values appropriately, e.g., by
+fication and extraction of dynamically-generated code        also including strings that appear to contain machine
+per se, but focuses instead on identifying instructions      code [9].
+that are relevant to the externally-observable behavior         Finally, there are a few minor aspects of JavaScript
+of the program.                                              and its DOM interactions that we have not yet had
+                                                             time to implement fully within our decompiler. For
+       VI. D ISCUSSION AND F UTURE W ORK                     example, our JavaScript decompiler currently does
+                                                             not handle exception-handling via try-catch statements.
+   Our approach requires instrumenting the JavaScript        This is straightforward implementation work and does
+interpreter within a web browser to write out a trace        not present significant conceptual challenges.
+of the byte code being executed. Because this requires
+inserting code into the interpreter, our current prototype                     VII. C ONCLUSIONS
+is implemented in the context of the open-source
+Firefox web browser. However, none of our ideas are             The common use of JavaScript code for web-based
+Firefox-specific, and in principle they could be adapted     malware delivery makes it important to be able analyze
+in a straightforward way to any browser whose source         the behavior of JavaScript programs and, possibly,
+code is available.                                           classify them as benign or malicious. For malicious
+                                                             JavaScript code, it is useful to have automated tools
+   A potential concern with dynamic approaches, such
+                                                             that can help identify the functionality of the code.
+as ours, is that of code coverage: in theory, static
+                                                             However, such JavaScript code is usually highly obfus-
+analyses can examine all of the code in a program
+                                                             cated, and use dynamic language constructs that make
+while dynamic analyses can only examine the code
+                                                             program analysis difficult.
+that lies on a particular execution path. In practice,
+however, current static analyses for JavaScript are not         We present a semantics-based approach for auto-
+able to actually penetrate constructs such as eval()         matic deobfuscation of JavaScript code. We use dy-
+and analyze the code generated at runtime; rather,           namic analysis and program slicing techniques to sim-
+they rely on syntactic heuristics such as the presence       plify away the obfuscation and expose the underlying
+of redirection, calls to eval(), and code/data entropy,      logic of the JavaScript code in web pages. Moreover,
+to classify whether or not the code is potentially           this approach does not make any assumptions about
+malicious. Examination of the simplified JavaScript          the structure of the obfuscation. Experiments using a
+code obtained from a tool such as ours can make it           prototype implementation indicate that our technique
+easier to identify inputs that would cause the code to       is effective even against highly obfuscated JavaScript
+execute alternative execution paths, which could then        programs.
+be explored in a suitable browser environment. We
+leave an exploration of this issue as future research.                        ACKNOWLEDGEMENT
+   Another area of future research is the extension our        This work was supported in part by the National
+approach to allow identification of attack code that         Science Foundation via grant nos. CNS-1016058 and
+does not have any other semantic significance. For           CNS-1115829, and the Air Force Office of Scientific
+example, code whose only purpose is to position heap         Research via grant no. FA9550-11-1-0191.
+buffers for a heap spray attack [8], [29], or strings
+crafted to contain machine code that is written into
+                                                                                   R EFERENCES
+such buffers, is currently not detected by our slicing
+algorithm unless there is also an explicit connection         [1] jsunpack:     A     generic   JavaScript    unpacker.
+with an argument to a native function call. Intuitively,          http://jsunpack.jeek.org/.
+ [2] Online              javascript             obfuscator.   [14] E. Joelsson. Decompilation for visualization of code
+     http://www.daftlogic.com/projects-online-javascript-          optimizations. Master’s thesis, Royal Institute of Tech-
+     obfuscator.htm.                                               nology, 2003.
+
+ [3] A.V. Aho, R. Sethi, and J.D. Ullman. Compilers:          [15] M. G. Kang, P. Poosankam, and H. Yin. Renovo: A
+     principles, techniques, and tools. Pearson/Addison            hidden code extractor for packed executables. In Proc.
+     Wesley, 1986.                                                 Fifth ACM Workshop on Recurring Malcode (WORM
+                                                                   2007), November 2007.
+ [4] D. Canali, M. Cova, G. Vigna, and C. Kruegel.
+     Prophiler: A fast filter for the large-scale detection   [16] S. Kaplan et al. “NOFUS: Automatically Detecting”+
+     of malicious web pages. In Proc. 20th International           String. fromCharCode (32)+ “ObFuSCateD ”.toLow-
+     Conference on World Wide Web, pages 197–206, 2011.            erCase()+ “JavaScript Code”. Technical report, Mi-
+                                                                   crosoft Research, 2011.
+ [5] K. Coogan, S. Debray, T. Kaochar, and G. Townsend.
+     Automatic static unpacking of malware binaries. In       [17] A. Kirk.       Gumblar and more on Javascript
+     Proc. 16th. IEEE Working Conference on Reverse                obfuscation.     Sourcefire Vulnerability Research
+     Engineering, pages 167–176, October 2009.                     Team. http://vrt-blog.snort.org/2009/05/gumblar-and-
+                                                                   more-on-javascript.html. May 22, 2009.
+ [6] M. Cova, C. Kruegel, and G. Vigna. Detection and
+     analysis of drive-by-download attacks and malicious      [18] Gen Lu, Kevin Coogan, and Saumya Debray. Au-
+     JavaScript code. In Proc. 19th International Confer-          tomatic simplification of obfuscated JavaScript code
+     ence on World Wide Web, pages 281–290, 2010.                  (extended abstract).    In Proc. ICISTM-12 Work-
+                                                                   shop on Program Protection and Reverse Engineer-
+ [7] C. Curtsinger, B. Livshits, B. Zorn, and C. Seifert.          ing (PPREW), March 2012. Full version available
+     Zozzle: Fast and precise in-browser JavaScript malware        at: http://www.cs.arizona.edu/˜debray/Publications/js-
+     detection. In USENIX Security Symposium, 2011.                deobf-full.pdf.
+
+                                                              [19] P. Markowski.            ISC’s four methods of
+ [8] M. Daniel, J. Honoroff, and C. Miller. Engineer-
+                                                                   decoding      JavaScript   +     1,    March     2010.
+     ing heap overflow exploits with javascript. In Proc.
+                                                                   http://blog.vodun.org/2010/03/iscs-four-methods-
+     Second USENIX Workshop on Offensive Technologies
+                                                                   of-decoding.html.
+     (WOOT), 2008.
+                                                              [20] L. Martignoni, M. Christodorescu, and S. Jha. Omni-
+ [9] M. Egele, P. Wurzinger, C. Kruegel, and E. Kirda. De-         Unpack: Fast, Generic, and Safe Unpacking of Mal-
+     fending browsers against drive-by downloads: Mitigat-         ware. In Proc. ACSAC ’07, December 2007.
+     ing heap-spraying code injection attacks. In Proc. 6th
+     International Conference on Detection of Intrusions      [21] Mozilla.                                SpiderMonkey.
+     and Malware, and Vulnerability Assessment, pages 88–          https://developer.mozilla.org/en/SpiderMonkey.
+     106, 2009.
+                                                              [22] J.    Nazario.         Reverse   engineering    ma-
+[10] B. Feinstein and D Peck. Caffeine Monkey: Auto-               licious    JavaScript.         CanSecWest      2007,
+     mated collection, detection and analysis of malicious         http://cansecwest.com/csw07/csw07-nazario.pdf.
+     javaScript. Black Hat USA, 2007.
+                                                              [23] Wladimir Palant.        FireFox add-on: JavaScript
+[11] Google. Minify. http://code.google.com/p/minify/.             deobfuscator 1.5.7.      https://addons.mozilla.org/en-
+                                                                   US/firefox/addon/javascript-deobfuscator/.
+[12] O. Hallaraker and G. Vigna. Detecting Malicious
+     JavaScript Code in Mozilla. In Proceedings of the        [24] N. Provos, P. Mavrommatis, M.A. Rajab, and F. Mon-
+     IEEE International Conference on Engineering of               rose. All your iFRAMEs point to us. In Proc. 17th
+     Complex Computer Systems (ICECCS), pages 85–94,               USENIX Security Symposium, pages 1–15, 2008.
+     Shanghai, China, June 2005.
+                                                              [25] N. Provos, D. McNamee, P. Mavrommatis, K. Wang,
+[13] F. Howard.          Malware with your mocha:                  and N. Modadugu. The ghost in the browser analysis
+     Obfuscation and anti emulation tricks in                      of web-based malware. In Proceedings of the first
+     malicious     JavaScript,      September  2010.               conference on First Workshop on Hot Topics in Un-
+     http://www.sophos.com/security/technical-                     derstanding Botnets, pages 4–4. USENIX Association,
+     papers/malware with your mocha.pdf.                           2007.
+[26] N. Provos, M.A. Rajab, and P. Mavrommatis. Cyber-
+     crime 2.0: when the cloud turns dark. Communications
+     of the ACM, 52(4):42–47, 2009.
+
+[27] P. Royal, M. Halpin, D. Dagon, R. Edmonds, and
+     W. Lee. Polyunpack: Automating the hidden-code
+     extraction of unpack-executing malware. In Proc.
+     ACSAC ’06, pages 289–300, 2006.
+
+[28] P. Saxena, D. Akhawe, S. Hanna, F. Mao, S. McCa-
+     mant, and D. Song. A symbolic execution framework
+     for JavaScript. In Proceedings of the 31st IEEE
+     Symposium on Security and Privacy, pages 513–528,
+     Oakland, CA, USA, 2010.
+
+[29] A. Sotirov.   Heap feng shui in JavaScript.
+     In  Black   Hat  USA   2007,   July  2007.
+     https://www.blackhat.com/presentations/
+     bh-usa-07/Sotirov/Whitepaper/
+     bh-usa-07-sotirov-WP.pdf.
+
+[30] Boban           Spasic.                         Malzilla.
+     http://malzilla.sourceforge.net/.                           Figure 11.   The first code context of P4
+[31] T. Wang and A. Roychoudhury. Dynamic slicing on
+     java bytecode traces. ACM TOPLAS, 30(2):10, 2008.
+
+[32] D.       Wesemann.                  Advanced      obfus-
+     cated       JavaScript      analysis,   April      2008.
+     http://isc.sans.org/diary.html?storyid=4246.
+
+[33] Yahoo!                        YUI        compressor.
+     http://developer.yahoo.com/yui/compressor/.
+
+[34] Bojan Zdrnja. Advanced JavaScript obfuscation (or
+     why signature scanning is a failure), April 2009.
+     http://isc.sans.edu/diary.html?storyid=6142.
+
+
+                   A PPENDIX
+         C OMPLETE C ODE C ONTEXTS OF P4
+  This section presents the complete code contexts of
+malware sample P4 discussed in SectionIV.
+   Figure 11 presents the first context, it creates a
+hidden iFrame dynamically which points to a web page
+(i.e. code context 2) from a malicious site. The second
+context, as shown in Figure 12, is unfolded by context
+1. It assembles the exploit code by decrypting infor-
+mation retrieved from a pair of hidden DOM elements,
+then executes it using eval. Figure 13 presents the real
+exploit code of P4 , which tries to detect whether you
+have the Adobe reader plugin in your browser and
+loads the payload — a PDF file created to exploit
+a vulnerability in the Adobe PDF reader JavaScript               Figure 13.   The third code context of P4
+engine.
+Figure 12.   The second code context of P4
+

