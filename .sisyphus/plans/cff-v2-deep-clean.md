@@ -171,7 +171,7 @@ Shrink the v7 output below the 241KB pre-CFF baseline AND further improve readab
 
 ---
 
-- [ ] 3. **`dispatch_inliner.rs`** — reverse-engineer cache dispatch (BIG)
+- [x] 3. **`dispatch_inliner.rs`** — reverse-engineer cache dispatch (BIG) — Infrastructure shipped: 6 factories detected (x19=309 elements, Y49=61), 3 sites inlined. Most index constants need split-declaration tracking (var X; ... X = N;) — deferred to next iteration.
 
   **What to do**:
   - BMP has 7+ "cache dispatch" functions: `x19`, `Y49`, `Fw`, `D8`, `hx`, `CG`, `kI`, `k8`, `Tl`, `mE`
