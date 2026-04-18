@@ -368,7 +368,7 @@ Shrink the v7 output below the 241KB pre-CFF baseline AND further improve readab
 
   ### Implementation phases (split into sub-tasks)
 
-  - [ ] **5a. State graph extractor** (~150 LOC + 4 tests)
+  - [x] **5a. State graph extractor** (~150 LOC + 4 tests) — All 3 dispatchers detected: Ql (201 cases), wj (11), LT (42). Exit sentinels correct. Wired as Phase 8.7.
     - Detect the `do { switch } while` envelope (the fix referenced in earlier Ql/wj/LT analysis — extend `dispatcher_detector.rs` OR create a new `dowhile_detector.rs`)
     - Parse each case body into `StateNode { body, transitions, is_exit }`
     - Tests: simple chain A→B→C, conditional fan-out, return-exit, SCC
