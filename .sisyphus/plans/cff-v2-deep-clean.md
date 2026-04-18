@@ -203,7 +203,7 @@ Shrink the v7 output below the 241KB pre-CFF baseline AND further improve readab
 
 ---
 
-- [ ] 4. **Modify `cff_unflattener.rs` to skip IIFE wrapping when safe** (upstream fix for size regression)
+- [x] 4. **Modify `cff_unflattener.rs` to skip IIFE wrapping when safe** (upstream fix for size regression) — IIFEs reduced 57→7. Size roughly neutral (274KB); real size win requires Tasks 3+5.
 
   **What to do**:
   - When inlining a case body, currently ALWAYS wraps in `(function(args-param) { body })([call-site-args])`
