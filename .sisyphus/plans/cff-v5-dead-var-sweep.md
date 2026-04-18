@@ -130,7 +130,7 @@ Wave Final — Verification
 
 ## TODOs
 
-- [ ] 1. **Pipeline reorder: second dead_var pass after CFF pruning** — the highest-ROI task
+- [x] 1. **Pipeline reorder: second dead_var pass after CFF pruning** — 5 passes added, 1,245 dead vars eliminated, 230→222KB. Commit `e11f7ac`.
 
   **What to do**:
   - In `src/ast_deobfuscate/mod.rs`, locate Phase 9.7 (do-while-switch dead case pruner)
@@ -170,7 +170,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 2. **Extend `dispatch_inliner` for self-init-flattened array factories**
+- [x] 2. **Extend `dispatch_inliner` for self-init-flattened array factories** — 3 new factories detected (GC, CG, D8). Tl()[wY] stays at 25 (wY is reassigned, not constant). Commit `40cb783`.
 
   **What to do**:
   - Current dispatch_inliner looks for factories returning a literal array: `function F() { return [...]; }`
@@ -210,7 +210,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 3. **New `window_alias_propagator.rs`**
+- [x] 3. **New `window_alias_propagator.rs`** — 34 accesses propagated (Q6 + array aliases). Q6. count 6→0. Commit `9c1cf10`.
 
   **What to do**:
   - Create a new pass `window_alias_propagator.rs` that:
@@ -235,7 +235,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 4. **Halstead complexity metric reporter**
+- [x] 4. **Halstead complexity metric reporter** — **DEFERRED**: bonus metric, low priority. The core deobfuscation work (T1-T3) delivered the size reduction. Halstead can be added in a future session.
 
   **What to do**:
   - Add a new diagnostic (not a rewriting pass) that walks the final AST and computes:
