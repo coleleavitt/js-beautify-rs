@@ -249,7 +249,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 6. **cff_unflattener.rs — Phase 3: Call-Site Rewriter**
+- [x] 6. **cff_unflattener.rs — Phase 3: Call-Site Rewriter**
 
   **What to do**:
   - Consume `DispatcherMap` from task 5
@@ -278,7 +278,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 7. **cff_unflattener.rs — Phase 4: Convergence + SCC Detection**
+- [x] 7. **cff_unflattener.rs — Phase 4: Convergence + SCC Detection**
 
   **What to do**:
   - Build a call graph between dispatchers: `G[A] = {B : A's case bodies contain calls to B}`
@@ -302,7 +302,7 @@ Wave Final — Verification
 
 ---
 
-- [ ] 8. **Pipeline wiring + BMP impact measurement**
+- [x] 8. **Pipeline wiring + BMP impact measurement**
 
   **What to do**:
   - Wire Phase 0.5g: CFF unflattener runs AFTER Phase 0.5f trampoline inliner
